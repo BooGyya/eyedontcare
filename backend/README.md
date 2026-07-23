@@ -12,6 +12,12 @@ Spring Boot와 PostgreSQL을 사용하는 백엔드 애플리케이션입니다.
 | PostgreSQL | 15 |
 | 컨테이너 | Docker, Docker Compose |
 
+## 개발 참고 API
+
+- [Backend API 개발 가이드](../docs/backend-api-development-guide.md)
+- [Ping과 공통 응답·예외 처리 예제](../docs/backend-ping-guide.md)
+- [Backend 공통 설정 가이드](../docs/backend-common-settings.md)
+
 ## 사전 요구사항
 
 Docker Compose로 전체 환경을 실행하려면 다음 도구가 필요합니다.
