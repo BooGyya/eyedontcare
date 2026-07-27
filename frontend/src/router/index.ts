@@ -12,7 +12,7 @@ const router = createRouter({
     { path: '/', name: 'home', component: HomePage },
     { path: '/games', name: 'games', component: GamesPage },
     {
-      path: '/games/:gameId(air|hold|draw|wave|blink)',
+      path: '/games/:gameId(air|hold|draw|rhythm|blink)',
       name: 'game-detail',
       component: GameDetailPage,
     },

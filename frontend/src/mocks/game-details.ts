@@ -78,8 +78,8 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
       },
     ],
   },
-  wave: {
-    id: 'wave',
+  rhythm: {
+    id: 'rhythm',
     title: '리듬 게임',
     subtitle: '리듬에 맞춰 시선 신호를 보내고 콤보를 이어가보세요!',
     image: gameRhythmMainImage,

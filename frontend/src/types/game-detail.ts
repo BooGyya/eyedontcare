@@ -1,4 +1,4 @@
-export type GameDetailId = 'air' | 'hold' | 'draw' | 'wave' | 'blink'
+export type GameDetailId = 'air' | 'hold' | 'draw' | 'rhythm' | 'blink'
 
 export type GamePlayMode = {
   id: 'solo' | 'friends' | 'random' | 'ai'

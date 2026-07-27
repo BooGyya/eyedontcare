@@ -43,7 +43,7 @@ export const gameCatalog: GameCatalogItem[] = [
     status: 'available',
   },
   {
-    id: 'wave',
+    id: 'rhythm',
     title: '눈빛 웨이브',
     description: '리듬에 맞춰 시선 신호를 보내는 준비 중 게임입니다.',
     image: gameWaveImage,
