@@ -6,22 +6,31 @@ import ProfileMenu from './ProfileMenu.vue'
 
 <template>
   <header class="app-header">
-    <RouterLink class="app-header__brand" to="/" aria-label="eye dont care 홈">
-      <img :src="logoImage" alt="eye dont care" />
-    </RouterLink>
-    <PrimaryNavigation />
-    <div class="app-header__actions">
-      <span class="app-header__coin"><i>●</i><b>1,250</b></span>
+    <div class="app-header__inner">
       <RouterLink
-        class="app-header__icon-link"
-        to="/notifications"
-        aria-label="알림"
-        >🔔</RouterLink
+        class="app-header__brand"
+        to="/"
+        aria-label="eye dont care 홈"
       >
-      <RouterLink class="app-header__icon-link" to="/settings" aria-label="설정"
-        >⚙</RouterLink
-      >
-      <ProfileMenu />
+        <img :src="logoImage" alt="eye dont care" />
+      </RouterLink>
+      <PrimaryNavigation />
+      <div class="app-header__actions">
+        <span class="app-header__coin"><i>●</i><b>1,250</b></span>
+        <RouterLink
+          class="app-header__icon-link"
+          to="/notifications"
+          aria-label="알림"
+          >🔔</RouterLink
+        >
+        <RouterLink
+          class="app-header__icon-link"
+          to="/settings"
+          aria-label="설정"
+          >⚙</RouterLink
+        >
+        <ProfileMenu />
+      </div>
     </div>
   </header>
 </template>
@@ -31,13 +40,17 @@ import ProfileMenu from './ProfileMenu.vue'
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 105px;
   height: 118px;
-  padding: 0 58px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(16px);
+}
+.app-header__inner {
+  display: flex;
+  width: min(1200px, calc(100% - 120px));
+  height: 100%;
+  align-items: center;
+  gap: 105px;
+  margin-inline: auto;
 }
 .app-header__brand {
   flex: 0 0 178px;
@@ -81,17 +94,21 @@ import ProfileMenu from './ProfileMenu.vue'
   font-style: normal;
 }
 @media (max-width: 1100px) {
-  .app-header {
+  .app-header__inner {
+    width: min(900px, calc(100% - 52px));
     gap: 35px;
-    padding-inline: 26px;
   }
 }
 @media (max-width: 640px) {
   .app-header {
+    height: auto;
+  }
+  .app-header__inner {
+    width: calc(100% - 32px);
+    height: auto;
     flex-wrap: wrap;
     gap: 8px 16px;
-    height: auto;
-    padding: 8px 16px 0;
+    padding: 8px 0 0;
   }
   .app-header__brand {
     flex-basis: 105px;

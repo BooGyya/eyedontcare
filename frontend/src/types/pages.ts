@@ -1,7 +1,8 @@
 export type GameStatus = 'available' | 'coming-soon'
+export type GameId = 'air' | 'blink' | 'draw' | 'hold' | 'wave'
 
 export type GameCatalogItem = {
-  id: string
+  id: GameId
   title: string
   description: string
   image: string
@@ -14,15 +15,21 @@ export type RankingPlayer = {
   nickname: string
   score: string
   avatar: string
+  level?: string
+  record?: string
+  trend?: 'up' | 'down' | 'same'
+  isCurrentUser?: boolean
 }
 
 export type GameRanking = {
-  gameId: string
+  gameId: GameId | 'all'
   gameName: string
   unit: string
+  sortOrder: 'desc'
   players: RankingPlayer[]
   myRank: number
   myScore: string
+  totalPlayers?: number
 }
 
 export type CommunityGroup = {
