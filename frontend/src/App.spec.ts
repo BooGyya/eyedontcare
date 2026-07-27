@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import App from './App.vue'
@@ -6,7 +7,7 @@ import HomePage from './pages/HomePage.vue'
 import PendingPage from './pages/PendingPage.vue'
 
 describe('App', () => {
-  it('renders the home page', async () => {
+  it('renders the home page and opens authentication from the signed-out header', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -30,27 +31,16 @@ describe('App', () => {
 
     const wrapper = mount(App, {
       global: {
-        plugins: [router],
+        plugins: [createPinia(), router],
+        stubs: { Teleport: true },
       },
     })
 
-    expect(wrapper.text()).toContain('눈으로 놀고')
-    expect(wrapper.text()).toContain('이번 주 랭킹 TOP 3')
-    expect(wrapper.text()).toContain('© 2026 eye dont care.')
-
-    await wrapper.get('[aria-label="프로필 메뉴"]').trigger('click')
-
-    expect(wrapper.text()).toContain('마이페이지')
-
-    await wrapper.get('[data-testid="quick-action-discord"]').trigger('click')
-
-    expect(wrapper.text()).toContain(
-      '디스코드 커뮤니티 연결은 다음 단계에서 준비할 예정이에요.',
-    )
+    await wrapper.get('.app-header__auth-button').trigger('click')
+    expect(wrapper.text()).toContain('카카오로 시작하기')
 
     await wrapper.get('[data-testid="start-games"]').trigger('click')
     await flushPromises()
-
     expect(router.currentRoute.value.path).toBe('/games')
   })
 })

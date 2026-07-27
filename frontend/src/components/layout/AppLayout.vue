@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useToast } from '../../composables/useToast'
 import ToastMessage from '../feedback/ToastMessage.vue'
+import AuthDialog from '../auth/AuthDialog.vue'
 import AppFooter from './AppFooter.vue'
 import AppHeader from './AppHeader.vue'
 
@@ -15,6 +16,7 @@ const { isVisible, message } = useToast()
     </main>
     <AppFooter />
     <ToastMessage :message="message" :visible="isVisible" />
+    <AuthDialog />
   </div>
 </template>
 

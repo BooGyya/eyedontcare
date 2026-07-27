@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import profileImage from '../../assets/images/profiles/profile-joy.png'
+import { useToast } from '../../composables/useToast'
+import { useAuthStore } from '../../stores/auth'
 
+const auth = useAuthStore()
+const { showToast } = useToast()
 const isOpen = ref(false)
 
 function closeMenu() {
   isOpen.value = false
+}
+
+function handleLogout() {
+  auth.signOut()
+  closeMenu()
+  showToast('로그아웃했어요.')
 }
 </script>
 
@@ -18,9 +27,10 @@ function closeMenu() {
       :aria-expanded="isOpen"
       @click="isOpen = !isOpen"
     >
-      <img class="profile-menu__avatar" :src="profileImage" alt="" />
+      <img class="profile-menu__avatar" :src="auth.user.avatar" alt="" />
       <span class="profile-menu__meta"
-        ><strong>눈쌩 최강자</strong><small>Lv. 12</small></span
+        ><strong>{{ auth.user.nickname }}</strong
+        ><small>Lv. {{ auth.user.level }}</small></span
       >
     </button>
     <section
@@ -29,21 +39,25 @@ function closeMenu() {
       aria-label="프로필 미리보기"
     >
       <div class="profile-menu__heading">
-        <img :src="profileImage" alt="눈쌩 최강자 프로필" />
+        <img :src="auth.user.avatar" :alt="`${auth.user.nickname} 프로필`" />
         <div>
-          <strong>눈쌩 최강자</strong><span>Lv. 12 · 눈 건강 챌린저</span>
+          <strong>{{ auth.user.nickname }}</strong
+          ><span>Lv. {{ auth.user.level }} · 눈 건강 챌린저</span>
         </div>
       </div>
       <div class="profile-menu__stats">
-        <span><b>12,850</b>이번 주 점수</span><span><b>38</b>완료한 라운드</span
-        ><span><b>#04</b>친구 중 순위</span>
+        <span><b>12,850</b>이번 주 점수</span><span><b>38</b>완료한 루틴</span
+        ><span><b>#04</b>친구 순위</span>
       </div>
       <RouterLink to="/profile" @click="closeMenu"
-        >마이페이지 <span>›</span></RouterLink
+        >마이페이지 <span>→</span></RouterLink
       >
       <RouterLink to="/settings" @click="closeMenu"
-        >설정 <span>›</span></RouterLink
+        >설정 <span>→</span></RouterLink
       >
+      <button type="button" @click="handleLogout">
+        로그아웃 <span>↗</span>
+      </button>
     </section>
   </div>
 </template>
@@ -67,7 +81,7 @@ function closeMenu() {
   border: 2px solid #fff;
   border-radius: 50%;
   object-fit: cover;
-  background: #eef3ff;
+  background: var(--color-blue-soft);
   box-shadow: 0 2px 7px rgba(26, 35, 78, 0.12);
 }
 .profile-menu__meta {
@@ -105,7 +119,7 @@ function closeMenu() {
   height: 46px;
   border-radius: 50%;
   object-fit: cover;
-  background: #eef3ff;
+  background: var(--color-blue-soft);
 }
 .profile-menu__heading div,
 .profile-menu__stats span {
@@ -125,13 +139,20 @@ function closeMenu() {
   color: var(--color-ink);
   font-size: 13px;
 }
-.profile-menu__panel a {
+.profile-menu__panel a,
+.profile-menu__panel button {
   display: flex;
   justify-content: space-between;
+  padding: 0;
+  border: 0;
   color: var(--color-ink);
+  background: transparent;
+  font-size: 14px;
   font-weight: 700;
+  cursor: pointer;
 }
-.profile-menu__panel a span {
+.profile-menu__panel a span,
+.profile-menu__panel button span {
   color: var(--color-accent-blue);
 }
 @media (max-width: 640px) {
