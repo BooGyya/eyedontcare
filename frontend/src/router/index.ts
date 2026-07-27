@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AccountPage from '../pages/AccountPage.vue'
 import CommunityPage from '../pages/CommunityPage.vue'
+import GameDetailPage from '../pages/GameDetailPage.vue'
 import GamesPage from '../pages/GamesPage.vue'
 import HomePage from '../pages/HomePage.vue'
 import RankingPage from '../pages/RankingPage.vue'
@@ -10,6 +11,11 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: HomePage },
     { path: '/games', name: 'games', component: GamesPage },
+    {
+      path: '/games/:gameId(air|hold|draw|wave|blink)',
+      name: 'game-detail',
+      component: GameDetailPage,
+    },
     { path: '/ranking', name: 'ranking', component: RankingPage },
     { path: '/community', name: 'community', component: CommunityPage },
     {
