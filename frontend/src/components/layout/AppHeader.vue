@@ -1,7 +1,30 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import logoImage from '../../assets/images/brand/logo.png'
+import { useToast } from '../../composables/useToast'
+import { useAuthStore } from '../../stores/auth'
 import PrimaryNavigation from './PrimaryNavigation.vue'
 import ProfileMenu from './ProfileMenu.vue'
+
+const router = useRouter()
+const auth = useAuthStore()
+const { showToast } = useToast()
+
+function handleMemberNavigation(path: '/notifications' | '/settings') {
+  if (auth.isAuthenticated) {
+    router.push(path)
+    return
+  }
+
+  showToast('이 기능은 로그인 후 이용할 수 있어요.')
+  auth.openLogin()
+}
+
+function handleGuestExit() {
+  auth.signOut()
+  showToast('게스트 모드를 종료했어요.')
+}
+
 </script>
 
 <template>
@@ -12,16 +35,48 @@ import ProfileMenu from './ProfileMenu.vue'
     <PrimaryNavigation />
     <div class="app-header__actions">
       <span class="app-header__coin"><i>●</i><b>1,250</b></span>
-      <RouterLink
-        class="app-header__icon-link"
-        to="/notifications"
+      <button
+        class="app-header__icon-button"
+        type="button"
         aria-label="알림"
-        >🔔</RouterLink
+        @click="handleMemberNavigation('/notifications')"
       >
-      <RouterLink class="app-header__icon-link" to="/settings" aria-label="설정"
-        >⚙</RouterLink
+        ♧
+      </button>
+      <button
+        class="app-header__icon-button"
+        type="button"
+        aria-label="설정"
+        @click="handleMemberNavigation('/settings')"
       >
-      <ProfileMenu />
+        ⚙
+      </button>
+      <ProfileMenu v-if="auth.isAuthenticated" />
+      <template v-else-if="auth.isGuest">
+        <span class="app-header__guest-status">게스트</span>
+        <button
+          class="app-header__auth-button"
+          type="button"
+          @click="auth.openLogin"
+        >
+          로그인
+        </button>
+        <button
+          class="app-header__auth-button app-header__auth-button--quiet"
+          type="button"
+          @click="handleGuestExit"
+        >
+          나가기
+        </button>
+      </template>
+      <button
+        v-else
+        class="app-header__auth-button"
+        type="button"
+        @click="auth.openLogin"
+      >
+        로그인
+      </button>
     </div>
   </header>
 </template>
@@ -50,17 +105,15 @@ import ProfileMenu from './ProfileMenu.vue'
 .app-header__actions {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 13px;
   margin-left: auto;
 }
-.app-header__icon-link {
-  position: relative;
+.app-header__icon-button {
   color: var(--color-ink);
+  background: transparent;
   font-size: 21px;
   line-height: 1;
-}
-.app-header__icon-link.router-link-active {
-  color: var(--color-accent-blue);
+  cursor: pointer;
 }
 .app-header__coin {
   display: inline-flex;
@@ -79,6 +132,37 @@ import ProfileMenu from './ProfileMenu.vue'
   background: #fff2c2;
   font-size: 15px;
   font-style: normal;
+}
+.app-header__auth-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-button);
+  color: var(--color-accent-blue);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.app-header__auth-button:hover {
+  color: #fff;
+  background: var(--color-accent-blue);
+}
+.app-header__auth-button--quiet {
+  color: var(--color-muted);
+}
+.app-header__auth-button--quiet:hover {
+  background: var(--color-muted);
+}
+.app-header__guest-status {
+  padding: 6px 9px;
+  border-radius: var(--radius-button);
+  color: #536eb2;
+  background: var(--color-blue-soft);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 @media (max-width: 1100px) {
   .app-header {
@@ -101,11 +185,16 @@ import ProfileMenu from './ProfileMenu.vue'
     height: 63px;
   }
   .app-header__actions {
-    gap: 8px;
+    gap: 7px;
   }
   .app-header__coin,
-  .app-header__icon-link:last-of-type {
+  .app-header__icon-button {
     display: none;
+  }
+  .app-header__auth-button {
+    min-height: 30px;
+    padding-inline: 9px;
+    font-size: 11px;
   }
 }
 </style>
