@@ -38,7 +38,7 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
   },
   {
     id: 'stare',
-    title: '눈 오래 뜨기',
+    title: 'Eye-See',
     mode: '1 vs 1',
     image: gameHoldImage,
     tone: 'blue',
