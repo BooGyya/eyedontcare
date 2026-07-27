@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import profileImage from '../../assets/images/profiles/profile-joy.png'
+import { profileData } from '../../mocks/profile'
 
 const isOpen = ref(false)
 
@@ -18,10 +18,11 @@ function closeMenu() {
       :aria-expanded="isOpen"
       @click="isOpen = !isOpen"
     >
-      <img class="profile-menu__avatar" :src="profileImage" alt="" />
-      <span class="profile-menu__meta"
-        ><strong>눈쌩 최강자</strong><small>Lv. 12</small></span
-      >
+      <img class="profile-menu__avatar" :src="profileData.avatar" alt="" />
+      <span class="profile-menu__meta">
+        <strong>{{ profileData.nickname }}</strong
+        ><small>Lv. {{ profileData.level }}</small>
+      </span>
     </button>
     <section
       v-if="isOpen"
@@ -29,20 +30,34 @@ function closeMenu() {
       aria-label="프로필 미리보기"
     >
       <div class="profile-menu__heading">
-        <img :src="profileImage" alt="눈쌩 최강자 프로필" />
+        <img
+          :src="profileData.avatar"
+          :alt="`${profileData.nickname} 프로필`"
+        />
         <div>
-          <strong>눈쌩 최강자</strong><span>Lv. 12 · 눈 건강 챌린저</span>
+          <strong>{{ profileData.nickname }}</strong
+          ><span>Lv. {{ profileData.level }} · 눈 건강 챌린저</span>
         </div>
       </div>
       <div class="profile-menu__stats">
-        <span><b>12,850</b>이번 주 점수</span><span><b>38</b>완료한 라운드</span
-        ><span><b>#04</b>친구 중 순위</span>
+        <span
+          ><b>{{ profileData.weeklyScore }}</b
+          >이번 주 점수</span
+        >
+        <span
+          ><b>{{ profileData.stats[1]?.value }}</b
+          >완료한 라운드</span
+        >
+        <span
+          ><b>{{ profileData.stats[2]?.value }}</b
+          >친구 중 순위</span
+        >
       </div>
       <RouterLink to="/profile" @click="closeMenu"
-        >마이페이지 <span>›</span></RouterLink
+        >마이페이지 <span>→</span></RouterLink
       >
       <RouterLink to="/settings" @click="closeMenu"
-        >설정 <span>›</span></RouterLink
+        >설정 <span>→</span></RouterLink
       >
     </section>
   </div>
@@ -67,7 +82,7 @@ function closeMenu() {
   border: 2px solid #fff;
   border-radius: 50%;
   object-fit: cover;
-  background: #eef3ff;
+  background: var(--color-blue-soft);
   box-shadow: 0 2px 7px rgba(26, 35, 78, 0.12);
 }
 .profile-menu__meta {
@@ -105,7 +120,7 @@ function closeMenu() {
   height: 46px;
   border-radius: 50%;
   object-fit: cover;
-  background: #eef3ff;
+  background: var(--color-blue-soft);
 }
 .profile-menu__heading div,
 .profile-menu__stats span {

@@ -3,6 +3,7 @@ import AccountPage from '../pages/AccountPage.vue'
 import CommunityPage from '../pages/CommunityPage.vue'
 import GamesPage from '../pages/GamesPage.vue'
 import HomePage from '../pages/HomePage.vue'
+import ProfilePage from '../pages/ProfilePage.vue'
 import RankingPage from '../pages/RankingPage.vue'
 
 const router = createRouter({
@@ -12,16 +13,7 @@ const router = createRouter({
     { path: '/games', name: 'games', component: GamesPage },
     { path: '/ranking', name: 'ranking', component: RankingPage },
     { path: '/community', name: 'community', component: CommunityPage },
-    {
-      path: '/profile',
-      name: 'profile',
-      component: AccountPage,
-      props: {
-        title: '마이페이지',
-        description: '내 활동과 게임 기록을 한눈에 확인해 보세요.',
-        items: ['내 프로필', '이번 주 기록', '획득 배지'],
-      },
-    },
+    { path: '/profile', name: 'profile', component: ProfilePage },
     {
       path: '/notifications',
       name: 'notifications',
@@ -29,7 +21,7 @@ const router = createRouter({
       props: {
         title: '알림',
         description: '새로운 소식과 게임 관련 알림을 확인하세요.',
-        items: ['새 알림', '랭킹 알림 설정'],
+        items: ['내 알림', '랭킹 알림 설정'],
       },
     },
     {
