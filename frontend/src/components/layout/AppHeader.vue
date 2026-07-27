@@ -29,54 +29,60 @@ function handleGuestExit() {
 
 <template>
   <header class="app-header">
-    <RouterLink class="app-header__brand" to="/" aria-label="eye dont care 홈">
-      <img :src="logoImage" alt="eye dont care" />
-    </RouterLink>
-    <PrimaryNavigation />
-    <div class="app-header__actions">
-      <span class="app-header__coin"><i>●</i><b>1,250</b></span>
-      <button
-        class="app-header__icon-button"
-        type="button"
-        aria-label="알림"
-        @click="handleMemberNavigation('/notifications')"
+    <div class="app-header__inner">
+      <RouterLink
+        class="app-header__brand"
+        to="/"
+        aria-label="eye dont care 홈"
       >
-        ♧
-      </button>
-      <button
-        class="app-header__icon-button"
-        type="button"
-        aria-label="설정"
-        @click="handleMemberNavigation('/settings')"
-      >
-        ⚙
-      </button>
-      <ProfileMenu v-if="auth.isAuthenticated" />
-      <template v-else-if="auth.isGuest">
-        <span class="app-header__guest-status">게스트</span>
+        <img :src="logoImage" alt="eye dont care" />
+      </RouterLink>
+      <PrimaryNavigation />
+      <div class="app-header__actions">
+        <span class="app-header__coin"><i>●</i><b>1,250</b></span>
         <button
+          class="app-header__icon-button"
+          type="button"
+          aria-label="알림"
+          @click="handleMemberNavigation('/notifications')"
+        >
+          ♧
+        </button>
+        <button
+          class="app-header__icon-button"
+          type="button"
+          aria-label="설정"
+          @click="handleMemberNavigation('/settings')"
+        >
+          ⚙
+        </button>
+        <ProfileMenu v-if="auth.isAuthenticated" />
+        <template v-else-if="auth.isGuest">
+          <span class="app-header__guest-status">게스트</span>
+          <button
+            class="app-header__auth-button"
+            type="button"
+            @click="auth.openLogin"
+          >
+            로그인
+          </button>
+          <button
+            class="app-header__auth-button app-header__auth-button--quiet"
+            type="button"
+            @click="handleGuestExit"
+          >
+            나가기
+          </button>
+        </template>
+        <button
+          v-else
           class="app-header__auth-button"
           type="button"
           @click="auth.openLogin"
         >
           로그인
         </button>
-        <button
-          class="app-header__auth-button app-header__auth-button--quiet"
-          type="button"
-          @click="handleGuestExit"
-        >
-          나가기
-        </button>
-      </template>
-      <button
-        v-else
-        class="app-header__auth-button"
-        type="button"
-        @click="auth.openLogin"
-      >
-        로그인
-      </button>
+      </div>
     </div>
   </header>
 </template>
