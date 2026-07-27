@@ -22,13 +22,7 @@ const emit = defineEmits<{
       <span>{{ game.category }}</span>
       <h2>{{ game.title }}</h2>
       <p>{{ game.description }}</p>
-      <button
-        :disabled="game.status !== 'available'"
-        type="button"
-        @click="emit('enter', game)"
-      >
-        {{ game.status === 'available' ? '게임 입장하기' : '준비 중' }}
-      </button>
+      <button type="button" @click="emit('enter', game)">상세 보기</button>
     </div>
   </article>
 </template>
@@ -109,10 +103,8 @@ const emit = defineEmits<{
   cursor: pointer;
 }
 
-.game-card button:disabled {
-  border-color: var(--color-line);
-  color: var(--color-muted);
-  background: var(--color-surface-soft);
-  cursor: not-allowed;
+.game-card button:hover {
+  color: #fff;
+  background: var(--color-accent-blue);
 }
 </style>
