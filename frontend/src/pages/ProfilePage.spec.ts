@@ -63,4 +63,21 @@ describe('ProfilePage', () => {
 
     expect(router.currentRoute.value.path).toBe('/profile')
   })
+
+  it('shows only profile and logout actions in the profile menu', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const wrapper = mount(ProfileMenu, {
+      global: { plugins: [createPinia(), router] },
+    })
+
+    await wrapper.get('[aria-label="프로필 메뉴"]').trigger('click')
+
+    expect(wrapper.find('.profile-menu__actions').text()).toContain(
+      '마이페이지',
+    )
+    expect(wrapper.find('.profile-menu__actions').text()).toContain('로그아웃')
+    expect(wrapper.find('a[href="/settings"]').exists()).toBe(false)
+  })
 })

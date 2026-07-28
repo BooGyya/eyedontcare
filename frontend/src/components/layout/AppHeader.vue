@@ -1,24 +1,10 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
 import logoImage from '../../assets/images/brand/logo.png'
-import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import PrimaryNavigation from './PrimaryNavigation.vue'
 import ProfileMenu from './ProfileMenu.vue'
 
-const router = useRouter()
 const auth = useAuthStore()
-const { showToast } = useToast()
-
-function handleMemberNavigation(path: '/notifications' | '/settings') {
-  if (auth.isAuthenticated) {
-    void router.push(path)
-    return
-  }
-
-  showToast('Sign in is required for this page.')
-  auth.openLogin()
-}
 </script>
 
 <template>
@@ -34,23 +20,6 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
       <PrimaryNavigation />
       <div class="app-header__actions">
         <template v-if="auth.isAuthenticated">
-          <span class="app-header__coin"><i>&#9679;</i><b>1,250</b></span>
-          <button
-            class="app-header__icon-button"
-            type="button"
-            aria-label="Notifications"
-            @click="handleMemberNavigation('/notifications')"
-          >
-            &#9827;
-          </button>
-          <button
-            class="app-header__icon-button"
-            type="button"
-            aria-label="Settings"
-            @click="handleMemberNavigation('/settings')"
-          >
-            &#9881;
-          </button>
           <ProfileMenu />
         </template>
         <template v-else>
@@ -105,31 +74,6 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
   gap: 13px;
   margin-left: auto;
 }
-.app-header__icon-button {
-  color: var(--color-ink);
-  background: transparent;
-  font-size: 21px;
-  line-height: 1;
-  cursor: pointer;
-}
-.app-header__coin {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-ink);
-  font-size: 17px;
-}
-.app-header__coin i {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  border-radius: 50%;
-  color: #f6b928;
-  background: #fff2c2;
-  font-size: 15px;
-  font-style: normal;
-}
 .app-header__auth-button {
   min-height: 34px;
   padding: 0 12px;
@@ -178,10 +122,6 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
   }
   .app-header__actions {
     gap: 7px;
-  }
-  .app-header__coin,
-  .app-header__icon-button {
-    display: none;
   }
   .app-header__auth-button {
     min-height: 30px;
