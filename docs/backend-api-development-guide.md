@@ -80,7 +80,7 @@ DB를 사용하지 않는 기능에는 `entity`와 `repository`를 만들지 않
 | Request DTO | 외부 입력 구조와 Bean Validation | 검증된 입력값 |
 | Response DTO | 클라이언트에 공개할 데이터 | 불변 응답 데이터 |
 | Domain ErrorCode | 도메인 오류의 HTTP 상태, 코드, 안전한 메시지 | `ErrorCode` 구현 값 |
-| GlobalExceptionHandler | 예외를 공통 오류 응답으로 변환 | `ResponseEntity<ApiResponse<Void>>` |
+| GlobalExceptionHandler | 예외를 공통 오류 응답으로 변환 | 오류 유형에 맞는 `ApiResponse<?>` |
 
 Service와 Repository에서는 다음 타입을 반환하지 않습니다.
 
@@ -117,7 +117,7 @@ Controller가 Service의 응답 DTO를 받아 성공 응답을 만듭니다. 생
 Request DTO의 Bean Validation 실패
 → MethodArgumentNotValidException
 → GlobalExceptionHandler
-→ 400 Bad Request + COMMON-001 + errors
+→ 400 Bad Request + COMMON-001 + data.fieldErrors
 ```
 
 검증은 Controller가 호출되기 전에 끝납니다. 클라이언트가 보낸 `rejectedValue`는 비밀번호나 토큰 노출 위험이 있으므로 오류 응답에 넣지 않습니다.
@@ -242,8 +242,10 @@ Repository는 비즈니스 로직과 무관하게 격리해야 할 때만 mock�
 다음을 검증합니다.
 
 - HTTP method와 URL
-- 성공 HTTP 상태
-- `success`, `code`, `message`, `data` 구조
+- `code`, `message`가 항상 포함되는지
+- 추가 응답 데이터가 있으면 `data`에 포함되는지
+- 추가 응답 데이터가 없으면 `data`가 생략되는지
+- 검증 오류가 `data.fieldErrors`에 포함되는지
 - 빈 값, 잘못된 형식 등 요청 DTO 검증 실패
 - 비즈니스 오류의 HTTP 상태와 도메인 오류 코드
 - 예상하지 못한 오류에서 내부 메시지가 노출되지 않는지

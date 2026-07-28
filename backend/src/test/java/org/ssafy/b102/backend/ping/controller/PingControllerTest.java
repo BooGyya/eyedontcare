@@ -12,19 +12,21 @@ import org.ssafy.b102.backend.ping.service.PingService;
 
 class PingControllerTest {
 
-	private MockMvc mockMvc;
+    private MockMvc mockMvc;
 
-	@BeforeEach
-	void setUp() {
-		mockMvc = MockMvcBuilders.standaloneSetup(new PingController(new PingService())).build();
-	}
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders
+            .standaloneSetup(new PingController(new PingService()))
+            .build();
+    }
 
-	@Test
-	void pingReturnsWrappedPongResponse() throws Exception {
-		mockMvc.perform(get("/api/ping"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.code").value("SUCCESS"))
-			.andExpect(jsonPath("$.message").value("요청에 성공했습니다."))
-			.andExpect(jsonPath("$.data.status").value("pong"));
-	}
+    @Test
+    void pingReturnsWrappedPongResponse() throws Exception {
+        mockMvc.perform(get("/api/ping"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.code").value("SUCCESS"))
+            .andExpect(jsonPath("$.message").value("요청에 성공했습니다."))
+            .andExpect(jsonPath("$.data.status").value("pong"));
+    }
 }
