@@ -3,6 +3,10 @@ app:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
 
 spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
   datasource:
     url: ${SPRING_DATASOURCE_URL}
     username: ${SPRING_DATASOURCE_USERNAME}
