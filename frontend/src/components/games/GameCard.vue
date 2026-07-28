@@ -22,7 +22,7 @@ const emit = defineEmits<{
       <span>{{ game.category }}</span>
       <h2>{{ game.title }}</h2>
       <p>{{ game.description }}</p>
-      <button type="button" @click="emit('enter', game)">상세 보기</button>
+      <button type="button" @click="emit('enter', game)">게임 하기</button>
     </div>
   </article>
 </template>
