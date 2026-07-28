@@ -44,8 +44,8 @@ class GameServiceTest {
 
 	@Test
 	void getGamesReturnsEveryRegisteredGame() {
-		gameRepository.saveAndFlush(Game.of(GameName.EYEFIGHT, PlayMode.MULTI, 2));
-		gameRepository.saveAndFlush(Game.of(GameName.BLINK, PlayMode.SOLO, 1));
+		gameRepository.saveAndFlush(Game.of(GameName.EYEFIGHT, PlayMode.RANDOM, null));
+		gameRepository.saveAndFlush(Game.of(GameName.BLINK, PlayMode.SOLO, null));
 
 		GameListResponse response = gameService.getGames();
 
@@ -53,6 +53,19 @@ class GameServiceTest {
 		assertThat(response.games())
 			.extracting(game -> game.gameName())
 			.containsExactlyInAnyOrder(GameName.EYEFIGHT, GameName.BLINK);
+	}
+
+	@Test
+	void getGamesTreatsInviteAndRandomAsSeparateGames() {
+		gameRepository.saveAndFlush(Game.of(GameName.HOCKEY, PlayMode.INVITE, null));
+		gameRepository.saveAndFlush(Game.of(GameName.HOCKEY, PlayMode.RANDOM, null));
+
+		GameListResponse response = gameService.getGames();
+
+		assertThat(response.games()).hasSize(2);
+		assertThat(response.games())
+			.extracting(game -> game.playMode())
+			.containsExactlyInAnyOrder(PlayMode.INVITE, PlayMode.RANDOM);
 	}
 
 	@Test
@@ -64,19 +77,19 @@ class GameServiceTest {
 
 	@Test
 	void getGameReturnsDetailOfRequestedGame() {
-		Game saved = gameRepository.saveAndFlush(Game.of(GameName.EYEFIGHT, PlayMode.MULTI, 3));
+		Game saved = gameRepository.saveAndFlush(Game.of(GameName.EYEFIGHT, PlayMode.AI, 3));
 
 		GameDetailResponse response = gameService.getGame(saved.getId());
 
 		assertThat(response.gameId()).isEqualTo(saved.getId());
 		assertThat(response.gameName()).isEqualTo(GameName.EYEFIGHT);
-		assertThat(response.playMode()).isEqualTo(PlayMode.MULTI);
+		assertThat(response.playMode()).isEqualTo(PlayMode.AI);
 		assertThat(response.difficulty()).isEqualTo(3);
 	}
 
 	@Test
 	void getGameAllowsNullDifficulty() {
-		Game saved = gameRepository.saveAndFlush(Game.of(GameName.DRAWING, PlayMode.SOLO, null));
+		Game saved = gameRepository.saveAndFlush(Game.of(GameName.DRAWING, PlayMode.AI, null));
 
 		GameDetailResponse response = gameService.getGame(saved.getId());
 
