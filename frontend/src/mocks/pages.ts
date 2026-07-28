@@ -43,7 +43,7 @@ export const gameCatalog: GameCatalogItem[] = [
     status: 'available',
   },
   {
-    id: 'wave',
+    id: 'rhythm',
     title: '리듬 게임',
     description: '리듬에 맞춰 시선 신호를 보내는 준비 중 게임입니다.',
     image: gameWaveImage,
@@ -346,7 +346,7 @@ export const gameRankings: GameRanking[] = [
     ],
   },
   {
-    gameId: 'wave',
+    gameId: 'rhythm',
     gameName: '리듬 게임',
     unit: '점',
     sortOrder: 'desc',

@@ -1,5 +1,5 @@
 export type GameStatus = 'available' | 'coming-soon'
-export type GameId = 'air' | 'blink' | 'draw' | 'hold' | 'wave'
+export type GameId = 'air' | 'blink' | 'draw' | 'hold' | 'rhythm'
 
 export type GameCatalogItem = {
   id: GameId
