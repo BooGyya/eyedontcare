@@ -8,10 +8,17 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import org.ssafy.b102.backend.global.common.entity.BaseTimeEntity;
 
 @Entity
-@Table(name = "games")
+@Table(
+	name = "games",
+	uniqueConstraints = @UniqueConstraint(
+		name = "uk_games_name_mode_difficulty",
+		columnNames = {"game_name", "play_mode", "difficulty"}
+	)
+)
 public class Game extends BaseTimeEntity {
 
 	@Id

@@ -21,7 +21,10 @@ import org.ssafy.b102.backend.game.repository.GameRepository;
 import org.ssafy.b102.backend.global.config.JpaAuditingConfig;
 import org.ssafy.b102.backend.global.error.BusinessException;
 
-@DataJpaTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
+@DataJpaTest(properties = {
+	"spring.jpa.hibernate.ddl-auto=create-drop",
+	"spring.sql.init.mode=never"
+})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class, GameService.class})
 @EntityScan(basePackageClasses = Game.class)
