@@ -37,7 +37,7 @@ describe('App', () => {
     })
 
     await wrapper.get('.app-header__auth-button').trigger('click')
-    expect(wrapper.text()).toContain('카카오로 시작하기')
+    expect(wrapper.find('[aria-label="카카오로 시작하기"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="start-games"]').trigger('click')
     await flushPromises()

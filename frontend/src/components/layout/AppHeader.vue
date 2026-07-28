@@ -19,12 +19,6 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
   showToast('이 기능은 로그인 후 이용할 수 있어요.')
   auth.openLogin()
 }
-
-function handleGuestExit() {
-  auth.signOut()
-  showToast('게스트 모드를 종료했어요.')
-}
-
 </script>
 
 <template>
@@ -34,26 +28,34 @@ function handleGuestExit() {
     </RouterLink>
     <PrimaryNavigation />
     <div class="app-header__actions">
-      <span class="app-header__coin"><i>●</i><b>1,250</b></span>
-      <button
-        class="app-header__icon-button"
-        type="button"
-        aria-label="알림"
-        @click="handleMemberNavigation('/notifications')"
-      >
-        ♧
-      </button>
-      <button
-        class="app-header__icon-button"
-        type="button"
-        aria-label="설정"
-        @click="handleMemberNavigation('/settings')"
-      >
-        ⚙
-      </button>
-      <ProfileMenu v-if="auth.isAuthenticated" />
-      <template v-else-if="auth.isGuest">
-        <span class="app-header__guest-status">게스트</span>
+      <template v-if="auth.isAuthenticated">
+        <span class="app-header__coin"><i>●</i><b>1,250</b></span>
+        <button
+          class="app-header__icon-button"
+          type="button"
+          aria-label="알림"
+          @click="handleMemberNavigation('/notifications')"
+        >
+          ♧
+        </button>
+        <button
+          class="app-header__icon-button"
+          type="button"
+          aria-label="설정"
+          @click="handleMemberNavigation('/settings')"
+        >
+          ⚙
+        </button>
+        <ProfileMenu />
+      </template>
+      <template v-else>
+        <button
+          class="app-header__auth-button app-header__auth-button--quiet"
+          type="button"
+          @click="auth.openSignup"
+        >
+          회원가입
+        </button>
         <button
           class="app-header__auth-button"
           type="button"
@@ -61,22 +63,7 @@ function handleGuestExit() {
         >
           로그인
         </button>
-        <button
-          class="app-header__auth-button app-header__auth-button--quiet"
-          type="button"
-          @click="handleGuestExit"
-        >
-          나가기
-        </button>
       </template>
-      <button
-        v-else
-        class="app-header__auth-button"
-        type="button"
-        @click="auth.openLogin"
-      >
-        로그인
-      </button>
     </div>
   </header>
 </template>
