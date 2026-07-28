@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { profileData } from '../../mocks/profile'
+import { profileData, profileState } from '../../mocks/profile'
 
 const isOpen = ref(false)
 
@@ -18,9 +18,9 @@ function closeMenu() {
       :aria-expanded="isOpen"
       @click="isOpen = !isOpen"
     >
-      <img class="profile-menu__avatar" :src="profileData.avatar" alt="" />
+      <img class="profile-menu__avatar" :src="profileState.avatar" alt="" />
       <span class="profile-menu__meta">
-        <strong>{{ profileData.nickname }}</strong
+        <strong>{{ profileState.nickname }}</strong
         ><small>Lv. {{ profileData.level }}</small>
       </span>
     </button>
@@ -31,11 +31,11 @@ function closeMenu() {
     >
       <div class="profile-menu__heading">
         <img
-          :src="profileData.avatar"
-          :alt="`${profileData.nickname} 프로필`"
+          :src="profileState.avatar"
+          :alt="`${profileState.nickname} 프로필`"
         />
         <div>
-          <strong>{{ profileData.nickname }}</strong
+          <strong>{{ profileState.nickname }}</strong
           ><span>Lv. {{ profileData.level }} · 눈 건강 챌린저</span>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import athleteAvatar from '../assets/images/profiles/profile-athlete.png'
 import calmAvatar from '../assets/images/profiles/profile-calm.png'
 import crownAvatar from '../assets/images/profiles/profile-crown.png'
@@ -60,3 +61,8 @@ export const profileData: UserProfile = {
     },
   ],
 }
+
+export const profileState = reactive({
+  nickname: profileData.nickname,
+  avatar: profileData.avatar,
+})
