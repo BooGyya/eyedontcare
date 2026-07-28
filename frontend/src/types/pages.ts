@@ -16,13 +16,12 @@ export type RankingPlayer = {
   score: string
   avatar: string
   level?: string
-  record?: string
   trend?: 'up' | 'down' | 'same'
   isCurrentUser?: boolean
 }
 
 export type GameRanking = {
-  gameId: GameId | 'all'
+  gameId: GameId
   gameName: string
   unit: string
   sortOrder: 'desc'

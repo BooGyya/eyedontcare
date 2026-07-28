@@ -1,21 +1,42 @@
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
-import { gameRankings, overallRanking } from '../../mocks/pages'
+import { gameRankings } from '../../mocks/pages'
+import { useAuthStore } from '../../stores/auth'
 import type { GameRanking } from '../../types/pages'
 import RankingList from './RankingList.vue'
 
+function mountRankingList(ranking: GameRanking, authenticated = false) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  if (authenticated) {
+    useAuthStore().signInWithMockKakao()
+  }
+
+  return mount(RankingList, {
+    props: { ranking },
+    global: { plugins: [pinia] },
+  })
+}
+
 describe('RankingList', () => {
-  it('renders the podium, general rows, and the highlighted current user', () => {
-    const wrapper = mount(RankingList, { props: { ranking: overallRanking } })
+  it('renders the podium, general cards, and the highlighted current user', () => {
+    const blinkRanking = gameRankings.find(
+      (ranking) => ranking.gameId === 'blink',
+    )!
+    const wrapper = mountRankingList(blinkRanking, true)
 
     expect(wrapper.get('[data-testid="podium-rank-2"]').text()).toContain('2위')
     expect(wrapper.get('[data-testid="podium-rank-1"]').text()).toContain('1위')
     expect(wrapper.get('[data-testid="podium-rank-3"]').text()).toContain('3위')
-    expect(wrapper.get('[data-testid="ranking-row-4"]').classes()).toContain(
+    expect(wrapper.get('[data-testid="ranking-row-7"]').classes()).toContain(
       'ranking-list__row--current-user',
     )
     expect(wrapper.get('[data-testid="ranking-row-5"]').text()).toContain(
-      '눈을 건강하게 지키는 플레이어',
+      '찰나의 눈빛',
+    )
+    expect(wrapper.get('[data-testid="ranking-row-4"]').text()).not.toContain(
+      'Lv. 15',
     )
     expect(wrapper.find('[data-testid="ranking-current-user"]').exists()).toBe(
       false,
@@ -28,7 +49,7 @@ describe('RankingList', () => {
       Array.from({ length: 10 }, (_, index) => index + 1),
     )
 
-    const totalScores = [...overallRanking.players]
+    const totalScores = [...blinkRanking.players]
       .sort((left, right) => left.rank - right.rank)
       .map((player) => Number.parseInt(player.score.replaceAll(',', ''), 10))
     expect(totalScores).toEqual(
@@ -40,7 +61,7 @@ describe('RankingList', () => {
     const holdRanking = gameRankings.find(
       (ranking) => ranking.gameId === 'hold',
     )
-    const wrapper = mount(RankingList, { props: { ranking: holdRanking! } })
+    const wrapper = mountRankingList(holdRanking!, true)
     const renderedRanks = wrapper
       .findAll('[data-testid^="podium-rank-"], [data-testid^="ranking-row-"]')
       .map((row) => Number(row.attributes('data-testid')?.match(/(\d+)$/)?.[1]))
@@ -58,8 +79,8 @@ describe('RankingList', () => {
     )
 
     expect(wrapper.find('[data-testid="ranking-row-12"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="ranking-record-heading"]').text()).toBe(
-      '최고 기록',
+    expect(wrapper.get('[data-testid="ranking-row-4"]').text()).toContain(
+      '77.8초',
     )
     expect(
       wrapper.get('[data-testid="ranking-current-user"]').text(),
@@ -67,11 +88,31 @@ describe('RankingList', () => {
     expect(
       wrapper.get('[data-testid="ranking-current-user"]').text(),
     ).toContain('63.4초')
+    expect(
+      wrapper.get('[data-testid="ranking-current-user"]').text(),
+    ).toContain('눈썹 최강자')
+    expect(
+      wrapper.get('[data-testid="ranking-current-user"] img').attributes('alt'),
+    ).toBe('눈썹 최강자 프로필')
+  })
+
+  it('hides personal ranking information for guests', () => {
+    const holdRanking = gameRankings.find(
+      (ranking) => ranking.gameId === 'hold',
+    )!
+    const wrapper = mountRankingList(holdRanking)
+
+    expect(wrapper.find('[data-testid="ranking-current-user"]').exists()).toBe(
+      false,
+    )
+    expect(wrapper.get('[data-testid="ranking-row-4"]').text()).not.toContain(
+      '눈썹 최강자',
+    )
   })
 
   it('renders ranks 1 through 10 without gaps for every game ranking', () => {
     for (const ranking of gameRankings) {
-      const wrapper = mount(RankingList, { props: { ranking } })
+      const wrapper = mountRankingList(ranking, true)
       const renderedRanks = wrapper
         .findAll('[data-testid^="podium-rank-"], [data-testid^="ranking-row-"]')
         .map((row) =>
@@ -112,7 +153,7 @@ describe('RankingList', () => {
       myScore: '0점',
       players: [],
     }
-    const wrapper = mount(RankingList, { props: { ranking: emptyRanking } })
+    const wrapper = mountRankingList(emptyRanking)
 
     expect(wrapper.get('[data-testid="ranking-empty"]').text()).toContain(
       '아직 등록된 랭킹이 없어요.',
