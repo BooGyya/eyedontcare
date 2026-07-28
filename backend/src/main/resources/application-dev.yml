@@ -5,6 +5,10 @@ app:
     secret: ${JWT_SECRET_KEY}
 
 spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${SPRING_DATASOURCE_USERNAME:backend}
