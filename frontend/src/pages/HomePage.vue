@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import mascotImage from '../assets/images/brand/mascot.png'
 import rhythmImage from '../assets/images/games/game-rhythm-main.png'
@@ -9,6 +10,139 @@ import type { QuickAction } from '../types/home'
 
 const router = useRouter()
 const { showToast } = useToast()
+const currentRankingIndex = ref(0)
+const visibleRankingCount = ref(3)
+const dragStartX = ref<number | null>(null)
+const dragStartY = ref<number | null>(null)
+const dragOffsetX = ref(0)
+const isDragging = ref(false)
+const didDrag = ref(false)
+const horizontalDragThreshold = 8
+const rankingClip = ref<InstanceType<typeof globalThis.HTMLElement> | null>(
+  null,
+)
+
+const maxRankingIndex = computed(() =>
+  Math.max(0, weeklyRankingGames.length - visibleRankingCount.value),
+)
+const rankingTrackStyle = computed(() => ({
+  '--ranking-index': currentRankingIndex.value,
+  '--visible-ranking-count': visibleRankingCount.value,
+  '--drag-offset': `${dragOffsetX.value}px`,
+}))
+
+function updateVisibleRankingCount() {
+  const width = globalThis.innerWidth
+  visibleRankingCount.value = width < 600 ? 1 : width < 900 ? 2 : 3
+  currentRankingIndex.value = Math.min(
+    currentRankingIndex.value,
+    maxRankingIndex.value,
+  )
+}
+
+function moveRanking(direction: -1 | 1) {
+  currentRankingIndex.value = Math.max(
+    0,
+    Math.min(maxRankingIndex.value, currentRankingIndex.value + direction),
+  )
+}
+
+function handleDragStart(event: globalThis.PointerEvent) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  dragStartX.value = event.clientX
+  dragStartY.value = event.clientY
+  dragOffsetX.value = 0
+  isDragging.value = false
+  didDrag.value = false
+}
+
+function handleDragMove(event: globalThis.PointerEvent) {
+  if (dragStartX.value === null || dragStartY.value === null) return
+  const distance = event.clientX - dragStartX.value
+  const verticalDistance = event.clientY - dragStartY.value
+
+  if (!isDragging.value) {
+    if (Math.abs(distance) < horizontalDragThreshold) return
+    if (Math.abs(verticalDistance) >= Math.abs(distance)) {
+      dragStartX.value = null
+      dragStartY.value = null
+      return
+    }
+
+    isDragging.value = true
+    didDrag.value = true
+    ;(
+      event.currentTarget as InstanceType<typeof globalThis.HTMLElement>
+    ).setPointerCapture?.(event.pointerId)
+  }
+
+  const isPastStart = currentRankingIndex.value === 0 && distance > 0
+  const isPastEnd =
+    currentRankingIndex.value === maxRankingIndex.value && distance < 0
+  const boundaryResistance = isPastStart || isPastEnd ? 0.18 : 1
+  const maximumOffset = (rankingClip.value?.clientWidth ?? 300) * 0.22
+  dragOffsetX.value = Math.max(
+    -maximumOffset,
+    Math.min(maximumOffset, distance * boundaryResistance),
+  )
+}
+
+function getRankingStep() {
+  const clipWidth = rankingClip.value?.clientWidth ?? 0
+  const gap = visibleRankingCount.value === 1 ? 18 : 26
+  if (clipWidth === 0) return 300
+  const cardWidth =
+    (clipWidth - (visibleRankingCount.value - 1) * gap) /
+    visibleRankingCount.value
+  return cardWidth + gap
+}
+
+function handleDragEnd(event: globalThis.PointerEvent) {
+  if (dragStartX.value === null) return
+  if (isDragging.value) {
+    const distance = event.clientX - dragStartX.value
+    const movedCards = Math.round(-distance / getRankingStep())
+    currentRankingIndex.value = Math.max(
+      0,
+      Math.min(maxRankingIndex.value, currentRankingIndex.value + movedCards),
+    )
+    ;(
+      event.currentTarget as InstanceType<typeof globalThis.HTMLElement>
+    ).releasePointerCapture?.(event.pointerId)
+  }
+  dragStartX.value = null
+  dragStartY.value = null
+  dragOffsetX.value = 0
+  isDragging.value = false
+}
+
+function handleDragCancel(event: globalThis.PointerEvent) {
+  if (isDragging.value) {
+    ;(
+      event.currentTarget as InstanceType<typeof globalThis.HTMLElement>
+    ).releasePointerCapture?.(event.pointerId)
+  }
+  dragStartX.value = null
+  dragStartY.value = null
+  dragOffsetX.value = 0
+  isDragging.value = false
+}
+
+function handleCarouselClick(event: globalThis.MouseEvent) {
+  if (!didDrag.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  didDrag.value = false
+}
+
+onMounted(() => {
+  updateVisibleRankingCount()
+  globalThis.addEventListener('resize', updateVisibleRankingCount)
+})
+
+onBeforeUnmount(() => {
+  globalThis.removeEventListener('resize', updateVisibleRankingCount)
+})
 
 function handleQuickAction(action: QuickAction) {
   if (action.destination) {
@@ -58,10 +192,11 @@ function handleQuickAction(action: QuickAction) {
           class="hero-banner__mascot"
           :src="mascotImage"
           alt="눈 건강 게임을 즐기는 eye dont care 캐릭터"
+          draggable="false"
         />
         <div class="hero-banner__arcade" aria-hidden="true">
           <span>PLAY!</span>
-          <div><img :src="rhythmImage" alt="" /></div>
+          <div><img :src="rhythmImage" alt="" draggable="false" /></div>
           <i />
           <i />
         </div>
@@ -78,30 +213,47 @@ function handleQuickAction(action: QuickAction) {
     <section class="weekly-ranking" aria-labelledby="weekly-ranking-title">
       <div class="weekly-ranking__heading">
         <h2 id="weekly-ranking-title"><span>♜</span> 이번 주 랭킹 TOP 3</h2>
-        <RouterLink to="/ranking">전체 랭킹 보기 <span>›</span></RouterLink>
       </div>
 
       <div class="weekly-ranking__viewport">
         <button
           class="weekly-ranking__scroll-control weekly-ranking__scroll-control--previous"
           type="button"
-          aria-label="이전 랭킹 카드"
-          disabled
+          aria-label="이전 랭킹 보기"
+          :disabled="currentRankingIndex === 0"
+          @click="moveRanking(-1)"
         >
           ‹
         </button>
-        <div class="weekly-ranking__cards">
-          <WeeklyRankingCard
-            v-for="game in weeklyRankingGames"
-            :key="game.id"
-            :game="game"
-          />
+        <div
+          ref="rankingClip"
+          class="weekly-ranking__clip"
+          :class="{ 'weekly-ranking__clip--dragging': isDragging }"
+          @click.capture="handleCarouselClick"
+          @dragstart.prevent
+          @pointerdown="handleDragStart"
+          @pointermove="handleDragMove"
+          @pointerup="handleDragEnd"
+          @pointercancel="handleDragCancel"
+        >
+          <div
+            class="weekly-ranking__cards"
+            :class="{ 'weekly-ranking__cards--dragging': isDragging }"
+            :style="rankingTrackStyle"
+          >
+            <WeeklyRankingCard
+              v-for="game in weeklyRankingGames"
+              :key="game.id"
+              :game="game"
+            />
+          </div>
         </div>
         <button
           class="weekly-ranking__scroll-control weekly-ranking__scroll-control--next"
           type="button"
-          aria-label="다음 랭킹 카드"
-          disabled
+          aria-label="다음 랭킹 보기"
+          :disabled="currentRankingIndex === maxRankingIndex"
+          @click="moveRanking(1)"
         >
           ›
         </button>
@@ -119,7 +271,10 @@ function handleQuickAction(action: QuickAction) {
       >
         <span
           class="quick-action-strip__icon"
-          :class="`quick-action-strip__icon--${action.tone}`"
+          :class="[
+            `quick-action-strip__icon--${action.tone}`,
+            { 'quick-action-strip__icon--discord': action.id === 'discord' },
+          ]"
         >
           <img :src="action.image" alt="" />
         </span>
@@ -239,26 +394,34 @@ function handleQuickAction(action: QuickAction) {
   z-index: 3;
   width: 186px;
   padding: 20px 10px;
-  border: 2px solid var(--color-ink);
-  border-radius: 54% 46% 51% 49%;
-  background: #fff;
+  border: 2px solid #26334f;
+  border-radius: 30px 27px 32px 25px;
+  background: #fffefa;
   font-size: 17px;
   line-height: 1.5;
   text-align: center;
-  transform: rotate(4deg);
+  transform: rotate(2deg);
+}
+
+.hero-banner__bubble::before,
+.hero-banner__bubble::after {
+  position: absolute;
+  bottom: -18px;
+  left: 30px;
+  width: 0;
+  height: 0;
+  border-top: 20px solid #26334f;
+  border-right: 14px solid transparent;
+  content: '';
+  transform: rotate(8deg);
+  transform-origin: top left;
 }
 
 .hero-banner__bubble::after {
-  position: absolute;
-  bottom: -11px;
-  left: 19px;
-  width: 18px;
-  height: 16px;
-  border-bottom: 2px solid var(--color-ink);
-  border-left: 2px solid var(--color-ink);
-  background: #fff;
-  content: '';
-  transform: skew(-28deg) rotate(-20deg);
+  bottom: -14px;
+  left: 32px;
+  border-top: 17px solid #fffefa;
+  border-right-width: 11px;
 }
 
 .hero-banner__bubble b {
@@ -378,7 +541,6 @@ function handleQuickAction(action: QuickAction) {
 .weekly-ranking__heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   margin: 0 4px 16px;
 }
 
@@ -394,33 +556,63 @@ function handleQuickAction(action: QuickAction) {
   color: #805dde;
 }
 
-.weekly-ranking__heading a {
-  color: #6244ce;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.weekly-ranking__heading a span {
-  margin-left: 7px;
-  font-size: 22px;
-  vertical-align: -1px;
-}
-
 .weekly-ranking__viewport {
   position: relative;
+  padding-inline: 58px;
+}
+
+.weekly-ranking__clip {
+  overflow: hidden;
+  padding: 1px;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+
+.weekly-ranking__clip--dragging {
+  cursor: grabbing;
+}
+
+.weekly-ranking__clip img {
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
 }
 
 .weekly-ranking__cards {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px;
+  --ranking-gap: 26px;
+  display: flex;
+  gap: var(--ranking-gap);
+  transform: translateX(
+    calc(
+      var(--drag-offset) - var(--ranking-index) *
+        (
+          (100% - (var(--visible-ranking-count) - 1) * var(--ranking-gap)) /
+            var(--visible-ranking-count) + var(--ranking-gap)
+        )
+    )
+  );
+  transition: transform 0.34s ease;
+  will-change: transform;
+}
+
+.weekly-ranking__cards--dragging {
+  transition: none;
+}
+
+.weekly-ranking__cards > * {
+  flex: 0 0
+    calc(
+      (100% - (var(--visible-ranking-count) - 1) * var(--ranking-gap)) /
+        var(--visible-ranking-count)
+    );
 }
 
 .weekly-ranking__scroll-control {
   position: absolute;
   top: 50%;
   z-index: 2;
-  display: none;
+  display: grid;
   width: 42px;
   height: 42px;
   place-items: center;
@@ -430,14 +622,25 @@ function handleQuickAction(action: QuickAction) {
   box-shadow: var(--shadow-float);
   font-size: 34px;
   line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    opacity 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.weekly-ranking__scroll-control:disabled {
+  opacity: 0.32;
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .weekly-ranking__scroll-control--previous {
-  left: -58px;
+  left: 4px;
 }
 
 .weekly-ranking__scroll-control--next {
-  right: -58px;
+  right: 4px;
 }
 
 .quick-action-strip {
@@ -484,6 +687,19 @@ function handleQuickAction(action: QuickAction) {
   background: linear-gradient(145deg, #6f8aff, #525ad8);
 }
 
+.quick-action-strip__icon--discord {
+  width: 58px;
+  height: 58px;
+  background: transparent;
+  border-radius: 0;
+}
+
+.quick-action-strip__icon--discord img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .quick-action-strip__icon--yellow {
   background: var(--color-yellow-soft);
 }
@@ -526,10 +742,6 @@ function handleQuickAction(action: QuickAction) {
     padding-left: 72px;
   }
 
-  .weekly-ranking__cards {
-    gap: 18px;
-  }
-
   .quick-action-strip__item {
     padding-inline: 20px;
   }
@@ -550,10 +762,6 @@ function handleQuickAction(action: QuickAction) {
     transform-origin: right bottom;
   }
 
-  .weekly-ranking__cards {
-    gap: 14px;
-  }
-
   .quick-action-strip__item {
     padding-inline: 16px;
   }
@@ -562,23 +770,6 @@ function handleQuickAction(action: QuickAction) {
 @media (max-width: 1100px) {
   .hero-banner__copy {
     padding-left: 42px;
-  }
-
-  .weekly-ranking__cards {
-    grid-auto-columns: minmax(254px, 1fr);
-    grid-auto-flow: column;
-    grid-template-columns: unset;
-    overflow-x: auto;
-    padding: 1px;
-    scroll-snap-type: x mandatory;
-  }
-
-  .weekly-ranking__cards > * {
-    scroll-snap-align: start;
-  }
-
-  .weekly-ranking__scroll-control {
-    display: grid;
   }
 
   .quick-action-strip__copy small {
@@ -639,12 +830,26 @@ function handleQuickAction(action: QuickAction) {
     font-size: 17px;
   }
 
-  .weekly-ranking__heading a {
-    font-size: 11px;
+  .weekly-ranking__viewport {
+    padding-inline: 42px;
+  }
+
+  .weekly-ranking__cards {
+    --ranking-gap: 18px;
   }
 
   .weekly-ranking__scroll-control {
-    display: none;
+    width: 34px;
+    height: 34px;
+    font-size: 27px;
+  }
+
+  .weekly-ranking__scroll-control--previous {
+    left: 0;
+  }
+
+  .weekly-ranking__scroll-control--next {
+    right: 0;
   }
 
   .quick-action-strip {

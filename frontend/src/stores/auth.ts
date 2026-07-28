@@ -21,6 +21,11 @@ export const useAuthStore = defineStore('auth', () => {
     isDialogOpen.value = true
   }
 
+  function openSignup() {
+    dialogScreen.value = 'signup'
+    isDialogOpen.value = true
+  }
+
   function openGuestGuide() {
     dialogScreen.value = 'guest'
     isDialogOpen.value = true
@@ -54,6 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
     displayName,
     user: mockAuthenticatedUser,
     openLogin,
+    openSignup,
     openGuestGuide,
     closeDialog,
     signInWithMockKakao,

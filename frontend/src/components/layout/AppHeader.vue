@@ -12,7 +12,7 @@ const { showToast } = useToast()
 
 function handleMemberNavigation(path: '/notifications' | '/settings') {
   if (auth.isAuthenticated) {
-    router.push(path)
+    void router.push(path)
     return
   }
 
@@ -20,11 +20,14 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
   auth.openLogin()
 }
 
+function handleSignUp() {
+  auth.openSignup()
+}
+
 function handleGuestExit() {
   auth.signOut()
   showToast('게스트 모드를 종료했어요.')
 }
-
 </script>
 
 <template>
@@ -39,23 +42,25 @@ function handleGuestExit() {
       </RouterLink>
       <PrimaryNavigation />
       <div class="app-header__actions">
-        <span class="app-header__coin"><i>●</i><b>1,250</b></span>
-        <button
-          class="app-header__icon-button"
-          type="button"
-          aria-label="알림"
-          @click="handleMemberNavigation('/notifications')"
-        >
-          ♧
-        </button>
-        <button
-          class="app-header__icon-button"
-          type="button"
-          aria-label="설정"
-          @click="handleMemberNavigation('/settings')"
-        >
-          ⚙
-        </button>
+        <template v-if="auth.isAuthenticated || auth.isGuest">
+          <span class="app-header__coin"><i>●</i><b>1,250</b></span>
+          <button
+            class="app-header__icon-button"
+            type="button"
+            aria-label="알림"
+            @click="handleMemberNavigation('/notifications')"
+          >
+            ♧
+          </button>
+          <button
+            class="app-header__icon-button"
+            type="button"
+            aria-label="설정"
+            @click="handleMemberNavigation('/settings')"
+          >
+            ⚙
+          </button>
+        </template>
         <ProfileMenu v-if="auth.isAuthenticated" />
         <template v-else-if="auth.isGuest">
           <span class="app-header__guest-status">게스트</span>
@@ -74,14 +79,22 @@ function handleGuestExit() {
             나가기
           </button>
         </template>
-        <button
-          v-else
-          class="app-header__auth-button"
-          type="button"
-          @click="auth.openLogin"
-        >
-          로그인
-        </button>
+        <template v-else>
+          <button
+            class="app-header__auth-button app-header__auth-button--signup"
+            type="button"
+            @click="handleSignUp"
+          >
+            회원가입
+          </button>
+          <button
+            class="app-header__auth-button"
+            type="button"
+            @click="auth.openLogin"
+          >
+            로그인
+          </button>
+        </template>
       </div>
     </div>
   </header>
@@ -158,6 +171,11 @@ function handleGuestExit() {
 .app-header__auth-button:hover {
   color: #fff;
   background: var(--color-accent-blue);
+}
+.app-header__auth-button--signup {
+  border-color: transparent;
+  color: var(--color-muted);
+  background: var(--color-surface-soft);
 }
 .app-header__auth-button--quiet {
   color: var(--color-muted);

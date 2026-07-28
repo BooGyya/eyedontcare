@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import mascotImage from '../../assets/images/brand/mascot.png'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 
@@ -28,7 +29,7 @@ function handleBackdropClick(event: {
 
 function handleMockKakaoLogin() {
   auth.signInWithMockKakao()
-  showToast('카카오 로그인은 현재 mock 인증으로 전환됐어요.')
+  showToast('카카오 연동 없이 mock 인증 상태로 시작했어요.')
 }
 
 function handleGuestContinue() {
@@ -81,7 +82,38 @@ onBeforeUnmount(() => {
           ×
         </button>
 
-        <template v-if="auth.dialogScreen === 'login'">
+        <template v-if="auth.dialogScreen === 'signup'">
+          <img
+            class="auth-dialog__welcome-image"
+            :src="mascotImage"
+            alt="eye dont care 마스코트"
+          />
+          <span class="auth-dialog__eyebrow">처음 오셨나요?</span>
+          <h2 id="auth-dialog-title">눈으로 즐기는 휴식,<br />지금 시작해요</h2>
+          <p>별도 가입 절차 없이 mock 인증으로 서비스를 둘러볼 수 있어요.</p>
+          <button
+            class="auth-dialog__provider auth-dialog__provider--kakao"
+            type="button"
+            data-auth-initial-focus
+            @click="handleMockKakaoLogin"
+          >
+            <span aria-hidden="true">K</span>카카오로 시작하기
+          </button>
+          <div class="auth-dialog__divider"><span>또는</span></div>
+          <button
+            class="auth-dialog__provider auth-dialog__provider--guest"
+            type="button"
+            @click="auth.openGuestGuide"
+          >
+            <span aria-hidden="true">●</span>게스트로 시작하기
+          </button>
+          <p class="auth-dialog__switch">
+            이미 계정이 있나요?
+            <button type="button" @click="auth.openLogin">로그인</button>
+          </p>
+        </template>
+
+        <template v-else-if="auth.dialogScreen === 'login'">
           <span class="auth-dialog__eyebrow">WELCOME TO EYE DON'T CARE</span>
           <h2 id="auth-dialog-title">반가워요!</h2>
           <p>로그인하고 눈으로 즐기는 게임을 시작해요.</p>
@@ -190,6 +222,13 @@ onBeforeUnmount(() => {
   line-height: 1;
   cursor: pointer;
 }
+.auth-dialog__welcome-image {
+  display: block;
+  width: 116px;
+  height: 92px;
+  margin: -14px auto 12px;
+  object-fit: contain;
+}
 .auth-dialog__eyebrow,
 .auth-dialog__guest-badge {
   display: inline-block;
@@ -283,6 +322,19 @@ onBeforeUnmount(() => {
   color: var(--color-accent-blue);
   background: transparent;
   font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.auth-dialog .auth-dialog__switch {
+  margin: 22px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.auth-dialog__switch button {
+  padding: 2px 4px;
+  color: var(--color-accent-blue);
+  background: transparent;
   font-weight: 800;
   cursor: pointer;
 }

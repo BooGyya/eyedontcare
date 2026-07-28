@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { profileData } from '../../mocks/profile'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 

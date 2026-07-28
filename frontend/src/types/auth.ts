@@ -6,4 +6,4 @@ export type MockAuthenticatedUser = {
   avatar: string
 }
 
-export type AuthDialogScreen = 'login' | 'guest'
+export type AuthDialogScreen = 'login' | 'signup' | 'guest'

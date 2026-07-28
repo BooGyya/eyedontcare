@@ -36,7 +36,22 @@ describe('App', () => {
       },
     })
 
-    await wrapper.get('.app-header__auth-button').trigger('click')
+    const signedOutActions = wrapper.findAll('.app-header__auth-button')
+    expect(signedOutActions.map((button) => button.text())).toEqual([
+      '회원가입',
+      '로그인',
+    ])
+    expect(wrapper.find('.app-header__coin').exists()).toBe(false)
+    expect(wrapper.find('.app-header__icon-button').exists()).toBe(false)
+
+    await signedOutActions[0]!.trigger('click')
+    expect(wrapper.text()).toContain('눈으로 즐기는 휴식')
+    expect(wrapper.text()).toContain('이미 계정이 있나요?')
+
+    await wrapper.get('.auth-dialog__switch button').trigger('click')
+    expect(wrapper.text()).toContain('로그인하고 눈으로 즐기는 게임')
+
+    await signedOutActions[1]!.trigger('click')
     expect(wrapper.text()).toContain('카카오로 시작하기')
 
     await wrapper.get('[data-testid="start-games"]').trigger('click')
