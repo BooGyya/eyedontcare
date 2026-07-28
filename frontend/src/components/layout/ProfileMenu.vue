@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { profileData } from '../../mocks/profile'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 
@@ -46,15 +45,30 @@ function handleLogout() {
           ><span>Lv. {{ auth.user.level }} · 눈 건강 챌린저</span>
         </div>
       </div>
-      <RouterLink to="/profile" @click="closeMenu"
-        >마이페이지 <span>→</span></RouterLink
-      >
-      <RouterLink to="/settings" @click="closeMenu"
-        >설정 <span>→</span></RouterLink
-      >
-      <button type="button" @click="handleLogout">
-        로그아웃 <span>↗</span>
-      </button>
+      <div class="profile-menu__actions">
+        <RouterLink
+          class="profile-menu__action profile-menu__action--primary"
+          to="/profile"
+          @click="closeMenu"
+        >
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="3.5" />
+            <path d="M4.5 20c.8-4 3.4-6 7.5-6s6.7 2 7.5 6" />
+          </svg>
+          마이페이지
+        </RouterLink>
+        <button
+          class="profile-menu__action profile-menu__action--secondary"
+          type="button"
+          @click="handleLogout"
+        >
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+            <path d="M10 5H5v14h5" />
+            <path d="m14 8 4 4-4 4M18 12H9" />
+          </svg>
+          로그아웃
+        </button>
+      </div>
     </section>
   </div>
 </template>
@@ -121,21 +135,66 @@ function handleLogout() {
   display: grid;
   gap: 2px;
 }
-.profile-menu__panel a,
-.profile-menu__panel button {
+.profile-menu__actions {
   display: flex;
-  justify-content: space-between;
-  padding: 0;
-  border: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.profile-menu__action {
+  display: inline-flex;
+  min-height: 40px;
+  flex: 1 1 118px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
   color: var(--color-ink);
-  background: transparent;
   font-size: 14px;
   font-weight: 700;
+  text-align: center;
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
 }
-.profile-menu__panel a span,
-.profile-menu__panel button span {
+.profile-menu__action svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.profile-menu__action--primary {
   color: var(--color-accent-blue);
+  background: var(--color-blue-soft);
+}
+.profile-menu__action--secondary {
+  border-color: var(--color-line);
+  color: var(--color-muted);
+  background: #fff;
+}
+.profile-menu__action:hover {
+  transform: translateY(-1px);
+}
+.profile-menu__action--primary:hover {
+  background: #dfe7ff;
+}
+.profile-menu__action--secondary:hover {
+  color: var(--color-ink);
+  background: var(--color-surface-soft);
+}
+.profile-menu__action:active {
+  transform: translateY(0);
+}
+.profile-menu__action:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
 }
 @media (max-width: 640px) {
   .profile-menu__avatar {
@@ -144,6 +203,9 @@ function handleLogout() {
   }
   .profile-menu__meta {
     display: none;
+  }
+  .profile-menu__panel {
+    width: min(290px, calc(100vw - 32px));
   }
 }
 </style>

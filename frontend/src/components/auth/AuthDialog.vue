@@ -1,14 +1,32 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import kakaoTalkIcon from '../../assets/images/illustrations/kakao-talk.png'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 
 const auth = useAuthStore()
 const { showToast } = useToast()
-const dialogRef = ref<any>()
+const dialogRef = ref<InstanceType<typeof globalThis.HTMLElement> | null>(null)
+const signupForm = reactive({
+  email: '',
+  password: '',
+})
+const loginForm = reactive({ email: '', password: '' })
+const signupErrors = reactive({ email: '', password: '' })
+const loginErrors = reactive({ email: '', password: '' })
 
 function restoreScroll() {
   globalThis.document.body.style.overflow = ''
+}
+
+function clearForms() {
+  Object.assign(signupForm, {
+    email: '',
+    password: '',
+  })
+  Object.assign(loginForm, { email: '', password: '' })
+  Object.assign(signupErrors, { email: '', password: '' })
+  Object.assign(loginErrors, { email: '', password: '' })
 }
 
 function closeDialog() {
@@ -26,14 +44,56 @@ function handleBackdropClick(event: {
   if (event.target === event.currentTarget) closeDialog()
 }
 
-function handleMockKakaoLogin() {
-  auth.signInWithMockKakao()
-  showToast('카카오 로그인은 현재 mock 인증으로 전환됐어요.')
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-function handleGuestContinue() {
-  auth.continueAsGuest()
-  showToast('게스트 모드로 시작했어요. 기록은 이번 접속에서만 유지돼요.')
+function validateSignup() {
+  signupErrors.email = signupForm.email
+    ? isValidEmail(signupForm.email)
+      ? ''
+      : '이메일 형식을 확인해주세요.'
+    : '이메일을 입력해주세요.'
+  signupErrors.password = signupForm.password
+    ? signupForm.password.length >= 8
+      ? ''
+      : '비밀번호는 8자 이상 입력해주세요.'
+    : '비밀번호를 입력해주세요.'
+  return !Object.values(signupErrors).some(Boolean)
+}
+
+function validateLogin() {
+  loginErrors.email = loginForm.email
+    ? isValidEmail(loginForm.email)
+      ? ''
+      : '이메일 형식을 확인해주세요.'
+    : '이메일을 입력해주세요.'
+  loginErrors.password = loginForm.password
+    ? loginForm.password.length >= 8
+      ? ''
+      : '비밀번호는 8자 이상 입력해주세요.'
+    : '비밀번호를 입력해주세요.'
+
+  return !Object.values(loginErrors).some(Boolean)
+}
+
+function handleMockKakaoLogin() {
+  auth.signInWithMockKakao()
+  showToast('카카오 연동 없이 mock 인증 상태로 전환했어요.')
+}
+
+function handleSignupSubmit() {
+  if (!validateSignup()) return
+  const nickname = auth.registerMockUser()
+  showToast(`${nickname}님, mock 가입으로 환영해요!`)
+  clearForms()
+}
+
+function handleLoginSubmit() {
+  if (!validateLogin()) return
+  auth.signInWithMockKakao()
+  showToast('이메일 정보는 저장하지 않고 mock 인증으로 전환했어요.')
+  clearForms()
 }
 
 watch(
@@ -43,13 +103,22 @@ watch(
       globalThis.document.body.style.overflow = 'hidden'
       globalThis.addEventListener('keydown', handleKeydown)
       await nextTick()
-      dialogRef.value?.querySelector('[data-auth-initial-focus]')?.focus()
+      dialogRef.value
+        ?.querySelector<InstanceType<typeof globalThis.HTMLElement>>(
+          '[data-auth-initial-focus]',
+        )
+        ?.focus()
       return
     }
 
     restoreScroll()
     globalThis.removeEventListener('keydown', handleKeydown)
   },
+)
+
+watch(
+  () => auth.dialogScreen,
+  () => clearForms(),
 )
 
 onBeforeUnmount(() => {
@@ -75,77 +144,132 @@ onBeforeUnmount(() => {
         <button
           class="auth-dialog__close"
           type="button"
-          aria-label="로그인 창 닫기"
+          aria-label="인증 창 닫기"
           @click="closeDialog"
         >
           ×
         </button>
 
-        <template v-if="auth.dialogScreen === 'login'">
-          <span class="auth-dialog__eyebrow">WELCOME TO EYE DON'T CARE</span>
+        <template v-if="auth.dialogScreen === 'signup'">
           <h2 id="auth-dialog-title">반가워요!</h2>
-          <p>로그인하고 눈으로 즐기는 게임을 시작해요.</p>
-          <button
-            class="auth-dialog__provider auth-dialog__provider--kakao"
-            type="button"
-            data-auth-initial-focus
-            @click="handleMockKakaoLogin"
-          >
-            <span aria-hidden="true">K</span>카카오로 시작하기
-          </button>
-          <div class="auth-dialog__divider"><span>또는</span></div>
-          <button
-            class="auth-dialog__provider auth-dialog__provider--guest"
-            type="button"
-            @click="auth.openGuestGuide"
-          >
-            <span aria-hidden="true">●</span>게스트로 시작하기
-          </button>
-          <aside class="auth-dialog__note">
-            <strong>게스트 모드 안내</strong>
-            <ul>
-              <li>모든 게임을 바로 즐길 수 있어요.</li>
-              <li>소모임은 이용할 수 없어요.</li>
-              <li>기록은 재접속 시 누적되지 않아요.</li>
-            </ul>
-          </aside>
-          <button
-            class="auth-dialog__existing"
-            type="button"
-            @click="handleMockKakaoLogin"
-          >
-            기존 사용자라면 바로 시작하기 →
-          </button>
+          <p>눈으로 즐기는 게임을 시작해요.</p>
+          <div class="auth-dialog__signup-panel">
+            <form
+              class="auth-dialog__form"
+              novalidate
+              @submit.prevent="handleSignupSubmit"
+            >
+              <label for="signup-email">이메일</label>
+              <input
+                id="signup-email"
+                v-model="signupForm.email"
+                type="email"
+                autocomplete="email"
+                data-auth-initial-focus
+                :aria-invalid="Boolean(signupErrors.email)"
+                aria-describedby="signup-email-error"
+              />
+              <p
+                id="signup-email-error"
+                class="auth-dialog__error"
+                role="alert"
+              >
+                {{ signupErrors.email }}
+              </p>
+              <label for="signup-password">비밀번호</label>
+              <input
+                id="signup-password"
+                v-model="signupForm.password"
+                type="password"
+                autocomplete="new-password"
+                :aria-invalid="Boolean(signupErrors.password)"
+                aria-describedby="signup-password-error"
+              />
+              <p
+                id="signup-password-error"
+                class="auth-dialog__error"
+                role="alert"
+              >
+                {{ signupErrors.password }}
+              </p>
+              <button class="auth-dialog__submit" type="submit">
+                회원가입
+              </button>
+            </form>
+            <p class="auth-dialog__switch">
+              이미 계정이 있나요?
+              <button type="button" @click="auth.openLogin">로그인</button>
+            </p>
+          </div>
+          <div class="auth-dialog__social-login">
+            <span>소셜 계정으로 시작하기</span>
+            <button
+              type="button"
+              aria-label="카카오로 시작하기"
+              @click="handleMockKakaoLogin"
+            >
+              <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
+                <img :src="kakaoTalkIcon" alt="" />
+              </span>
+              <span>카카오 계정으로 시작하기</span>
+            </button>
+          </div>
         </template>
 
         <template v-else>
-          <span class="auth-dialog__guest-badge">게스트 모드</span>
-          <h2 id="auth-dialog-title">게스트로 시작할까요?</h2>
-          <p>게임은 바로 즐길 수 있지만 일부 기능과 기록 저장이 제한돼요.</p>
-          <aside class="auth-dialog__note">
-            <strong>게스트 모드에서 가능한 것</strong>
-            <ul>
-              <li>5가지 게임을 자유롭게 플레이할 수 있어요.</li>
-              <li>이번 접속 동안의 점수는 확인할 수 있어요.</li>
-              <li>소모임은 카카오 로그인 후 이용할 수 있어요.</li>
-              <li>재접속하면 게임 기록은 초기화돼요.</li>
-            </ul>
-          </aside>
-          <div class="auth-dialog__actions">
-            <button
-              class="auth-dialog__continue"
-              type="button"
+          <h2 id="auth-dialog-title">로그인</h2>
+          <p>다시 만나서 반가워요. 게임을 이어서 즐겨요.</p>
+          <form
+            class="auth-dialog__form"
+            novalidate
+            @submit.prevent="handleLoginSubmit"
+          >
+            <label for="login-email">이메일</label>
+            <input
+              id="login-email"
+              v-model="loginForm.email"
+              type="email"
+              autocomplete="email"
               data-auth-initial-focus
-              @click="handleGuestContinue"
+              :aria-invalid="Boolean(loginErrors.email)"
+              aria-describedby="login-email-error"
+            />
+            <p id="login-email-error" class="auth-dialog__error" role="alert">
+              {{ loginErrors.email }}
+            </p>
+            <label for="login-password">비밀번호</label>
+            <input
+              id="login-password"
+              v-model="loginForm.password"
+              type="password"
+              autocomplete="current-password"
+              :aria-invalid="Boolean(loginErrors.password)"
+              aria-describedby="login-password-error"
+            />
+            <p
+              id="login-password-error"
+              class="auth-dialog__error"
+              role="alert"
             >
-              게스트로 계속하기
-            </button>
+              {{ loginErrors.password }}
+            </p>
+            <button class="auth-dialog__submit" type="submit">로그인</button>
+          </form>
+          <p class="auth-dialog__switch">
+            처음이신가요?
+            <button type="button" @click="auth.openSignup">회원가입</button>
+          </p>
+          <div class="auth-dialog__social-login">
+            <span>소셜 계정으로 로그인</span>
             <button
-              class="auth-dialog__back"
               type="button"
-              @click="auth.openLogin"
+              aria-label="카카오로 로그인"
+              @click="handleMockKakaoLogin"
             >
-              카카오로 로그인하기
+              <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
+                <img :src="kakaoTalkIcon" alt="" />
+              </span>
+              <span>카카오 계정으로 로그인</span>
             </button>
           </div>
         </template>
@@ -190,21 +314,6 @@ onBeforeUnmount(() => {
   line-height: 1;
   cursor: pointer;
 }
-.auth-dialog__eyebrow,
-.auth-dialog__guest-badge {
-  display: inline-block;
-  color: var(--color-accent-blue);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-.auth-dialog__guest-badge {
-  padding: 6px 10px;
-  border-radius: var(--radius-button);
-  color: #5771ba;
-  background: var(--color-blue-soft);
-  letter-spacing: 0;
-}
 .auth-dialog h2 {
   margin: 10px 0 7px;
   color: var(--color-ink);
@@ -218,7 +327,7 @@ onBeforeUnmount(() => {
   line-height: 1.6;
   word-break: keep-all;
 }
-.auth-dialog__provider {
+.auth-dialog__submit {
   display: flex;
   width: 100%;
   align-items: center;
@@ -230,83 +339,113 @@ onBeforeUnmount(() => {
   font-weight: 800;
   cursor: pointer;
 }
-.auth-dialog__provider--kakao {
-  color: #342d18;
-  background: #fee500;
+.auth-dialog__social-login {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  margin-top: 26px;
 }
-.auth-dialog__provider--guest {
-  border: 1px solid var(--color-line);
-  color: var(--color-ink);
-  background: #fff;
-}
-.auth-dialog__provider:hover,
-.auth-dialog__continue:hover {
-  filter: brightness(0.97);
-  transform: translateY(-1px);
-}
-.auth-dialog__divider {
+.auth-dialog__social-login > span {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 17px 0;
+  width: 100%;
   color: var(--color-muted);
   font-size: 12px;
 }
-.auth-dialog__divider::before,
-.auth-dialog__divider::after {
+.auth-dialog__social-login > span::before,
+.auth-dialog__social-login > span::after {
   flex: 1;
   height: 1px;
   content: '';
   background: var(--color-line);
 }
-.auth-dialog__note {
-  margin: 21px 0;
-  padding: 15px 17px;
-  border-radius: 13px;
+.auth-dialog__social-login button {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 800;
+  background: transparent;
+  cursor: pointer;
+}
+.auth-dialog__social-kakao-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  overflow: hidden;
+  justify-self: end;
+  border-radius: 50%;
+  background: #fee500;
+}
+.auth-dialog__social-kakao-icon img {
+  width: 61%;
+  height: 61%;
+  object-fit: contain;
+}
+.auth-dialog__form {
+  display: grid;
+  gap: 7px;
+}
+.auth-dialog__signup-panel {
+  margin-top: 4px;
+  padding: 20px;
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
   background: var(--color-surface-soft);
 }
-.auth-dialog__note strong {
-  font-size: 13px;
+.auth-dialog__signup-panel .auth-dialog__form input {
+  background: #fff;
 }
-.auth-dialog__note ul {
-  display: grid;
-  gap: 5px;
-  margin: 10px 0 0;
-  padding-left: 18px;
-  color: var(--color-muted);
+.auth-dialog__form label {
+  color: var(--color-ink);
   font-size: 12px;
-  line-height: 1.5;
-}
-.auth-dialog__existing {
-  display: block;
-  width: 100%;
-  color: var(--color-accent-blue);
-  background: transparent;
-  font-size: 13px;
   font-weight: 800;
-  cursor: pointer;
 }
-.auth-dialog__actions {
-  display: grid;
-  gap: 9px;
-}
-.auth-dialog__continue,
-.auth-dialog__back {
+.auth-dialog__form input {
   width: 100%;
-  padding: 13px;
-  border-radius: 11px;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  color: var(--color-ink);
+  background: #fff;
 }
-.auth-dialog__continue {
+.auth-dialog__form input[aria-invalid='true'] {
+  border-color: #c44a55;
+}
+.auth-dialog__error {
+  min-height: 17px;
+  margin: -3px 0 2px;
+  color: #b63745;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.auth-dialog__submit {
+  margin-top: 5px;
   color: #fff;
   background: var(--color-accent-blue);
 }
-.auth-dialog__back {
-  border: 1px solid var(--color-line);
-  color: var(--color-ink);
-  background: #fff;
+.auth-dialog__switch {
+  margin: 22px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.auth-dialog__signup-panel .auth-dialog__switch {
+  margin-bottom: 0;
+}
+.auth-dialog__switch button {
+  padding: 2px 4px;
+  color: var(--color-accent-blue);
+  background: transparent;
+  font-weight: 800;
+  cursor: pointer;
 }
 @media (max-width: 640px) {
   .auth-dialog-backdrop {

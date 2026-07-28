@@ -1,30 +1,10 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
 import logoImage from '../../assets/images/brand/logo.png'
-import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import PrimaryNavigation from './PrimaryNavigation.vue'
 import ProfileMenu from './ProfileMenu.vue'
 
-const router = useRouter()
 const auth = useAuthStore()
-const { showToast } = useToast()
-
-function handleMemberNavigation(path: '/notifications' | '/settings') {
-  if (auth.isAuthenticated) {
-    router.push(path)
-    return
-  }
-
-  showToast('이 기능은 로그인 후 이용할 수 있어요.')
-  auth.openLogin()
-}
-
-function handleGuestExit() {
-  auth.signOut()
-  showToast('게스트 모드를 종료했어요.')
-}
-
 </script>
 
 <template>
@@ -33,55 +13,31 @@ function handleGuestExit() {
       <RouterLink
         class="app-header__brand"
         to="/"
-        aria-label="eye dont care 홈"
+        aria-label="eye dont care home"
       >
         <img :src="logoImage" alt="eye dont care" />
       </RouterLink>
       <PrimaryNavigation />
       <div class="app-header__actions">
-        <span class="app-header__coin"><i>●</i><b>1,250</b></span>
-        <button
-          class="app-header__icon-button"
-          type="button"
-          aria-label="알림"
-          @click="handleMemberNavigation('/notifications')"
-        >
-          ♧
-        </button>
-        <button
-          class="app-header__icon-button"
-          type="button"
-          aria-label="설정"
-          @click="handleMemberNavigation('/settings')"
-        >
-          ⚙
-        </button>
-        <ProfileMenu v-if="auth.isAuthenticated" />
-        <template v-else-if="auth.isGuest">
-          <span class="app-header__guest-status">게스트</span>
+        <template v-if="auth.isAuthenticated">
+          <ProfileMenu />
+        </template>
+        <template v-else>
+          <button
+            class="app-header__auth-button app-header__auth-button--quiet"
+            type="button"
+            @click="auth.openSignup"
+          >
+            &#xD68C;&#xC6D0;&#xAC00;&#xC785;
+          </button>
           <button
             class="app-header__auth-button"
             type="button"
             @click="auth.openLogin"
           >
-            로그인
-          </button>
-          <button
-            class="app-header__auth-button app-header__auth-button--quiet"
-            type="button"
-            @click="handleGuestExit"
-          >
-            나가기
+            &#xB85C;&#xADF8;&#xC778;
           </button>
         </template>
-        <button
-          v-else
-          class="app-header__auth-button"
-          type="button"
-          @click="auth.openLogin"
-        >
-          로그인
-        </button>
       </div>
     </div>
   </header>
@@ -118,31 +74,6 @@ function handleGuestExit() {
   gap: 13px;
   margin-left: auto;
 }
-.app-header__icon-button {
-  color: var(--color-ink);
-  background: transparent;
-  font-size: 21px;
-  line-height: 1;
-  cursor: pointer;
-}
-.app-header__coin {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-ink);
-  font-size: 17px;
-}
-.app-header__coin i {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  border-radius: 50%;
-  color: #f6b928;
-  background: #fff2c2;
-  font-size: 15px;
-  font-style: normal;
-}
 .app-header__auth-button {
   min-height: 34px;
   padding: 0 12px;
@@ -164,15 +95,6 @@ function handleGuestExit() {
 }
 .app-header__auth-button--quiet:hover {
   background: var(--color-muted);
-}
-.app-header__guest-status {
-  padding: 6px 9px;
-  border-radius: var(--radius-button);
-  color: #536eb2;
-  background: var(--color-blue-soft);
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
 }
 @media (max-width: 1100px) {
   .app-header__inner {
@@ -200,10 +122,6 @@ function handleGuestExit() {
   }
   .app-header__actions {
     gap: 7px;
-  }
-  .app-header__coin,
-  .app-header__icon-button {
-    display: none;
   }
   .app-header__auth-button {
     min-height: 30px;

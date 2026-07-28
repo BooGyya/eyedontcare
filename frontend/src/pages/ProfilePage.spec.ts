@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import ProfileMenu from '../components/layout/ProfileMenu.vue'
@@ -52,12 +53,31 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/settings')
     await router.isReady()
-    const wrapper = mount(ProfileMenu, { global: { plugins: [router] } })
+    const wrapper = mount(ProfileMenu, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     await wrapper.get('[aria-label="프로필 메뉴"]').trigger('click')
     await wrapper.get('a[href="/profile"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.path).toBe('/profile')
+  })
+
+  it('shows only profile and logout actions in the profile menu', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const wrapper = mount(ProfileMenu, {
+      global: { plugins: [createPinia(), router] },
+    })
+
+    await wrapper.get('[aria-label="프로필 메뉴"]').trigger('click')
+
+    expect(wrapper.find('.profile-menu__actions').text()).toContain(
+      '마이페이지',
+    )
+    expect(wrapper.find('.profile-menu__actions').text()).toContain('로그아웃')
+    expect(wrapper.find('a[href="/settings"]').exists()).toBe(false)
   })
 })

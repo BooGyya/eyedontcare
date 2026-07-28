@@ -10,8 +10,16 @@ const highestValue = computed(() =>
   Math.max(...props.game.records.map((record) => record.value)),
 )
 
-function getBarHeight(record: RankingRecord) {
-  return `${Math.max(28, (record.value / highestValue.value) * 100)}%`
+function getPodiumHeight(record: RankingRecord) {
+  const scoreRatio = record.value / highestValue.value
+  const rankRange = {
+    1: { minimum: 50, maximum: 56 },
+    2: { minimum: 37, maximum: 43 },
+    3: { minimum: 26, maximum: 32 },
+  }[record.rank] ?? { minimum: 22, maximum: 28 }
+  const height =
+    rankRange.minimum + scoreRatio * (rankRange.maximum - rankRange.minimum)
+  return `${height}%`
 }
 </script>
 
@@ -21,39 +29,46 @@ function getBarHeight(record: RankingRecord) {
     :class="`weekly-ranking-card--${game.tone}`"
   >
     <header class="weekly-ranking-card__header">
-      <img :src="game.image" :alt="`${game.title} 캐릭터`" />
+      <img :src="game.image" :alt="`${game.title} 캐릭터`" draggable="false" />
       <div>
         <h3>{{ game.title }}</h3>
-        <span>{{ game.mode }}</span>
       </div>
     </header>
 
     <div
       class="weekly-ranking-card__chart"
-      :aria-label="`${game.title} 이번 주 상위 3명 기록`"
+      :aria-label="`${game.title} 이번 주 상위 3명 포디움`"
     >
       <div
         v-for="record in game.records"
         :key="record.rank"
         class="weekly-ranking-card__record"
+        :class="`weekly-ranking-card__record--${record.rank}`"
       >
-        <span
-          class="weekly-ranking-card__medal"
-          :class="`weekly-ranking-card__medal--${record.rank}`"
-          >{{ record.rank }}</span
+        <div
+          class="weekly-ranking-card__podium"
+          :style="{ '--podium-height': getPodiumHeight(record) }"
         >
-        <strong
-          >{{ record.label }}<small>{{ game.unit }}</small></strong
-        >
-        <div class="weekly-ranking-card__bar-track">
-          <i :style="{ height: getBarHeight(record) }" />
+          <div class="weekly-ranking-card__player">
+            <span
+              class="weekly-ranking-card__medal"
+              :class="`weekly-ranking-card__medal--${record.rank}`"
+              >{{ record.rank }}</span
+            >
+            <img
+              class="weekly-ranking-card__avatar"
+              :src="record.avatar"
+              :alt="`${record.nickname} 프로필`"
+              draggable="false"
+            />
+            <strong class="weekly-ranking-card__nickname">{{
+              record.nickname
+            }}</strong>
+          </div>
+          <i class="weekly-ranking-card__bar" />
         </div>
       </div>
     </div>
-
-    <footer class="weekly-ranking-card__actions">
-      <RouterLink to="/ranking">내 순위 {{ game.myRank }}위</RouterLink>
-    </footer>
   </article>
 </template>
 
@@ -61,9 +76,9 @@ function getBarHeight(record: RankingRecord) {
 .weekly-ranking-card {
   display: grid;
   min-width: 0;
-  min-height: 288px;
-  grid-template-rows: auto 1fr auto;
-  padding: 18px 18px 14px;
+  min-height: 334px;
+  grid-template-rows: auto 1fr;
+  padding: 18px;
   border: 1px solid var(--card-line, #dadbf9);
   border-radius: 18px;
   background: linear-gradient(145deg, var(--card-background, #fbfbff), #fff);
@@ -98,6 +113,13 @@ function getBarHeight(record: RankingRecord) {
   --button-color: #ae6822;
 }
 
+.weekly-ranking-card--sky {
+  --card-line: #c9e7f3;
+  --card-background: #f4fcff;
+  --bar-color: #45a9d0;
+  --button-color: #237b9d;
+}
+
 .weekly-ranking-card__header {
   display: flex;
   align-items: center;
@@ -111,10 +133,9 @@ function getBarHeight(record: RankingRecord) {
 }
 
 .weekly-ranking-card__header div {
-  display: flex;
+  display: grid;
   min-width: 0;
   align-items: center;
-  gap: 8px;
 }
 
 .weekly-ranking-card__header h3 {
@@ -124,33 +145,46 @@ function getBarHeight(record: RankingRecord) {
   letter-spacing: -0.05em;
 }
 
-.weekly-ranking-card__header span {
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  border-radius: 999px;
-  color: var(--button-color);
-  background: rgba(255, 255, 255, 0.74);
-  font-size: 11px;
-  font-weight: 800;
-}
-
 .weekly-ranking-card__chart {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  min-height: 142px;
+  gap: 18px;
+  min-height: 238px;
   align-items: end;
-  padding: 10px 8px 0;
+  padding: 12px 5px 0;
 }
 
 .weekly-ranking-card__record {
-  display: grid;
+  display: flex;
   min-width: 0;
-  grid-template-rows: auto auto 1fr;
-  justify-items: center;
-  gap: 2px;
   height: 100%;
-  text-align: center;
+  align-items: end;
+}
+
+.weekly-ranking-card__podium {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.weekly-ranking-card__player {
+  position: absolute;
+  bottom: calc(var(--podium-height) + 12px);
+  left: 0;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 3px;
+}
+
+.weekly-ranking-card__avatar {
+  width: 42px;
+  height: 42px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--card-background);
 }
 
 .weekly-ranking-card__medal {
@@ -166,60 +200,56 @@ function getBarHeight(record: RankingRecord) {
 }
 
 .weekly-ranking-card__medal--1 {
-  background: #f3b515;
+  color: #614600;
+  background: #f3c64f;
+  box-shadow: inset 0 0 0 2px #dca819;
+}
+
+.weekly-ranking-card__medal--2 {
+  color: #46505d;
+  background: #d9dee6;
+  box-shadow: inset 0 0 0 2px #aeb6c2;
 }
 
 .weekly-ranking-card__medal--3 {
-  background: #d87b2b;
+  color: #fff;
+  background: #c77b43;
+  box-shadow: inset 0 0 0 2px #a65e2d;
 }
 
-.weekly-ranking-card__record strong {
+.weekly-ranking-card__nickname {
+  display: block;
+  width: 100%;
+  overflow: hidden;
   color: var(--color-ink);
-  font-size: 14px;
-  line-height: 1.1;
-}
-
-.weekly-ranking-card__record small {
-  display: block;
-  color: var(--color-muted);
-  font-size: 10px;
-}
-
-.weekly-ranking-card__bar-track {
-  display: flex;
-  width: 100%;
-  min-height: 70px;
-  align-items: end;
-  border-bottom: 1px solid rgba(104, 112, 139, 0.15);
-}
-
-.weekly-ranking-card__bar-track i {
-  display: block;
-  width: 100%;
-  border-radius: 6px 6px 0 0;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bar-color), white 10%),
-    var(--bar-color)
-  );
-}
-
-.weekly-ranking-card__actions {
-  margin-top: 13px;
-}
-
-.weekly-ranking-card__actions a {
-  display: grid;
-  width: 100%;
-  min-height: 33px;
-  place-items: center;
-  padding: 6px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  color: var(--button-color);
-  background: rgba(255, 255, 255, 0.54);
   font-size: 12px;
-  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.weekly-ranking-card__bar {
+  position: absolute;
+  bottom: 0;
+  left: 16%;
+  display: block;
+  width: 68%;
+  height: var(--podium-height);
+  border-radius: 7px 7px 0 0;
+  background: var(--bar-color);
+}
+
+.weekly-ranking-card__record--1 .weekly-ranking-card__avatar {
+  width: 48px;
+  height: 48px;
+}
+
+.weekly-ranking-card__record--2 .weekly-ranking-card__bar {
+  opacity: 0.68;
+}
+
+.weekly-ranking-card__record--3 .weekly-ranking-card__bar {
+  opacity: 0.38;
 }
 </style>

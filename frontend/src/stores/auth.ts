@@ -1,28 +1,33 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { mockAuthenticatedUser } from '../mocks/auth'
-import type { AuthDialogScreen, AuthStatus } from '../types/auth'
+import { generateMockNickname, mockAuthenticatedUser } from '../mocks/auth'
+import type {
+  AuthDialogScreen,
+  AuthStatus,
+  MockAuthenticatedUser,
+} from '../types/auth'
 
 export const useAuthStore = defineStore('auth', () => {
-  const status = ref<AuthStatus>('signed-out')
+  const status = ref<AuthStatus>('guest')
   const isDialogOpen = ref(false)
   const dialogScreen = ref<AuthDialogScreen>('login')
+  const user = ref<MockAuthenticatedUser>({ ...mockAuthenticatedUser })
 
   const isAuthenticated = computed(() => status.value === 'authenticated')
   const isGuest = computed(() => status.value === 'guest')
-  const displayName = computed(() => {
-    if (isAuthenticated.value) return mockAuthenticatedUser.nickname
-    if (isGuest.value) return '게스트 플레이어'
-    return '로그인 필요'
-  })
+  const displayName = computed(() =>
+    isAuthenticated.value
+      ? user.value.nickname
+      : '\uAC8C\uC2A4\uD2B8 \uD50C\uB808\uC774\uC5B4',
+  )
 
   function openLogin() {
     dialogScreen.value = 'login'
     isDialogOpen.value = true
   }
 
-  function openGuestGuide() {
-    dialogScreen.value = 'guest'
+  function openSignup() {
+    dialogScreen.value = 'signup'
     isDialogOpen.value = true
   }
 
@@ -35,13 +40,16 @@ export const useAuthStore = defineStore('auth', () => {
     closeDialog()
   }
 
-  function continueAsGuest() {
-    status.value = 'guest'
+  function registerMockUser() {
+    const nickname = generateMockNickname()
+    user.value = { ...mockAuthenticatedUser, nickname }
+    status.value = 'authenticated'
     closeDialog()
+    return nickname
   }
 
   function signOut() {
-    status.value = 'signed-out'
+    status.value = 'guest'
     closeDialog()
   }
 
@@ -52,12 +60,12 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isGuest,
     displayName,
-    user: mockAuthenticatedUser,
+    user,
     openLogin,
-    openGuestGuide,
+    openSignup,
     closeDialog,
     signInWithMockKakao,
-    continueAsGuest,
+    registerMockUser,
     signOut,
   }
 })
