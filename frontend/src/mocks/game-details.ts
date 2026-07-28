@@ -22,7 +22,7 @@ const standardModes: GamePlayMode[] = [
 export const gameDetails: Record<GameDetailId, GameDetail> = {
   air: {
     id: 'air',
-    title: '에어하키',
+    title: 'Eye Hockey (에어 하키)',
     subtitle: '시선으로 패들을 움직여 상대 골문에 퍽을 넣어보세요!',
     image: gameAirMainImage,
     mascotImage,
@@ -42,7 +42,7 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
   },
   hold: {
     id: 'hold',
-    title: '눈싸움',
+    title: 'Eye See (눈싸움)',
     subtitle: '상대와 눈을 마주치고, 마지막까지 눈을 깜빡이지 마세요!',
     image: gameSnowMainImage,
     mascotImage: gameBlinkImage,
@@ -58,7 +58,7 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
   },
   draw: {
     id: 'draw',
-    title: '눈으로 그리기',
+    title: 'Eye Draw (눈으로 그리기)',
     subtitle: '주어진 주제를 시선으로 따라가며 그림을 완성해보세요!',
     image: gameDrawMainImage,
     mascotImage: gameDrawImage,
@@ -80,7 +80,7 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
   },
   rhythm: {
     id: 'rhythm',
-    title: '리듬 게임',
+    title: 'Blink the Beat (리듬 게임)',
     subtitle: '리듬에 맞춰 시선 신호를 보내고 콤보를 이어가보세요!',
     image: gameRhythmMainImage,
     mascotImage: gameWaveImage,
@@ -96,7 +96,7 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
   },
   blink: {
     id: 'blink',
-    title: '눈 깜빡이기',
+    title: 'Eye Show Speed (눈 깜빡이기)',
     subtitle: '20초 안에 정확하게 깜빡이고 미션을 완수해요!',
     image: gameBlinkMainImage,
     mascotImage: gameBlinkImage,

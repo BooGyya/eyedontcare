@@ -2,7 +2,7 @@ import gameAirImage from '../assets/images/games/game-air.png'
 import gameBlinkImage from '../assets/images/games/game-blink.png'
 import gameDrawImage from '../assets/images/games/game-draw.png'
 import gameHoldImage from '../assets/images/games/game-hold.png'
-import gameWaveImage from '../assets/images/games/game-wave.png'
+import gameRhythmMainImage from '../assets/images/games/game-rhythm-main.png'
 import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
 import teamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
 import athleteProfile from '../assets/images/profiles/profile-athlete.png'
@@ -46,7 +46,7 @@ export const gameCatalog: GameCatalogItem[] = [
     id: 'rhythm',
     title: '리듬 게임',
     description: '리듬에 맞춰 시선 신호를 보내는 준비 중 게임입니다.',
-    image: gameWaveImage,
+    image: gameRhythmMainImage,
     category: '리듬',
     status: 'coming-soon',
   },
