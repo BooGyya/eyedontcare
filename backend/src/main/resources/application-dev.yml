@@ -1,6 +1,8 @@
 app:
   cors:
     allowed-origins: http://localhost:5173
+  jwt:
+    secret: ${JWT_SECRET_KEY}
 
 spring:
   datasource:
@@ -19,3 +21,4 @@ spring:
   sql:
     init:
       mode: always
+
