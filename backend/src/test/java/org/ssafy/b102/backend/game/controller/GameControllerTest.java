@@ -42,7 +42,7 @@ class GameControllerTest {
 			.andExpect(jsonPath("$.message").value("게임 목록을 조회했습니다."))
 			.andExpect(jsonPath("$.data.games[0].gameId").value(1))
 			.andExpect(jsonPath("$.data.games[0].gameName").value("EYEFIGHT"))
-			.andExpect(jsonPath("$.data.games[0].playMode").value("MULTI"));
+			.andExpect(jsonPath("$.data.games[0].playMode").value("RANDOM"));
 	}
 
 	@Test
@@ -53,7 +53,7 @@ class GameControllerTest {
 			.andExpect(jsonPath("$.message").value("게임 상세를 조회했습니다."))
 			.andExpect(jsonPath("$.data.gameId").value(1))
 			.andExpect(jsonPath("$.data.gameName").value("EYEFIGHT"))
-			.andExpect(jsonPath("$.data.playMode").value("MULTI"))
+			.andExpect(jsonPath("$.data.playMode").value("RANDOM"))
 			.andExpect(jsonPath("$.data.difficulty").value(2));
 	}
 
@@ -82,7 +82,7 @@ class GameControllerTest {
 		@Override
 		public GameListResponse getGames() {
 			return new GameListResponse(
-				List.of(new GameSummaryResponse(EXISTING_GAME_ID, GameName.EYEFIGHT, PlayMode.MULTI))
+				List.of(new GameSummaryResponse(EXISTING_GAME_ID, GameName.EYEFIGHT, PlayMode.RANDOM))
 			);
 		}
 
@@ -92,7 +92,7 @@ class GameControllerTest {
 				throw new BusinessException(GameErrorCode.GAME_NOT_FOUND);
 			}
 
-			return new GameDetailResponse(EXISTING_GAME_ID, GameName.EYEFIGHT, PlayMode.MULTI, 2);
+			return new GameDetailResponse(EXISTING_GAME_ID, GameName.EYEFIGHT, PlayMode.RANDOM, 2);
 		}
 	}
 }
