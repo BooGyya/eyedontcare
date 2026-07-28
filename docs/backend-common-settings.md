@@ -5,7 +5,9 @@
 ## 적용 범위
 
 - 일반 JSON 성공 응답은 `ApiResponse<T>`로 감쌉니다.
-- 일반 JSON 오류 응답도 `ApiResponse<Void>`로 반환합니다.
+- 일반 JSON 오류 응답도 `ApiResponse<T>` 형식으로 반환합니다.
+- 추가 응답 데이터가 없는 경우 `data`는 JSON에서 생략합니다.
+- 필드 검증 오류는 `data.fieldErrors`에 포함합니다.
 - 응답 본문을 감싸더라도 상황에 맞는 HTTP 상태 코드를 사용합니다.
 - 서비스 계층은 HTTP 응답 타입에 의존하지 않습니다.
 - JPA 엔티티의 생성·수정 시간은 `BaseTimeEntity`로 관리합니다.
@@ -29,7 +31,8 @@ org.ssafy.b102.backend.global
 │   │   └── BaseTimeEntity
 │   └── response
 │       ├── ApiResponse
-│       └── SuccessCode
+│       ├── ValidationError
+│       └── ValidationErrorResponse
 ├── config
 │   └── JpaAuditingConfig
 └── error
@@ -72,11 +75,12 @@ flowchart TD
 | --- | --- | --- |
 | `code` | `String` | 클라이언트가 분기 처리할 응답 코드 |
 | `message` | `String` | 사용자에게 제공할 안전한 메시지 |
-| `data` | `T` | 응답 데이터. 없으면 `null` |
+| `data` | `T` | 추가 응답 데이터. 값이 `null`이면 JSON에서 생략 |
 
-응답 본문은 항상 이 세 필드로 구성됩니다. `data`가 없어도 키를 생략하지 않고 `null`로 내려 클라이언트가 동일한 구조를 받도록 합니다.
+`code`와 `message`는 일반 JSON 응답에 항상 포함합니다.
+`data`는 전달할 추가 정보가 있을 때만 포함합니다.
 
-성공 여부는 별도 필드가 아니라 HTTP 상태 코드와 `code` 값으로 판단합니다.
+`204 No Content`는 공통 응답 객체를 반환하지 않고 응답 본문 자체를 비웁니다.
 
 ### 성공 응답
 
@@ -123,12 +127,11 @@ ApiResponse.success("회원 생성에 성공했습니다.", response);
 ```json
 {
   "code": "MEMBER-001",
-  "message": "회원을 찾을 수 없습니다.",
-  "data": null
+  "message": "회원을 찾을 수 없습니다."
 }
 ```
 
-오류 응답을 커스텀 형식으로 반환하더라도 오류를 `200 OK`로 반환하지 않습니다. 위 예시에서 회원이 존재하지 않으면 HTTP 상태는 `404 Not Found`입니다.
+오류 응답을 커스텀 형식으로 반환하더라도 오류를 `200 OK`로 반환하지 않습니다.
 
 ### 검증 오류 응답
 
@@ -136,13 +139,19 @@ ApiResponse.success("회원 생성에 성공했습니다.", response);
 {
   "code": "COMMON-001",
   "message": "요청 값이 올바르지 않습니다.",
-  "data": null
+  "data": {
+    "fieldErrors": [
+      {
+        "field": "email",
+        "reason": "이메일 형식이 올바르지 않습니다."
+      }
+    ]
+  }
 }
 ```
 
-검증 실패도 동일한 세 필드로 응답합니다. 어떤 필드가 왜 실패했는지는 응답에 포함하지 않으므로, 클라이언트가 입력 규칙을 함께 관리해야 합니다.
-
-사용자가 입력한 `rejectedValue`는 어떤 경우에도 응답에 포함하지 않습니다. 비밀번호, 인증 코드, 토큰과 같은 값이 노출될 수 있기 때문입니다.
+여러 입력 필드의 검증 오류는 `data.fieldErrors`에 포함합니다.
+보안상 사용자가 입력한 `rejectedValue`는 응답에 포함하지 않습니다.
 
 ## HTTP 상태 사용 규칙
 
@@ -240,9 +249,9 @@ public MemberResponse getMember(Long memberId) {
 | 예외 | 응답 |
 | --- | --- |
 | `BusinessException` | 예외가 가진 `ErrorCode`의 상태와 코드 |
-| `MethodArgumentNotValidException` | 400, `COMMON-001` |
-| `HandlerMethodValidationException` | 400, `COMMON-001` |
-| `ConstraintViolationException` | 400, `COMMON-001` |
+| `MethodArgumentNotValidException` | 400, `COMMON-001`, 필드 오류 포함 |
+| `HandlerMethodValidationException` | 400, `COMMON-001`, 파라미터 오류 포함 |
+| `ConstraintViolationException` | 400, `COMMON-001`, 제약 조건 오류 포함 |
 | `HttpMessageNotReadableException` | 400, `COMMON-002` |
 | 필수 파라미터 누락 | 400, `COMMON-003` |
 | 타입 불일치 | 400, `COMMON-004` |
