@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: backend
+  profiles:
+    default: dev
+  mvc:
+    problemdetails:
+      enabled: false
+  web:
+    error:
+      include-exception: false
+      include-message: never
+      include-stacktrace: never
+      include-binding-errors: never
+      include-path: always
+
+server:
+  port: ${SERVER_PORT:8080}

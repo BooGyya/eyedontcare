@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/backend}
+    username: ${SPRING_DATASOURCE_USERNAME:backend}
+    password: ${SPRING_DATASOURCE_PASSWORD:backend-local-password}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
