@@ -1,3 +1,4 @@
+import gameAirImage from '../assets/images/games/game-air.png'
 import gameBlinkImage from '../assets/images/games/game-blink.png'
 import gameDrawImage from '../assets/images/games/game-draw.png'
 import gameHoldImage from '../assets/images/games/game-hold.png'
@@ -5,6 +6,12 @@ import gameRhythmImage from '../assets/images/games/game-rhythm-main.png'
 import gameWaveImage from '../assets/images/games/game-wave.png'
 import discordLogoImage from '../assets/images/illustrations/discord-logo.png'
 import groupIllustrationImage from '../assets/images/illustrations/illustration-teamwork.png'
+import athleteProfile from '../assets/images/profiles/profile-athlete.png'
+import calmProfile from '../assets/images/profiles/profile-calm.png'
+import crownProfile from '../assets/images/profiles/profile-crown.png'
+import detectiveProfile from '../assets/images/profiles/profile-detective.png'
+import joyProfile from '../assets/images/profiles/profile-joy.png'
+import smileProfile from '../assets/images/profiles/profile-smile.png'
 import type { QuickAction, WeeklyRankingGame } from '../types/home'
 
 export const weeklyRankingGames: WeeklyRankingGame[] = [
@@ -16,9 +23,27 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     tone: 'purple',
     unit: '회',
     records: [
-      { rank: 2, value: 116, label: '116' },
-      { rank: 1, value: 128, label: '128' },
-      { rank: 3, value: 103, label: '103' },
+      {
+        rank: 2,
+        value: 116,
+        label: '116',
+        nickname: '초롱이',
+        avatar: joyProfile,
+      },
+      {
+        rank: 1,
+        value: 128,
+        label: '128',
+        nickname: '눈빛왕',
+        avatar: crownProfile,
+      },
+      {
+        rank: 3,
+        value: 103,
+        label: '103',
+        nickname: '반짝콩',
+        avatar: smileProfile,
+      },
     ],
     myRank: 7,
   },
@@ -30,23 +55,59 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     tone: 'mint',
     unit: '점',
     records: [
-      { rank: 2, value: 2230, label: '2230' },
-      { rank: 1, value: 2450, label: '2450' },
-      { rank: 3, value: 1980, label: '1980' },
+      {
+        rank: 2,
+        value: 2230,
+        label: '2230',
+        nickname: '몽글이',
+        avatar: athleteProfile,
+      },
+      {
+        rank: 1,
+        value: 2450,
+        label: '2450',
+        nickname: '선긋기달인',
+        avatar: detectiveProfile,
+      },
+      {
+        rank: 3,
+        value: 1980,
+        label: '1980',
+        nickname: '보라콩',
+        avatar: smileProfile,
+      },
     ],
     myRank: 5,
   },
   {
     id: 'stare',
-    title: '눈 오래 뜨기',
+    title: 'Eye-See',
     mode: '1 vs 1',
     image: gameHoldImage,
     tone: 'blue',
     unit: '초',
     records: [
-      { rank: 2, value: 79.3, label: '79.3' },
-      { rank: 1, value: 87.5, label: '87.5' },
-      { rank: 3, value: 72.1, label: '72.1' },
+      {
+        rank: 2,
+        value: 79.3,
+        label: '79.3',
+        nickname: '눈동자',
+        avatar: crownProfile,
+      },
+      {
+        rank: 1,
+        value: 87.5,
+        label: '87.5',
+        nickname: '집중마스터',
+        avatar: athleteProfile,
+      },
+      {
+        rank: 3,
+        value: 72.1,
+        label: '72.1',
+        nickname: '별빛',
+        avatar: detectiveProfile,
+      },
     ],
     myRank: 12,
   },
@@ -58,11 +119,61 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     tone: 'orange',
     unit: '회',
     records: [
-      { rank: 2, value: 487, label: '487' },
-      { rank: 1, value: 532, label: '532' },
-      { rank: 3, value: 421, label: '421' },
+      {
+        rank: 2,
+        value: 487,
+        label: '487',
+        nickname: '콤보 장인',
+        avatar: athleteProfile,
+      },
+      {
+        rank: 1,
+        value: 532,
+        label: '532',
+        nickname: '리듬의 별',
+        avatar: crownProfile,
+      },
+      {
+        rank: 3,
+        value: 421,
+        label: '421',
+        nickname: '눈빛 비트',
+        avatar: smileProfile,
+      },
     ],
     myRank: 9,
+  },
+  {
+    id: 'air',
+    title: '에어하키',
+    mode: '1 vs 1',
+    image: gameAirImage,
+    tone: 'sky',
+    unit: '점',
+    records: [
+      {
+        rank: 2,
+        value: 4980,
+        label: '4980',
+        nickname: '시선 골키퍼',
+        avatar: athleteProfile,
+      },
+      {
+        rank: 1,
+        value: 5260,
+        label: '5260',
+        nickname: '바람의 지배자',
+        avatar: detectiveProfile,
+      },
+      {
+        rank: 3,
+        value: 4640,
+        label: '4640',
+        nickname: '눈을 건강하게 지키는 플레이어',
+        avatar: calmProfile,
+      },
+    ],
+    myRank: 8,
   },
 ]
 

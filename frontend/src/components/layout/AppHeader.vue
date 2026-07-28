@@ -12,58 +12,64 @@ const { showToast } = useToast()
 
 function handleMemberNavigation(path: '/notifications' | '/settings') {
   if (auth.isAuthenticated) {
-    router.push(path)
+    void router.push(path)
     return
   }
 
-  showToast('이 기능은 로그인 후 이용할 수 있어요.')
+  showToast('Sign in is required for this page.')
   auth.openLogin()
 }
 </script>
 
 <template>
   <header class="app-header">
-    <RouterLink class="app-header__brand" to="/" aria-label="eye dont care 홈">
-      <img :src="logoImage" alt="eye dont care" />
-    </RouterLink>
-    <PrimaryNavigation />
-    <div class="app-header__actions">
-      <template v-if="auth.isAuthenticated">
-        <span class="app-header__coin"><i>●</i><b>1,250</b></span>
-        <button
-          class="app-header__icon-button"
-          type="button"
-          aria-label="알림"
-          @click="handleMemberNavigation('/notifications')"
-        >
-          ♧
-        </button>
-        <button
-          class="app-header__icon-button"
-          type="button"
-          aria-label="설정"
-          @click="handleMemberNavigation('/settings')"
-        >
-          ⚙
-        </button>
-        <ProfileMenu />
-      </template>
-      <template v-else>
-        <button
-          class="app-header__auth-button app-header__auth-button--quiet"
-          type="button"
-          @click="auth.openSignup"
-        >
-          회원가입
-        </button>
-        <button
-          class="app-header__auth-button"
-          type="button"
-          @click="auth.openLogin"
-        >
-          로그인
-        </button>
-      </template>
+    <div class="app-header__inner">
+      <RouterLink
+        class="app-header__brand"
+        to="/"
+        aria-label="eye dont care home"
+      >
+        <img :src="logoImage" alt="eye dont care" />
+      </RouterLink>
+      <PrimaryNavigation />
+      <div class="app-header__actions">
+        <template v-if="auth.isAuthenticated">
+          <span class="app-header__coin"><i>&#9679;</i><b>1,250</b></span>
+          <button
+            class="app-header__icon-button"
+            type="button"
+            aria-label="Notifications"
+            @click="handleMemberNavigation('/notifications')"
+          >
+            &#9827;
+          </button>
+          <button
+            class="app-header__icon-button"
+            type="button"
+            aria-label="Settings"
+            @click="handleMemberNavigation('/settings')"
+          >
+            &#9881;
+          </button>
+          <ProfileMenu />
+        </template>
+        <template v-else>
+          <button
+            class="app-header__auth-button app-header__auth-button--quiet"
+            type="button"
+            @click="auth.openSignup"
+          >
+            &#xD68C;&#xC6D0;&#xAC00;&#xC785;
+          </button>
+          <button
+            class="app-header__auth-button"
+            type="button"
+            @click="auth.openLogin"
+          >
+            &#xB85C;&#xADF8;&#xC778;
+          </button>
+        </template>
+      </div>
     </div>
   </header>
 </template>
@@ -73,13 +79,17 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 105px;
   height: 118px;
-  padding: 0 58px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(16px);
+}
+.app-header__inner {
+  display: flex;
+  width: min(1200px, calc(100% - 120px));
+  height: 100%;
+  align-items: center;
+  gap: 105px;
+  margin-inline: auto;
 }
 .app-header__brand {
   flex: 0 0 178px;
@@ -142,27 +152,22 @@ function handleMemberNavigation(path: '/notifications' | '/settings') {
 .app-header__auth-button--quiet:hover {
   background: var(--color-muted);
 }
-.app-header__guest-status {
-  padding: 6px 9px;
-  border-radius: var(--radius-button);
-  color: #536eb2;
-  background: var(--color-blue-soft);
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
 @media (max-width: 1100px) {
-  .app-header {
+  .app-header__inner {
+    width: min(900px, calc(100% - 52px));
     gap: 35px;
-    padding-inline: 26px;
   }
 }
 @media (max-width: 640px) {
   .app-header {
+    height: auto;
+  }
+  .app-header__inner {
+    width: calc(100% - 32px);
+    height: auto;
     flex-wrap: wrap;
     gap: 8px 16px;
-    height: auto;
-    padding: 8px 16px 0;
+    padding: 8px 0 0;
   }
   .app-header__brand {
     flex-basis: 105px;

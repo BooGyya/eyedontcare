@@ -15,10 +15,11 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => status.value === 'authenticated')
   const isGuest = computed(() => status.value === 'guest')
-  const displayName = computed(() => {
-    if (isAuthenticated.value) return user.value.nickname
-    return '게스트 플레이어'
-  })
+  const displayName = computed(() =>
+    isAuthenticated.value
+      ? user.value.nickname
+      : '\uAC8C\uC2A4\uD2B8 \uD50C\uB808\uC774\uC5B4',
+  )
 
   function openLogin() {
     dialogScreen.value = 'login'

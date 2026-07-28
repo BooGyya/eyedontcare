@@ -28,10 +28,10 @@ function handleLogout() {
       @click="isOpen = !isOpen"
     >
       <img class="profile-menu__avatar" :src="auth.user.avatar" alt="" />
-      <span class="profile-menu__meta"
-        ><strong>{{ auth.user.nickname }}</strong
-        ><small>Lv. {{ auth.user.level }}</small></span
-      >
+      <span class="profile-menu__meta">
+        <strong>{{ auth.user.nickname }}</strong
+        ><small>Lv. {{ auth.user.level }}</small>
+      </span>
     </button>
     <section
       v-if="isOpen"
@@ -44,10 +44,6 @@ function handleLogout() {
           <strong>{{ auth.user.nickname }}</strong
           ><span>Lv. {{ auth.user.level }} · 눈 건강 챌린저</span>
         </div>
-      </div>
-      <div class="profile-menu__stats">
-        <span><b>12,850</b>이번 주 점수</span><span><b>38</b>완료한 루틴</span
-        ><span><b>#04</b>친구 순위</span>
       </div>
       <RouterLink to="/profile" @click="closeMenu"
         >마이페이지 <span>→</span></RouterLink
@@ -91,8 +87,7 @@ function handleLogout() {
   font-size: 14px;
 }
 .profile-menu__meta small,
-.profile-menu__heading span,
-.profile-menu__stats {
+.profile-menu__heading span {
   color: var(--color-muted);
   font-size: 11px;
 }
@@ -121,23 +116,9 @@ function handleLogout() {
   object-fit: cover;
   background: var(--color-blue-soft);
 }
-.profile-menu__heading div,
-.profile-menu__stats span {
+.profile-menu__heading div {
   display: grid;
   gap: 2px;
-}
-.profile-menu__stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 12px 0;
-  border-top: 1px solid var(--color-line);
-  border-bottom: 1px solid var(--color-line);
-  text-align: center;
-}
-.profile-menu__stats b {
-  color: var(--color-ink);
-  font-size: 13px;
 }
 .profile-menu__panel a,
 .profile-menu__panel button {

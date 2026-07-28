@@ -7,21 +7,21 @@ import HomePage from './pages/HomePage.vue'
 import PendingPage from './pages/PendingPage.vue'
 
 describe('App', () => {
-  it('renders the home page and opens authentication from the signed-out header', async () => {
+  it('renders the home page and supports authentication entry from the header', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
         { path: '/', component: HomePage },
+        { path: '/games', component: PendingPage, props: { title: 'Games' } },
         {
-          path: '/games',
+          path: '/ranking',
           component: PendingPage,
-          props: { title: '게임 목록' },
+          props: { title: 'Ranking' },
         },
-        { path: '/ranking', component: PendingPage, props: { title: '랭킹' } },
         {
           path: '/community',
           component: PendingPage,
-          props: { title: '소모임' },
+          props: { title: 'Community' },
         },
       ],
     })
@@ -36,8 +36,16 @@ describe('App', () => {
       },
     })
 
-    await wrapper.get('.app-header__auth-button').trigger('click')
-    expect(wrapper.find('[aria-label="카카오로 시작하기"]').exists()).toBe(true)
+    const authActions = wrapper.findAll('.app-header__auth-button')
+    expect(authActions).toHaveLength(2)
+    expect(wrapper.find('.app-header__coin').exists()).toBe(false)
+    expect(wrapper.find('.app-header__icon-button').exists()).toBe(false)
+
+    await authActions[0]!.trigger('click')
+    expect(wrapper.find('#signup-email').exists()).toBe(true)
+
+    await wrapper.get('.auth-dialog__switch button').trigger('click')
+    expect(wrapper.find('#login-email').exists()).toBe(true)
 
     await wrapper.get('[data-testid="start-games"]').trigger('click')
     await flushPromises()

@@ -52,13 +52,13 @@ function validateSignup() {
   signupErrors.email = signupForm.email
     ? isValidEmail(signupForm.email)
       ? ''
-      : '이메일 형식을 확인해주세요.'
-    : '이메일을 입력해주세요.'
+      : '\uC774\uBA54\uC77C \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.'
+    : '\uC774\uBA54\uC77C\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.'
   signupErrors.password = signupForm.password
     ? signupForm.password.length >= 8
       ? ''
-      : '비밀번호는 8자 이상 입력해주세요.'
-    : '비밀번호를 입력해주세요.'
+      : '\uBE44\uBC00\uBC88\uD638\uB294 8\uC790 \uC774\uC0C1 \uC785\uB825\uD574\uC8FC\uC138\uC694.'
+    : '\uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.'
   return !Object.values(signupErrors).some(Boolean)
 }
 
@@ -66,33 +66,39 @@ function validateLogin() {
   loginErrors.email = loginForm.email
     ? isValidEmail(loginForm.email)
       ? ''
-      : '이메일 형식을 확인해주세요.'
-    : '이메일을 입력해주세요.'
+      : '\uC774\uBA54\uC77C \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.'
+    : '\uC774\uBA54\uC77C\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.'
   loginErrors.password = loginForm.password
     ? loginForm.password.length >= 8
       ? ''
-      : '비밀번호는 8자 이상 입력해주세요.'
-    : '비밀번호를 입력해주세요.'
+      : '\uBE44\uBC00\uBC88\uD638\uB294 8\uC790 \uC774\uC0C1 \uC785\uB825\uD574\uC8FC\uC138\uC694.'
+    : '\uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.'
 
   return !Object.values(loginErrors).some(Boolean)
 }
 
 function handleMockKakaoLogin() {
   auth.signInWithMockKakao()
-  showToast('카카오 연동 없이 mock 인증 상태로 전환했어요.')
+  showToast(
+    '\uCE74\uCE74\uC624 \uC5F0\uB3D9 \uC5C6\uC774 mock \uC778\uC99D \uC0C1\uD0DC\uB85C \uC804\uD658\uD588\uC5B4\uC694.',
+  )
 }
 
 function handleSignupSubmit() {
   if (!validateSignup()) return
   const nickname = auth.registerMockUser()
-  showToast(`${nickname}님, mock 가입으로 환영해요!`)
+  showToast(
+    `${nickname}\uB2D8, mock \uAC00\uC785\uC73C\uB85C \uD658\uC601\uD574\uC694!`,
+  )
   clearForms()
 }
 
 function handleLoginSubmit() {
   if (!validateLogin()) return
   auth.signInWithMockKakao()
-  showToast('이메일 정보는 저장하지 않고 mock 인증으로 전환했어요.')
+  showToast(
+    '\uC774\uBA54\uC77C \uC815\uBCF4\uB294 \uC800\uC7A5\uD558\uC9C0 \uC54A\uACE0 mock \uC778\uC99D\uC73C\uB85C \uC804\uD658\uD588\uC5B4\uC694.',
+  )
   clearForms()
 }
 
@@ -144,22 +150,25 @@ onBeforeUnmount(() => {
         <button
           class="auth-dialog__close"
           type="button"
-          aria-label="인증 창 닫기"
+          aria-label="&#xC778;&#xC99D; &#xCC3D; &#xB2EB;&#xAE30;"
           @click="closeDialog"
         >
-          ×
+          &#xD7;
         </button>
 
         <template v-if="auth.dialogScreen === 'signup'">
-          <h2 id="auth-dialog-title">반가워요!</h2>
-          <p>눈으로 즐기는 게임을 시작해요.</p>
+          <h2 id="auth-dialog-title">&#xBC18;&#xAC00;&#xC6CC;&#xC694;!</h2>
+          <p>
+            &#xB208;&#xC73C;&#xB85C; &#xC990;&#xAE30;&#xB294;
+            &#xAC8C;&#xC784;&#xC744; &#xC2DC;&#xC791;&#xD574;&#xC694;.
+          </p>
           <div class="auth-dialog__signup-panel">
             <form
               class="auth-dialog__form"
               novalidate
               @submit.prevent="handleSignupSubmit"
             >
-              <label for="signup-email">이메일</label>
+              <label for="signup-email">&#xC774;&#xBA54;&#xC77C;</label>
               <input
                 id="signup-email"
                 v-model="signupForm.email"
@@ -176,7 +185,9 @@ onBeforeUnmount(() => {
               >
                 {{ signupErrors.email }}
               </p>
-              <label for="signup-password">비밀번호</label>
+              <label for="signup-password"
+                >&#xBE44;&#xBC00;&#xBC88;&#xD638;</label
+              >
               <input
                 id="signup-password"
                 v-model="signupForm.password"
@@ -193,38 +204,51 @@ onBeforeUnmount(() => {
                 {{ signupErrors.password }}
               </p>
               <button class="auth-dialog__submit" type="submit">
-                회원가입
+                &#xD68C;&#xC6D0;&#xAC00;&#xC785;
               </button>
             </form>
             <p class="auth-dialog__switch">
-              이미 계정이 있나요?
-              <button type="button" @click="auth.openLogin">로그인</button>
+              &#xC774;&#xBBF8; &#xACC4;&#xC815;&#xC774;
+              &#xC788;&#xB098;&#xC694;?
+              <button type="button" @click="auth.openLogin">
+                &#xB85C;&#xADF8;&#xC778;
+              </button>
             </p>
           </div>
           <div class="auth-dialog__social-login">
-            <span>소셜 계정으로 시작하기</span>
+            <span
+              >&#xC18C;&#xC15C; &#xACC4;&#xC815;&#xC73C;&#xB85C;
+              &#xC2DC;&#xC791;&#xD558;&#xAE30;</span
+            >
             <button
               type="button"
-              aria-label="카카오로 시작하기"
+              aria-label="&#xCE74;&#xCE74;&#xC624;&#xB85C; &#xC2DC;&#xC791;&#xD558;&#xAE30;"
               @click="handleMockKakaoLogin"
             >
               <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
                 <img :src="kakaoTalkIcon" alt="" />
               </span>
-              <span>카카오 계정으로 시작하기</span>
+              <span
+                >&#xCE74;&#xCE74;&#xC624; &#xACC4;&#xC815;&#xC73C;&#xB85C;
+                &#xC2DC;&#xC791;&#xD558;&#xAE30;</span
+              >
             </button>
           </div>
         </template>
 
         <template v-else>
-          <h2 id="auth-dialog-title">로그인</h2>
-          <p>다시 만나서 반가워요. 게임을 이어서 즐겨요.</p>
+          <h2 id="auth-dialog-title">&#xB85C;&#xADF8;&#xC778;</h2>
+          <p>
+            &#xB2E4;&#xC2DC; &#xB9CC;&#xB098;&#xC11C;
+            &#xBC18;&#xAC00;&#xC6CC;&#xC694;. &#xAC8C;&#xC784;&#xC744;
+            &#xC774;&#xC5B4;&#xC11C; &#xC990;&#xACA8;&#xC694;.
+          </p>
           <form
             class="auth-dialog__form"
             novalidate
             @submit.prevent="handleLoginSubmit"
           >
-            <label for="login-email">이메일</label>
+            <label for="login-email">&#xC774;&#xBA54;&#xC77C;</label>
             <input
               id="login-email"
               v-model="loginForm.email"
@@ -237,7 +261,7 @@ onBeforeUnmount(() => {
             <p id="login-email-error" class="auth-dialog__error" role="alert">
               {{ loginErrors.email }}
             </p>
-            <label for="login-password">비밀번호</label>
+            <label for="login-password">&#xBE44;&#xBC00;&#xBC88;&#xD638;</label>
             <input
               id="login-password"
               v-model="loginForm.password"
@@ -253,23 +277,33 @@ onBeforeUnmount(() => {
             >
               {{ loginErrors.password }}
             </p>
-            <button class="auth-dialog__submit" type="submit">로그인</button>
+            <button class="auth-dialog__submit" type="submit">
+              &#xB85C;&#xADF8;&#xC778;
+            </button>
           </form>
           <p class="auth-dialog__switch">
-            처음이신가요?
-            <button type="button" @click="auth.openSignup">회원가입</button>
+            &#xCC98;&#xC74C;&#xC774;&#xC2E0;&#xAC00;&#xC694;?
+            <button type="button" @click="auth.openSignup">
+              &#xD68C;&#xC6D0;&#xAC00;&#xC785;
+            </button>
           </p>
           <div class="auth-dialog__social-login">
-            <span>소셜 계정으로 로그인</span>
+            <span
+              >&#xC18C;&#xC15C; &#xACC4;&#xC815;&#xC73C;&#xB85C;
+              &#xB85C;&#xADF8;&#xC778;</span
+            >
             <button
               type="button"
-              aria-label="카카오로 로그인"
+              aria-label="&#xCE74;&#xCE74;&#xC624;&#xB85C; &#xB85C;&#xADF8;&#xC778;"
               @click="handleMockKakaoLogin"
             >
               <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
                 <img :src="kakaoTalkIcon" alt="" />
               </span>
-              <span>카카오 계정으로 로그인</span>
+              <span
+                >&#xCE74;&#xCE74;&#xC624; &#xACC4;&#xC815;&#xC73C;&#xB85C;
+                &#xB85C;&#xADF8;&#xC778;</span
+              >
             </button>
           </div>
         </template>
