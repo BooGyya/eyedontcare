@@ -38,7 +38,6 @@ class GameControllerTest {
 	void getGamesReturnsWrappedGameList() throws Exception {
 		mockMvc.perform(get("/api/v1/games"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.code").value("GAME_LIST_FOUND"))
 			.andExpect(jsonPath("$.message").value("게임 목록을 조회했습니다."))
 			.andExpect(jsonPath("$.data.games[0].gameId").value(1))
@@ -50,7 +49,6 @@ class GameControllerTest {
 	void getGameReturnsWrappedGameDetail() throws Exception {
 		mockMvc.perform(get("/api/v1/games/{gameId}", EXISTING_GAME_ID))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.code").value("GAME_FOUND"))
 			.andExpect(jsonPath("$.message").value("게임 상세를 조회했습니다."))
 			.andExpect(jsonPath("$.data.gameId").value(1))
@@ -63,7 +61,6 @@ class GameControllerTest {
 	void getGameReturnsNotFoundWhenGameDoesNotExist() throws Exception {
 		mockMvc.perform(get("/api/v1/games/{gameId}", MISSING_GAME_ID))
 			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("GAME-001"))
 			.andExpect(jsonPath("$.message").value("게임을 찾을 수 없습니다."))
 			.andExpect(jsonPath("$.data").doesNotExist());
@@ -73,7 +70,6 @@ class GameControllerTest {
 	void getGameReturnsBadRequestWhenGameIdIsNotNumeric() throws Exception {
 		mockMvc.perform(get("/api/v1/games/{gameId}", "not-a-number"))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("COMMON-004"));
 	}
 

@@ -1,6 +1,7 @@
 package org.ssafy.b102.backend.global.error;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,23 +39,28 @@ class GlobalExceptionHandlerTest {
 		mockMvc.perform(get("/test/business"))
 			.andExpect(status().isConflict())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("TEST-409"))
 			.andExpect(jsonPath("$.message").value("이미 존재하는 테스트 데이터입니다."))
-			.andExpect(jsonPath("$.data").doesNotExist())
-			.andExpect(jsonPath("$.errors").doesNotExist());
+			.andExpect(jsonPath("$.errors").doesNotExist())
+			.andExpect(content().string(containsString("\"data\":null")));
 	}
 
 	@Test
-	void invalidRequestBodyReturnsFieldValidationErrors() throws Exception {
+	void responseContainsOnlyCodeMessageAndData() throws Exception {
+		mockMvc.perform(get("/test/business"))
+			.andExpect(jsonPath("$.*", hasSize(3)))
+			.andExpect(jsonPath("$.success").doesNotExist());
+	}
+
+	@Test
+	void invalidRequestBodyReturnsCommonValidationError() throws Exception {
 		mockMvc.perform(post("/test/validation")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"name\":\"\"}"))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("COMMON-001"))
-			.andExpect(jsonPath("$.errors[0].field").value("name"))
-			.andExpect(jsonPath("$.errors[0].reason").value("이름은 필수입니다."));
+			.andExpect(jsonPath("$.message").value("요청 값이 올바르지 않습니다."))
+			.andExpect(jsonPath("$.errors").doesNotExist());
 	}
 
 	@Test
@@ -63,7 +69,6 @@ class GlobalExceptionHandlerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"name\":"))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("COMMON-002"))
 			.andExpect(jsonPath("$.message").value("요청 본문을 읽을 수 없습니다."));
 	}
@@ -72,7 +77,6 @@ class GlobalExceptionHandlerTest {
 	void unsupportedHttpMethodReturnsMethodNotAllowedResponse() throws Exception {
 		mockMvc.perform(post("/test/only-get"))
 			.andExpect(status().isMethodNotAllowed())
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("COMMON-405"));
 	}
 
@@ -80,7 +84,6 @@ class GlobalExceptionHandlerTest {
 	void unexpectedExceptionDoesNotExposeInternalMessage() throws Exception {
 		mockMvc.perform(get("/test/unexpected"))
 			.andExpect(status().isInternalServerError())
-			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("COMMON-500"))
 			.andExpect(jsonPath("$.message").value("서버 내부 오류가 발생했습니다."))
 			.andExpect(content().string(not(containsString("secret-internal-message"))));
