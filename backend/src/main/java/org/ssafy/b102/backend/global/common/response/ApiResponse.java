@@ -2,6 +2,7 @@ package org.ssafy.b102.backend.global.common.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
+import java.util.Objects;
 import org.ssafy.b102.backend.global.error.ErrorCode;
 
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -26,6 +27,12 @@ public record ApiResponse<T>(
 
 	public static <T> ApiResponse<T> success(String message, T data) {
 		return new ApiResponse<>(true, SUCCESS_CODE, message, data, List.of());
+	}
+
+	public static <T> ApiResponse<T> success(SuccessCode successCode, T data) {
+		Objects.requireNonNull(successCode, "successCode는 null일 수 없습니다.");
+
+		return new ApiResponse<>(true, successCode.code(), successCode.message(), data, List.of());
 	}
 
 	public static ApiResponse<Void> error(ErrorCode errorCode) {
