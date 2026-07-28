@@ -4,7 +4,9 @@ import org.ssafy.b102.backend.global.common.response.SuccessCode;
 
 public enum GameResultSuccessCode implements SuccessCode {
 
-	RESULT_SUBMITTED("RESULT_SUBMITTED", "게임 결과가 저장되었습니다.");
+	RESULT_SUBMITTED("RESULT_SUBMITTED", "게임 결과가 저장되었습니다."),
+	RESULT_LIST_FOUND("RESULT_LIST_FOUND", "경기 기록 목록을 조회했습니다."),
+	RESULT_FOUND("RESULT_FOUND", "경기 기록을 조회했습니다.");
 
 	private final String code;
 	private final String message;

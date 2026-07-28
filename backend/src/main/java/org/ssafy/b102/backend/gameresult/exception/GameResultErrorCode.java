@@ -29,6 +29,21 @@ public enum GameResultErrorCode implements ErrorCode {
 		HttpStatus.BAD_REQUEST,
 		"GAMERESULT-005",
 		"경기 시작 시각과 종료 시각이 올바르지 않습니다."
+	),
+	MEMBER_ONLY(
+		HttpStatus.FORBIDDEN,
+		"GAMERESULT-006",
+		"회원만 조회할 수 있습니다."
+	),
+	RESULT_NOT_FOUND(
+		HttpStatus.NOT_FOUND,
+		"GAMERESULT-007",
+		"경기 기록을 찾을 수 없습니다."
+	),
+	RESULT_ACCESS_DENIED(
+		HttpStatus.FORBIDDEN,
+		"GAMERESULT-008",
+		"본인이 참가한 경기만 조회할 수 있습니다."
 	);
 
 	private final HttpStatus status;
