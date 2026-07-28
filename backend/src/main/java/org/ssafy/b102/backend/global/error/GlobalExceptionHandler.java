@@ -1,17 +1,13 @@
 package org.ssafy.b102.backend.global.error;
 
 import jakarta.validation.ConstraintViolationException;
-import java.util.List;
-import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
-import org.springframework.context.MessageSourceResolvable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -25,7 +21,6 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.ssafy.b102.backend.global.common.response.ApiResponse;
-import org.ssafy.b102.backend.global.common.response.ValidationError;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
@@ -44,14 +39,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	protected ResponseEntity<ApiResponse<Void>> handleConstraintViolationException(
 		ConstraintViolationException exception
 	) {
-		List<ValidationError> errors = exception.getConstraintViolations().stream()
-			.map(violation -> new ValidationError(
-				violation.getPropertyPath().toString(),
-				violation.getMessage()
-			))
-			.toList();
+		log.warn("요청 값 검증에 실패했습니다. violations={}", exception.getConstraintViolations().size());
 
-		return ResponseEntity.badRequest().body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors));
+		return ResponseEntity.badRequest().body(ApiResponse.error(CommonErrorCode.INVALID_INPUT));
 	}
 
 	@ExceptionHandler(Exception.class)
@@ -69,13 +59,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		HttpStatusCode status,
 		WebRequest request
 	) {
-		List<ValidationError> errors = exception.getBindingResult().getFieldErrors().stream()
-			.map(error -> new ValidationError(error.getField(), error.getDefaultMessage()))
-			.toList();
+		log.warn("요청 본문 검증에 실패했습니다. errors={}", exception.getBindingResult().getFieldErrorCount());
 
 		return handleExceptionInternal(
 			exception,
-			ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors),
+			ApiResponse.error(CommonErrorCode.INVALID_INPUT),
 			headers,
 			status,
 			request
@@ -89,15 +77,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		HttpStatusCode status,
 		WebRequest request
 	) {
-		Stream<ValidationError> parameterErrors = exception.getParameterValidationResults().stream()
-			.flatMap(this::toValidationErrors);
-		Stream<ValidationError> crossParameterErrors = exception.getCrossParameterValidationResults().stream()
-			.map(error -> new ValidationError("request", resolveMessage(error)));
-		List<ValidationError> errors = Stream.concat(parameterErrors, crossParameterErrors).toList();
+		log.warn("요청 파라미터 검증에 실패했습니다.");
 
 		return handleExceptionInternal(
 			exception,
-			ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors),
+			ApiResponse.error(CommonErrorCode.INVALID_INPUT),
 			headers,
 			status,
 			request
@@ -245,22 +229,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 			: ApiResponse.error(resolveErrorCode(status));
 
 		return super.handleExceptionInternal(exception, responseBody, headers, status, request);
-	}
-
-	private Stream<ValidationError> toValidationErrors(ParameterValidationResult result) {
-		String field = result.getMethodParameter().getParameterName();
-		if (field == null) {
-			field = "parameter[" + result.getMethodParameter().getParameterIndex() + "]";
-		}
-		String resolvedField = field;
-
-		return result.getResolvableErrors().stream()
-			.map(error -> new ValidationError(resolvedField, resolveMessage(error)));
-	}
-
-	private String resolveMessage(MessageSourceResolvable error) {
-		String message = error.getDefaultMessage();
-		return message == null ? CommonErrorCode.INVALID_INPUT.message() : message;
 	}
 
 	private ErrorCode resolveErrorCode(HttpStatusCode status) {

@@ -29,7 +29,7 @@ org.ssafy.b102.backend.global
 │   │   └── BaseTimeEntity
 │   └── response
 │       ├── ApiResponse
-│       └── ValidationError
+│       └── SuccessCode
 ├── config
 │   └── JpaAuditingConfig
 └── error
@@ -70,19 +70,18 @@ flowchart TD
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `success` | `boolean` | 요청 성공 여부 |
 | `code` | `String` | 클라이언트가 분기 처리할 응답 코드 |
 | `message` | `String` | 사용자에게 제공할 안전한 메시지 |
-| `data` | `T` | 성공 응답 데이터 |
-| `errors` | `List<ValidationError>` | 필드별 검증 오류 |
+| `data` | `T` | 응답 데이터. 없으면 `null` |
 
-`data`와 `errors`가 비어 있으면 JSON에서 생략됩니다.
+응답 본문은 항상 이 세 필드로 구성됩니다. `data`가 없어도 키를 생략하지 않고 `null`로 내려 클라이언트가 동일한 구조를 받도록 합니다.
+
+성공 여부는 별도 필드가 아니라 HTTP 상태 코드와 `code` 값으로 판단합니다.
 
 ### 성공 응답
 
 ```json
 {
-  "success": true,
   "code": "SUCCESS",
   "message": "요청에 성공했습니다.",
   "data": {
@@ -123,9 +122,9 @@ ApiResponse.success("회원 생성에 성공했습니다.", response);
 
 ```json
 {
-  "success": false,
   "code": "MEMBER-001",
-  "message": "회원을 찾을 수 없습니다."
+  "message": "회원을 찾을 수 없습니다.",
+  "data": null
 }
 ```
 
@@ -135,19 +134,15 @@ ApiResponse.success("회원 생성에 성공했습니다.", response);
 
 ```json
 {
-  "success": false,
   "code": "COMMON-001",
   "message": "요청 값이 올바르지 않습니다.",
-  "errors": [
-    {
-      "field": "email",
-      "reason": "이메일 형식이 올바르지 않습니다."
-    }
-  ]
+  "data": null
 }
 ```
 
-보안상 사용자가 입력한 `rejectedValue`는 응답에 포함하지 않습니다. 비밀번호, 인증 코드, 토큰과 같은 값이 노출될 수 있기 때문입니다.
+검증 실패도 동일한 세 필드로 응답합니다. 어떤 필드가 왜 실패했는지는 응답에 포함하지 않으므로, 클라이언트가 입력 규칙을 함께 관리해야 합니다.
+
+사용자가 입력한 `rejectedValue`는 어떤 경우에도 응답에 포함하지 않습니다. 비밀번호, 인증 코드, 토큰과 같은 값이 노출될 수 있기 때문입니다.
 
 ## HTTP 상태 사용 규칙
 
@@ -245,9 +240,9 @@ public MemberResponse getMember(Long memberId) {
 | 예외 | 응답 |
 | --- | --- |
 | `BusinessException` | 예외가 가진 `ErrorCode`의 상태와 코드 |
-| `MethodArgumentNotValidException` | 400, `COMMON-001`, 필드 오류 포함 |
-| `HandlerMethodValidationException` | 400, `COMMON-001`, 파라미터 오류 포함 |
-| `ConstraintViolationException` | 400, `COMMON-001`, 제약 조건 오류 포함 |
+| `MethodArgumentNotValidException` | 400, `COMMON-001` |
+| `HandlerMethodValidationException` | 400, `COMMON-001` |
+| `ConstraintViolationException` | 400, `COMMON-001` |
 | `HttpMessageNotReadableException` | 400, `COMMON-002` |
 | 필수 파라미터 누락 | 400, `COMMON-003` |
 | 타입 불일치 | 400, `COMMON-004` |

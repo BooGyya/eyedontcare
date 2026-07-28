@@ -4,6 +4,7 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:backend}
     password: ${SPRING_DATASOURCE_PASSWORD:backend-local-password}
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: update
     open-in-view: false
@@ -11,3 +12,6 @@ spring:
       hibernate:
         format_sql: true
     show-sql: true
+  sql:
+    init:
+      mode: always
