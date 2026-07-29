@@ -42,4 +42,18 @@ describe('GamesPage', () => {
 
     expect(router.currentRoute.value.path).toBe('/games/rhythm')
   })
+
+  it('renders the coming-soon teaser card with all games marked playable', async () => {
+    const { wrapper } = await mountGamesPage()
+
+    const comingSoonCard = wrapper.find('.coming-soon-card')
+    expect(comingSoonCard.exists()).toBe(true)
+    expect(comingSoonCard.text()).toContain('새로운 게임 준비 중!')
+
+    const statuses = wrapper
+      .findAll('.game-card__image > span')
+      .map((span) => span.text())
+    expect(statuses).toHaveLength(gameCatalog.length)
+    expect(statuses.every((status) => status === '플레이 가능')).toBe(true)
+  })
 })

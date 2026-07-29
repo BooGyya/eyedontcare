@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import GameCard from '../components/games/GameCard.vue'
+import GameComingSoonCard from '../components/games/GameComingSoonCard.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import { gameCatalog } from '../mocks/pages'
@@ -29,7 +30,7 @@ function handleEnterGame(game: GameCatalogItem) {
 <template>
   <section class="games-page">
     <PageHeader
-      title="게임 놀이터"
+      title="오락실"
       description="눈으로 즐길 수 있는 게임을 골라 가볍게 쉬어가세요."
     />
     <div class="games-page__grid">
@@ -39,6 +40,7 @@ function handleEnterGame(game: GameCatalogItem) {
         :game="game"
         @enter="handleEnterGame"
       />
+      <GameComingSoonCard />
     </div>
   </section>
 </template>

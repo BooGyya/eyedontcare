@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useAuthStore } from '../../stores/auth'
 import type { GameRanking, RankingPlayer } from '../../types/pages'
 
 const props = defineProps<{
   ranking: GameRanking
 }>()
+const auth = useAuthStore()
 
 const podiumPlayers = computed(() => {
   const podiumOrder = [2, 1, 3]
@@ -28,28 +30,24 @@ const isCurrentUserInTopTen = computed(() => props.ranking.myRank <= 10)
 function getTrendLabel(trend?: RankingPlayer['trend']) {
   return trend === 'up' ? '▲ 상승' : trend === 'down' ? '▼ 하락' : '— 유지'
 }
+
+function getPlayerNickname(player: RankingPlayer) {
+  return player.isCurrentUser && auth.isAuthenticated
+    ? auth.user.nickname
+    : player.nickname
+}
+
+function getPlayerAvatar(player: RankingPlayer) {
+  return player.isCurrentUser && auth.isAuthenticated
+    ? auth.user.avatar
+    : player.avatar
+}
 </script>
 
 <template>
   <section class="ranking-list" :aria-label="`${ranking.gameName} 랭킹`">
     <header class="ranking-list__header">
-      <div>
-        <span class="ranking-list__eyebrow">
-          {{
-            ranking.gameId === 'all' ? 'THIS WEEK OVERALL' : 'THIS WEEK GAME'
-          }}
-        </span>
-        <h2>{{ ranking.gameName }}</h2>
-      </div>
-      <p>
-        <span
-          >참여자
-          <b>{{ ranking.totalPlayers ?? ranking.players.length }}명</b></span
-        >
-        <span
-          >기록 단위 <b data-testid="ranking-unit">{{ ranking.unit }}</b></span
-        >
-      </p>
+      <h2>{{ ranking.gameName }}</h2>
     </header>
 
     <template v-if="hasRankingData">
@@ -64,60 +62,63 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
           <span class="ranking-list__crown" aria-hidden="true">{{
             player.rank === 1 ? '♛' : ''
           }}</span>
-          <img :src="player.avatar" :alt="`${player.nickname} 프로필`" />
-          <strong>{{ player.nickname }}</strong>
+          <img
+            :src="getPlayerAvatar(player)"
+            :alt="`${getPlayerNickname(player)} 프로필`"
+          />
+          <strong>{{ getPlayerNickname(player) }}</strong>
           <small>{{ player.score }}</small>
           <b aria-label="순위">{{ player.rank }}위</b>
         </article>
       </section>
 
-      <section class="ranking-list__table" aria-label="일반 랭킹 목록">
-        <div class="ranking-list__table-head" aria-hidden="true">
-          <span>순위</span><span>플레이어</span><span>기록</span
-          ><span data-testid="ranking-record-heading">{{
-            ranking.gameId === 'all' ? '점수' : '최고 기록'
-          }}</span
-          ><span>변화</span>
-        </div>
+      <section class="ranking-list__cards" aria-label="4위부터 10위 랭킹">
         <ol>
           <li
             v-for="player in generalPlayers"
             :key="player.rank"
-            :class="{ 'ranking-list__row--current-user': player.isCurrentUser }"
+            :class="{
+              'ranking-list__row--current-user':
+                auth.isAuthenticated && player.isCurrentUser,
+            }"
             :data-testid="`ranking-row-${player.rank}`"
           >
             <span class="ranking-list__rank">{{ player.rank }}</span>
             <span class="ranking-list__player">
-              <img :src="player.avatar" alt="" />
+              <img :src="getPlayerAvatar(player)" alt="" />
+              <b>{{ getPlayerNickname(player) }}</b>
+            </span>
+            <div class="ranking-list__result">
+              <strong class="ranking-list__score">{{ player.score }}</strong>
               <span
-                ><b>{{ player.nickname }}</b
-                ><small v-if="player.level">{{ player.level }}</small></span
+                :class="`ranking-list__trend--${player.trend ?? 'same'}`"
+                class="ranking-list__trend"
               >
-            </span>
-            <span class="ranking-list__record">{{
-              player.record ?? ranking.gameName
-            }}</span>
-            <strong class="ranking-list__score">{{ player.score }}</strong>
-            <span
-              :class="`ranking-list__trend--${player.trend ?? 'same'}`"
-              class="ranking-list__trend"
-            >
-              {{ getTrendLabel(player.trend) }}
-            </span>
+                {{ getTrendLabel(player.trend) }}
+              </span>
+            </div>
           </li>
         </ol>
       </section>
 
       <footer
-        v-if="!isCurrentUserInTopTen"
+        v-if="auth.isAuthenticated && !isCurrentUserInTopTen"
         class="ranking-list__my-rank"
         data-testid="ranking-current-user"
       >
-        <div>
-          <span>나의 현재 순위</span>
-          <strong>{{ currentUser?.rank ?? ranking.myRank }}위</strong>
+        <div class="ranking-list__my-rank-identity">
+          <span>현재 순위</span>
+          <div class="ranking-list__my-rank-player">
+            <strong>{{ currentUser?.rank ?? ranking.myRank }}위</strong>
+            <img
+              v-if="currentUser"
+              :src="getPlayerAvatar(currentUser)"
+              :alt="`${getPlayerNickname(currentUser)} 프로필`"
+            />
+            <b>{{ currentUser ? getPlayerNickname(currentUser) : '나' }}</b>
+          </div>
         </div>
-        <div>
+        <div class="ranking-list__my-rank-score">
           <span>내 기록</span>
           <b>{{ currentUser?.score ?? ranking.myScore }}</b>
         </div>
@@ -145,34 +146,14 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
   box-shadow: var(--shadow-card);
 }
 .ranking-list__header {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  padding: 25px 28px 19px;
+  padding: 22px 28px 18px;
   border-bottom: 1px solid var(--color-line);
 }
-.ranking-list__eyebrow {
-  color: var(--color-accent-blue);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
 .ranking-list h2 {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--color-ink);
   font-size: 24px;
   letter-spacing: -0.02em;
-}
-.ranking-list__header p {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  text-align: right;
-}
-.ranking-list__header p b {
-  color: var(--color-ink);
 }
 .ranking-list__podium {
   display: grid;
@@ -259,58 +240,57 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
 .ranking-list__podium-card--1 b {
   color: #b68513;
 }
-.ranking-list__table {
-  margin: 0 28px;
-  padding-bottom: 24px;
+.ranking-list__cards {
+  padding: 18px 28px 24px;
 }
-.ranking-list__table-head,
 .ranking-list li {
   display: grid;
-  grid-template-columns:
-    48px minmax(150px, 1.6fr) minmax(100px, 1fr) minmax(86px, 0.8fr)
-    74px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
 }
-.ranking-list__table-head {
-  min-height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--color-line);
-  border-bottom: 0;
-  border-radius: 13px 13px 0 0;
-  color: var(--color-muted);
-  background: var(--color-surface-soft);
-  font-size: 11px;
-}
 .ranking-list ol {
+  display: grid;
+  gap: 9px;
   margin: 0;
   padding: 0;
-  border-inline: 1px solid var(--color-line);
   list-style: none;
 }
 .ranking-list li {
-  min-height: 66px;
-  padding: 0 16px;
-  border-top: 1px solid #f0f1f5;
+  min-height: 70px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 13px;
   color: var(--color-muted);
+  background: #fff;
   font-size: 12px;
-  transition: background 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
 }
 .ranking-list li:hover {
+  border-color: #d7e2ff;
   background: #fafcff;
+  transform: translateY(-1px);
 }
 .ranking-list__row--current-user {
-  border-top-color: #cfdcff !important;
+  border-color: #cfdcff !important;
   background: var(--color-blue-soft);
 }
 .ranking-list__row--current-user:hover {
   background: #e6efff;
 }
 .ranking-list__rank {
-  color: var(--color-ink);
-  font-size: 15px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-accent-blue);
+  background: var(--color-blue-soft);
+  font-size: 13px;
   font-weight: 800;
-  text-align: center;
 }
 .ranking-list__player {
   display: flex;
@@ -319,42 +299,34 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
   gap: 10px;
 }
 .ranking-list__player > img {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
   border-radius: 50%;
   object-fit: cover;
   background: var(--color-blue-soft);
 }
-.ranking-list__player > span {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
 .ranking-list__player b {
+  min-width: 0;
   overflow: hidden;
   color: var(--color-ink);
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ranking-list__player small {
-  font-size: 10px;
-}
-.ranking-list__record {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.ranking-list__result {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
 }
 .ranking-list__score {
   color: var(--color-accent-blue);
-  font-size: 13px;
-  text-align: right;
+  font-size: 17px;
+  line-height: 1.15;
   white-space: nowrap;
 }
 .ranking-list__trend {
   font-size: 11px;
-  text-align: right;
   white-space: nowrap;
 }
 .ranking-list__trend--up {
@@ -376,9 +348,33 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
   border-radius: 13px;
   background: var(--color-blue-soft);
 }
-.ranking-list__my-rank div {
+.ranking-list__my-rank-identity {
   display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.ranking-list__my-rank-player {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+.ranking-list__my-rank-player img {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #fff;
+}
+.ranking-list__my-rank-score {
+  display: grid;
+  min-width: 0;
   gap: 3px;
+}
+.ranking-list__my-rank-score {
+  justify-items: end;
 }
 .ranking-list__my-rank span {
   color: var(--color-muted);
@@ -391,6 +387,13 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
 .ranking-list__my-rank b {
   color: var(--color-accent-blue);
   font-size: 17px;
+}
+.ranking-list__my-rank-player b {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ranking-list__empty {
   display: grid;
@@ -443,32 +446,32 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
   .ranking-list__podium-card small {
     font-size: 10px;
   }
-  .ranking-list__table {
-    margin: 0 12px;
-  }
-  .ranking-list__table-head {
-    display: none;
-  }
-  .ranking-list ol {
-    border-top: 1px solid var(--color-line);
-    border-radius: 13px 13px 0 0;
+  .ranking-list__cards {
+    padding: 14px 12px 18px;
   }
   .ranking-list li {
-    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
     gap: 9px;
     min-height: 63px;
     padding: 0 10px;
   }
-  .ranking-list__record,
+  .ranking-list__score {
+    font-size: 16px;
+  }
   .ranking-list__trend {
     display: none;
   }
-  .ranking-list__score {
-    font-size: 12px;
+  .ranking-list__result {
+    right: 10px;
   }
   .ranking-list__my-rank {
     margin: 14px 12px 16px;
     padding: 14px;
+  }
+  .ranking-list__my-rank-player img {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
   }
 }
 </style>

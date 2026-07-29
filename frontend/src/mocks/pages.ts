@@ -2,7 +2,7 @@ import gameAirImage from '../assets/images/games/game-air.png'
 import gameBlinkImage from '../assets/images/games/game-blink.png'
 import gameDrawImage from '../assets/images/games/game-draw.png'
 import gameHoldImage from '../assets/images/games/game-hold.png'
-import gameWaveImage from '../assets/images/games/game-wave.png'
+import gameRhythmMainImage from '../assets/images/games/game-rhythm-main.png'
 import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
 import teamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
 import athleteProfile from '../assets/images/profiles/profile-athlete.png'
@@ -45,25 +45,25 @@ export const gameCatalog: GameCatalogItem[] = [
   {
     id: 'rhythm',
     title: '리듬 게임',
-    description: '리듬에 맞춰 시선 신호를 보내는 준비 중 게임입니다.',
-    image: gameWaveImage,
+    description: '눈으로 랜덤 비트를 따라가며 콤보를 완성해요!',
+    image: gameRhythmMainImage,
     category: '리듬',
-    status: 'coming-soon',
+    status: 'available',
   },
   {
     id: 'air',
     title: '에어하키',
-    description: '다가오는 바람을 피해 시선을 움직이는 준비 중 게임입니다.',
+    description: '시선으로 패들을 움직여 상대 골문에 퍽을 넣어보세요!',
     image: gameAirImage,
     category: '반응',
-    status: 'coming-soon',
+    status: 'available',
   },
 ]
 
 export const gameRankings: GameRanking[] = [
   {
     gameId: 'blink',
-    gameName: '눈 깜빡이기',
+    gameName: 'Eye Show Speed (눈 깜빡이기)',
     unit: '회',
     sortOrder: 'desc',
     myRank: 7,
@@ -155,7 +155,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'draw',
-    gameName: '눈으로 그리기',
+    gameName: 'Eye Draw (눈으로 그리기)',
     unit: '점',
     sortOrder: 'desc',
     myRank: 5,
@@ -247,7 +247,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'hold',
-    gameName: 'Eye-See',
+    gameName: 'Eye See (눈싸움)',
     unit: '초',
     sortOrder: 'desc',
     myRank: 12,
@@ -347,7 +347,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'rhythm',
-    gameName: '리듬 게임',
+    gameName: 'Blink the Beat (리듬 게임)',
     unit: '점',
     sortOrder: 'desc',
     myRank: 12,
@@ -447,7 +447,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'air',
-    gameName: '에어하키',
+    gameName: 'Eye Hockey (에어 하키)',
     unit: '점',
     sortOrder: 'desc',
     myRank: 8,
@@ -538,109 +538,6 @@ export const gameRankings: GameRanking[] = [
     ],
   },
 ]
-
-export const overallRanking: GameRanking = {
-  gameId: 'all',
-  gameName: '전체 랭킹',
-  unit: '점',
-  sortOrder: 'desc',
-  myRank: 4,
-  myScore: '65,210점',
-  totalPlayers: 286,
-  players: [
-    {
-      rank: 1,
-      nickname: '눈빛 마스터',
-      score: '102,350점',
-      avatar: crownProfile,
-      level: 'Lv. 18',
-      record: '눈으로 그리기',
-      trend: 'same',
-    },
-    {
-      rank: 2,
-      nickname: '눈사람 마스터',
-      score: '86,420점',
-      avatar: athleteProfile,
-      level: 'Lv. 16',
-      record: 'Eye-See',
-      trend: 'up',
-    },
-    {
-      rank: 3,
-      nickname: '설원 사냥꾼',
-      score: '72,880점',
-      avatar: detectiveProfile,
-      level: 'Lv. 15',
-      record: '눈 깜빡이기',
-      trend: 'down',
-    },
-    {
-      rank: 4,
-      nickname: '눈쌩 최강자',
-      score: '65,210점',
-      avatar: joyProfile,
-      level: 'Lv. 12',
-      record: '이번 주 누적',
-      trend: 'up',
-      isCurrentUser: true,
-    },
-    {
-      rank: 5,
-      nickname: '눈을 건강하게 지키는 플레이어',
-      score: '61,480점',
-      avatar: calmProfile,
-      level: 'Lv. 11',
-      record: '게임 12회 참여',
-      trend: 'same',
-    },
-    {
-      rank: 6,
-      nickname: '빛나는 동공',
-      score: '58,920점',
-      avatar: smileProfile,
-      level: 'Lv. 11',
-      record: '이번 주 누적',
-      trend: 'up',
-    },
-    {
-      rank: 7,
-      nickname: '눈 휴식 탐험가',
-      score: '55,340점',
-      avatar: athleteProfile,
-      level: 'Lv. 10',
-      record: '게임 10회 참여',
-      trend: 'down',
-    },
-    {
-      rank: 8,
-      nickname: '맑은 하루',
-      score: '52,670점',
-      avatar: crownProfile,
-      level: 'Lv. 10',
-      record: '이번 주 누적',
-      trend: 'same',
-    },
-    {
-      rank: 9,
-      nickname: '차분한 시선',
-      score: '49,810점',
-      avatar: detectiveProfile,
-      level: 'Lv. 9',
-      record: '게임 8회 참여',
-      trend: 'up',
-    },
-    {
-      rank: 10,
-      nickname: '눈 건강 루틴',
-      score: '46,200점',
-      avatar: joyProfile,
-      level: 'Lv. 9',
-      record: '이번 주 누적',
-      trend: 'down',
-    },
-  ],
-}
 
 export const communityGroups: CommunityGroup[] = [
   {
