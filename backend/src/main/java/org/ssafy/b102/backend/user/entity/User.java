@@ -32,6 +32,8 @@ public class User extends BaseTimeEntity {
 
     private static final ProfileImageCode DEFAULT_PROFILE_IMAGE_CODE =
         ProfileImageCode.PROFILE_1;
+    private static final String WITHDRAWN_NICKNAME_PREFIX =
+        "withdrawn-";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -111,5 +113,28 @@ public class User extends BaseTimeEntity {
 
     public boolean isDeleted() {
         return deletedAt != null;
+    }
+
+    public void withdraw(Instant withdrawnAt) {
+        Objects.requireNonNull(
+            withdrawnAt,
+            "withdrawnAt은 null일 수 없습니다."
+        );
+
+        if (isDeleted()) {
+            return;
+        }
+
+        if (id == null) {
+            throw new IllegalStateException(
+                "저장되지 않은 사용자는 탈퇴할 수 없습니다."
+            );
+        }
+
+        email = null;
+        passwordHash = null;
+        nickname = WITHDRAWN_NICKNAME_PREFIX + id;
+        profileImageCode = DEFAULT_PROFILE_IMAGE_CODE;
+        deletedAt = withdrawnAt;
     }
 }

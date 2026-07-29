@@ -22,6 +22,11 @@ public enum AuthSuccessCode implements SuccessCode {
     LOGOUT_SUCCESS(
         "AUTH_LOGOUT_SUCCESS",
         "로그아웃에 성공했습니다."
+    ),
+
+    WITHDRAWAL_SUCCESS(
+        "AUTH_WITHDRAWAL_SUCCESS",
+        "회원 탈퇴가 완료되었습니다."
     );
 
     private final String code;
