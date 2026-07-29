@@ -1,0 +1,142 @@
+package org.ssafy.b102.backend.global.security.jwt;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Date;
+import javax.crypto.SecretKey;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+class JwtTokenProviderTest {
+
+    private static final String SECRET_KEY =
+        "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+
+    private static final Instant FIXED_TIME =
+        Instant.parse("2026-07-29T00:00:00Z");
+
+    private static final long ACCESS_TOKEN_EXPIRATION_SECONDS = 1_800L;
+    private static final long REFRESH_TOKEN_EXPIRATION_SECONDS = 1_209_600L;
+
+    private JwtTokenProvider jwtTokenProvider;
+    private SecretKey secretKey;
+
+    @BeforeEach
+    void setUp() {
+        JwtProperties properties = new JwtProperties(
+            SECRET_KEY,
+            ACCESS_TOKEN_EXPIRATION_SECONDS,
+            REFRESH_TOKEN_EXPIRATION_SECONDS
+        );
+
+        Clock fixedClock = Clock.fixed(
+            FIXED_TIME,
+            ZoneOffset.UTC
+        );
+
+        jwtTokenProvider = new JwtTokenProvider(
+            properties,
+            fixedClock
+        );
+
+        secretKey = Keys.hmacShaKeyFor(
+            Decoders.BASE64.decode(SECRET_KEY)
+        );
+    }
+
+    @Test
+    void 액세스_토큰을_발급한다() {
+        String token = jwtTokenProvider.issueAccessToken(1L);
+
+        Claims claims = parseClaims(token);
+
+        assertThat(claims.getSubject())
+            .isEqualTo("1");
+
+        assertThat(claims.get("tokenType"))
+            .isEqualTo(TokenType.ACCESS.name());
+
+        assertThat(claims.getIssuedAt().toInstant())
+            .isEqualTo(FIXED_TIME);
+
+        assertThat(claims.getExpiration().toInstant())
+            .isEqualTo(
+                FIXED_TIME.plusSeconds(
+                    ACCESS_TOKEN_EXPIRATION_SECONDS
+                )
+            );
+    }
+
+    @Test
+    void 리프레시_토큰을_발급한다() {
+        String token = jwtTokenProvider.issueRefreshToken(1L);
+
+        Claims claims = parseClaims(token);
+
+        assertThat(claims.getSubject())
+            .isEqualTo("1");
+
+        assertThat(claims.get("tokenType"))
+            .isEqualTo(TokenType.REFRESH.name());
+
+        assertThat(claims.getIssuedAt().toInstant())
+            .isEqualTo(FIXED_TIME);
+
+        assertThat(claims.getExpiration().toInstant())
+            .isEqualTo(
+                FIXED_TIME.plusSeconds(
+                    REFRESH_TOKEN_EXPIRATION_SECONDS
+                )
+            );
+    }
+
+    @Test
+    void 액세스와_리프레시_토큰을_함께_발급한다() {
+        TokenPair tokenPair =
+            jwtTokenProvider.issueTokenPair(1L);
+
+        Claims accessClaims =
+            parseClaims(tokenPair.accessToken());
+
+        Claims refreshClaims =
+            parseClaims(tokenPair.refreshToken());
+
+        assertThat(accessClaims.getSubject())
+            .isEqualTo("1");
+
+        assertThat(accessClaims.get("tokenType"))
+            .isEqualTo(TokenType.ACCESS.name());
+
+        assertThat(refreshClaims.getSubject())
+            .isEqualTo("1");
+
+        assertThat(refreshClaims.get("tokenType"))
+            .isEqualTo(TokenType.REFRESH.name());
+    }
+
+    @Test
+    void 사용자_ID가_null이면_토큰을_발급할_수_없다() {
+        assertThatThrownBy(
+            () -> jwtTokenProvider.issueAccessToken(null)
+        )
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("User ID must not be null");
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser()
+            .verifyWith(secretKey)
+            .clock(() -> Date.from(FIXED_TIME))
+            .build()
+            .parseSignedClaims(token)
+            .getPayload();
+    }
+}
