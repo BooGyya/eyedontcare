@@ -1,15 +1,26 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import logoImage from '../../assets/images/brand/logo.png'
 import { useToast } from '../../composables/useToast'
+import PolicyDialog from '../common/PolicyDialog.vue'
+import FeedbackDialog from '../common/FeedbackDialog.vue'
+import { policyDocuments } from '../../mocks/footer'
+import type { PolicyDocument } from '../../types/footer'
 
 const { showToast } = useToast()
 
-const footerLinks = [
-  '이용약관',
-  '개인정보처리방침',
-  '커뮤니티 가이드',
-  '고객센터',
-]
+const activeDocument = ref<PolicyDocument | null>(null)
+const isFeedbackOpen = ref(false)
+
+function openFeedbackFromPolicy() {
+  activeDocument.value = null
+  isFeedbackOpen.value = true
+}
+
+function handleFeedbackSubmit() {
+  isFeedbackOpen.value = false
+  showToast('소중한 피드백이 접수됐어요. 감사합니다!')
+}
 </script>
 
 <template>
@@ -20,44 +31,28 @@ const footerLinks = [
     <small>© 2026 eye dont care. All rights reserved.</small>
     <div class="app-footer__links">
       <button
-        v-for="link in footerLinks"
-        :key="link"
+        v-for="doc in policyDocuments"
+        :key="doc.id"
         type="button"
-        @click="showToast(`${link}은 다음 단계에서 준비할 예정이에요.`)"
+        @click="activeDocument = doc"
       >
-        {{ link }}
+        {{ doc.label }}
+      </button>
+      <button type="button" @click="isFeedbackOpen = true">
+        피드백 보내기
       </button>
     </div>
-    <div class="app-footer__social" aria-label="소셜 미디어">
-      <button
-        type="button"
-        aria-label="유튜브"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        ▶
-      </button>
-      <button
-        type="button"
-        aria-label="인스타그램"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        ◎
-      </button>
-      <button
-        type="button"
-        aria-label="디스코드"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        ♟
-      </button>
-      <button
-        type="button"
-        aria-label="엑스"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        𝕏
-      </button>
-    </div>
+
+    <PolicyDialog
+      :document="activeDocument"
+      @close="activeDocument = null"
+      @open-feedback="openFeedbackFromPolicy"
+    />
+    <FeedbackDialog
+      :open="isFeedbackOpen"
+      @close="isFeedbackOpen = false"
+      @submit="handleFeedbackSubmit"
+    />
   </footer>
 </template>
 
@@ -85,34 +80,17 @@ const footerLinks = [
   margin-right: 52px;
 }
 
-.app-footer__links,
-.app-footer__social {
+.app-footer__links {
   display: flex;
   gap: 20px;
+  margin-left: auto;
 }
 
-.app-footer__links button,
-.app-footer__social button {
+.app-footer__links button {
   padding: 0;
   color: inherit;
   background: transparent;
   cursor: pointer;
-}
-
-.app-footer__social {
-  gap: 12px;
-  margin-left: auto;
-}
-
-.app-footer__social button {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 1px solid var(--color-line);
-  border-radius: 50%;
-  box-shadow: 0 4px 11px rgba(34, 46, 85, 0.08);
-  font-size: 17px;
 }
 
 @media (max-width: 1100px) {
@@ -149,13 +127,10 @@ const footerLinks = [
   }
 
   .app-footer__links {
-    display: none;
-  }
-
-  .app-footer__social button {
-    width: 32px;
-    height: 32px;
-    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: 0;
+    order: 2;
   }
 }
 </style>
