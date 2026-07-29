@@ -111,11 +111,6 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
         label: '랜덤 매칭',
         description: '랜덤 매칭을 돌려 게임 유저와 함께 대결해요!',
       },
-      {
-        id: 'ai',
-        label: 'AI 대결',
-        description: 'AI와 함께 눈싸움 대결을 해봐요!',
-      },
     ],
     guide: {
       intro: [
@@ -132,14 +127,6 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
           text: '게임 시간은\n둘 중 **먼저 눈을 감는**\n사람의 시간이에요!',
         },
       ],
-      difficulties: {
-        title: 'AI 대결',
-        items: [
-          { label: 'easy 모드', duration: '15초', color: 'green' },
-          { label: 'normal 모드', duration: '30초', color: 'orange' },
-          { label: 'hard 모드', duration: '1분', color: 'purple' },
-        ],
-      },
     },
   },
   draw: {

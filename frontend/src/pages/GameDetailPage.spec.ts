@@ -150,19 +150,6 @@ describe('GameDetailPage', () => {
     )
     expect(wrapper.find('.game-detail-page__guide-bottom').exists()).toBe(false)
     expect(wrapper.find('.game-detail-page__guide-cards').exists()).toBe(false)
-
-    expect(
-      wrapper.find('.game-detail-page__guide-difficulties h3').text(),
-    ).toBe('AI 대결')
-    expect(wrapper.findAll('.game-detail-page__guide-difficulty')).toHaveLength(
-      gameDetails.hold.guide!.difficulties!.items.length,
-    )
-    expect(wrapper.text()).toContain('easy 모드')
-    expect(wrapper.text()).toContain('15초')
-    expect(wrapper.text()).toContain('normal 모드')
-    expect(wrapper.text()).toContain('30초')
-    expect(wrapper.text()).toContain('hard 모드')
-    expect(wrapper.text()).toContain('1분')
   })
 
   it('shows the custom duration label for the hold game', async () => {
@@ -182,7 +169,7 @@ describe('GameDetailPage', () => {
     expect(wrapper.text()).toContain('제한 시간')
   })
 
-  it('shows the compact modes layout only for games with 4+ modes', async () => {
+  it('does not apply the compact modes layout for games with fewer than 4 modes', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/hold')
     await router.isReady()
@@ -191,7 +178,7 @@ describe('GameDetailPage', () => {
     })
 
     expect(wrapper.find('.game-detail-page__modes--compact').exists()).toBe(
-      true,
+      false,
     )
 
     await router.push('/games/blink')
