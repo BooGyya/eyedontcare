@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
+import { useAuthStore } from '../stores/auth'
 import type { GamePlayMode } from '../types/game-detail'
 import guideMascotImage from '../assets/images/brand/mascot-eye.png'
 import profileJoyImage from '../assets/images/profiles/profile-joy.png'
@@ -10,7 +12,11 @@ import profileSmileImage from '../assets/images/profiles/profile-smile.png'
 import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 
 const route = useRoute()
+const router = useRouter()
 const { showToast } = useToast()
+const auth = useAuthStore()
+const roomFlow = ref<'friends' | 'random'>('friends')
+const isRoomDialogOpen = ref(false)
 
 const isDescriptionOpen = ref(false)
 
@@ -39,13 +45,47 @@ watch(
 
 function handleSelectMode(mode: GamePlayMode) {
   if (!game.value) return
-  showToast(`${displayTitle.value} ${mode.label} 모드는 준비 중이에요.`)
+  if (mode.id === 'friends' || mode.id === 'random') {
+    if (!auth.isAuthenticated) {
+      auth.openLogin()
+      showToast('친구 대결과 랜덤 매칭은 로그인 후 이용할 수 있어요.')
+      return
+    }
+
+    roomFlow.value = mode.id
+    isRoomDialogOpen.value = true
+    return
+  }
+
+  router.push({
+    name: 'game-ready',
+    params: { gameId: game.value.id },
+    query: { mode: mode.id },
+  })
+  showToast(`${game.value.title} ${mode.label} 모드는 준비 중이에요.`)
 }
 
 function toTokens(text: string) {
   return text
     .split('**')
     .map((part, index) => ({ text: part, highlight: index % 2 === 1 }))
+}
+function handleEnterRoom(payload: {
+  mode: 'friends' | 'random'
+  roomCode: string
+  role?: 'host' | 'player'
+}) {
+  if (!game.value) return
+  isRoomDialogOpen.value = false
+  router.push({
+    name: 'game-ready',
+    params: { gameId: game.value.id },
+    query: {
+      mode: payload.mode,
+      room: payload.roomCode,
+      ...(payload.role ? { role: payload.role } : {}),
+    },
+  })
 }
 </script>
 
@@ -1235,6 +1275,14 @@ function toTokens(text: string) {
         </button>
       </div>
     </div>
+
+    <GameRoomDialog
+      :open="isRoomDialogOpen"
+      :game-title="game.title"
+      :flow="roomFlow"
+      @close="isRoomDialogOpen = false"
+      @enter-room="handleEnterRoom"
+    />
   </section>
 
   <section v-else class="game-detail-page__missing">

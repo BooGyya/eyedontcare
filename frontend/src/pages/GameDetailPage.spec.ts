@@ -1,8 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import { gameDetails } from '../mocks/game-details'
 import GameDetailPage from './GameDetailPage.vue'
+import GameReadyPage from './GameReadyPage.vue'
 import GamesPage from './GamesPage.vue'
 
 const routes = [
@@ -12,6 +14,11 @@ const routes = [
     name: 'game-detail',
     component: GameDetailPage,
   },
+  {
+    path: '/games/:gameId/ready',
+    name: 'game-ready',
+    component: GameReadyPage,
+  },
 ]
 
 describe('GameDetailPage', () => {
@@ -19,7 +26,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/air')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     for (const game of Object.values(gameDetails)) {
       await router.push(`/games/${game.id}`)
@@ -58,7 +67,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/blink')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     expect(wrapper.find('.game-detail-page__dialog').exists()).toBe(false)
 
@@ -77,7 +88,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/blink')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
     const guide = gameDetails.blink.guide!
 
     await wrapper.find('.game-detail-page__description-button').trigger('click')
@@ -101,7 +114,9 @@ describe('GameDetailPage', () => {
 
   it('renders the rich guide dialog for every game', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     for (const game of Object.values(gameDetails)) {
       await router.push(`/games/${game.id}`)
@@ -124,7 +139,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/hold')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     await wrapper.find('.game-detail-page__description-button').trigger('click')
 
@@ -152,7 +169,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/hold')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     expect(wrapper.text()).toContain('예상 시간')
     expect(wrapper.text()).toContain('30초')
@@ -167,7 +186,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/hold')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     expect(wrapper.find('.game-detail-page__modes--compact').exists()).toBe(
       true,
@@ -185,7 +206,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/air')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     await wrapper.find('.game-detail-page__description-button').trigger('click')
 
@@ -200,7 +223,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/rhythm')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     await wrapper.find('.game-detail-page__description-button').trigger('click')
 
@@ -220,7 +245,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/draw')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
     const guide = gameDetails.draw.guide!
 
     await wrapper.find('.game-detail-page__description-button').trigger('click')
@@ -238,7 +265,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/blink')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     const soloBadge = wrapper.find(
       '.game-detail-page__mode--solo .game-detail-page__mode-badge',
@@ -260,7 +289,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/draw')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     expect(wrapper.find('.game-detail-page__mode-robot').exists()).toBe(true)
 
@@ -270,14 +301,17 @@ describe('GameDetailPage', () => {
     expect(wrapper.find('.game-detail-page__mode-robot').exists()).toBe(false)
   })
 
-  it('keeps mode selections on the page until their later game flow is implemented', async () => {
+  it('moves mode selections to the game preparation screen', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/draw')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     await wrapper.find('.game-detail-page__modes button').trigger('click')
+    await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/games/draw')
+    expect(router.currentRoute.value.fullPath).toBe('/games/draw/ready?mode=ai')
   })
 })

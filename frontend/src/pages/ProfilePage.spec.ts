@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import ProfileMenu from '../components/layout/ProfileMenu.vue'
 import { profileData } from '../mocks/profile'
+import { useAuthStore } from '../stores/auth'
 import ProfilePage from './ProfilePage.vue'
 
 const routes = [
@@ -20,33 +21,89 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
-    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     expect(wrapper.text()).toContain(profileData.nickname)
-    expect(wrapper.text()).toContain(profileData.weeklyScore)
-    expect(wrapper.findAll('.profile-page__stats article')).toHaveLength(
-      profileData.stats.length,
-    )
-    expect(wrapper.findAll('.profile-page__activities li')).toHaveLength(
-      profileData.activities.length,
-    )
+    expect(wrapper.text()).toContain('최근 경기 기록')
+    expect(wrapper.findAll('.profile-page__records li')).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('이번 주 점수')
   })
 
-  it('updates the profile image preview when an avatar is selected', async () => {
+  it('updates the profile image preview when an avatar is saved', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
-    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [createPinia(), router] },
+    })
     const nextAvatar = profileData.avatars[1]
 
+    await wrapper.get('.profile-page__edit-button').trigger('click')
     await wrapper.findAll('[role="radio"]')[1].trigger('click')
+    await wrapper.get('.profile-page__save-button').trigger('click')
 
     expect(
       wrapper.get('.profile-page__avatar img').attributes('src'),
     ).toContain(nextAvatar.image)
-    expect(
-      wrapper.findAll('[role="radio"]')[1].attributes('aria-checked'),
-    ).toBe('true')
+    expect(wrapper.findAll('[role="radio"]')).toHaveLength(0)
+  })
+
+  it('shows password confirmation feedback in the profile editor', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [createPinia(), router] },
+    })
+
+    await wrapper.get('.profile-page__edit-button').trigger('click')
+    const passwordInputs = wrapper.findAll('input[type="password"]')
+    await passwordInputs[0].setValue('new-password')
+    await passwordInputs[1].setValue('different-password')
+
+    expect(wrapper.text()).toContain('비밀번호가 일치하지 않아요.')
+  })
+
+  it('updates the navigation nickname after the profile nickname is saved', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const pinia = createPinia()
+    const pageWrapper = mount(ProfilePage, {
+      global: { plugins: [pinia, router] },
+    })
+    const menuWrapper = mount(ProfileMenu, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await pageWrapper.get('.profile-page__edit-button').trigger('click')
+    await pageWrapper.get('input[type="text"]').setValue('새로운눈')
+    await pageWrapper.get('.profile-page__field button').trigger('click')
+    await pageWrapper.get('.profile-page__save-button').trigger('click')
+
+    expect(menuWrapper.text()).toContain('새로운눈')
+    useAuthStore(pinia).user.nickname = profileData.nickname
+  })
+
+  it('opens and closes the selected game record detail modal', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [createPinia(), router] },
+    })
+
+    await wrapper.find('.profile-page__records li').trigger('click')
+    expect(document.body.textContent).toContain('경기 결과')
+
+    const confirmButton = document.body.querySelector<HTMLButtonElement>(
+      '.game-result-modal__confirm',
+    )
+    confirmButton?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.game-result-modal')).toBeNull()
   })
 
   it('keeps the header profile menu route to the profile page', async () => {
