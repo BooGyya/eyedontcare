@@ -213,6 +213,33 @@ class MatchmakingServiceTest {
 		assertThat(response.matchStatus()).isEqualTo(MatchStatus.SEARCHING);
 	}
 
+	/**
+	 * 이미 성사된 참가자가 재신청하면 큐에 다시 들어간다.
+	 *
+	 * <p>{@code ZADD NX}는 큐에 없는 member를 넣으므로, {@code ENTERING_ROOM} 참가자는
+	 * (이미 큐에서 빠진 상태라) 다시 들어간다. 뒤이은 {@code HSETNX}가 실패해 409로 거절되지만
+	 * 큐에는 남는다. 이 잔여 member로 두 번째 방이 만들어지면 안 된다.
+	 */
+	@Test
+	void joinDoesNotMatchParticipantWhoAlreadyEnteredRoom() {
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+		matchmakingService.join(OPPONENT_KEY, GAME_TYPE);
+		UUID firstRoomId = matchmakingEntryRepository.find(REQUESTER_KEY).orElseThrow().waitingRoomId();
+
+		assertThatThrownBy(() -> matchmakingService.join(REQUESTER_KEY, GAME_TYPE))
+			.isInstanceOf(BusinessException.class);
+
+		MatchStatusResponse response = matchmakingService.join(THIRD_KEY, GAME_TYPE);
+
+		assertThat(response.matchStatus()).isEqualTo(MatchStatus.SEARCHING);
+		assertThat(matchmakingEntryRepository.find(REQUESTER_KEY))
+			.get()
+			.satisfies(entry -> {
+				assertThat(entry.matchStatus()).isEqualTo(MatchStatus.ENTERING_ROOM);
+				assertThat(entry.waitingRoomId()).isEqualTo(firstRoomId);
+			});
+	}
+
 	@Test
 	void joinRejectsUnsupportedGameType() {
 		assertThatThrownBy(() -> matchmakingService.join(REQUESTER_KEY, "CHESS"))

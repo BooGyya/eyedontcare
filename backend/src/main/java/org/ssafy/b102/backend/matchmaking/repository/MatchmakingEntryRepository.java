@@ -131,8 +131,16 @@ public class MatchmakingEntryRepository {
 	/**
 	 * 대기 순서가 빠른 참가자를 큐에서 꺼낸다(선점).
 	 *
-	 * <p>entry가 TTL로 사라져도 Sorted Set member는 만료되지 않는다. 그렇게 남은 유령 member는
-	 * 꺼낸 뒤 되돌리지 않고 버려서 큐를 정리한다.
+	 * <p>큐에 남아 있어도 후보가 아닌 member를 두 가지 걸러낸다. 둘 다 꺼낸 뒤 되돌리지 않고
+	 * 버려서 큐를 정리한다.
+	 *
+	 * <ul>
+	 *   <li>entry가 없는 member: TTL로 entry가 사라져도 Sorted Set member는 만료되지 않아 남는다.</li>
+	 *   <li>{@code SEARCHING}이 아닌 member: 이미 성사된 참가자가 재신청하면
+	 *       {@code ZADD NX}가 큐에 다시 넣는다(큐에서는 이미 빠진 상태이므로).
+	 *       뒤이은 {@code HSETNX}가 실패해 요청 자체는 거절되지만 큐에는 남는다.
+	 *       이 잔여 member로 두 번째 방이 만들어지면 안 된다.</li>
+	 * </ul>
 	 *
 	 * @return 요청한 수보다 적게 반환될 수 있다. 매칭이 불가능하면 호출자가 되돌려야 한다.
 	 */
@@ -153,6 +161,7 @@ public class MatchmakingEntryRepository {
 				.filter(Objects::nonNull)
 				.map(this::find)
 				.flatMap(Optional::stream)
+				.filter(MatchmakingEntry::isSearching)
 				.forEach(candidates::add);
 		}
 
