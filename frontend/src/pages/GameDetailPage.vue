@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
+import { useAuthStore } from '../stores/auth'
 import type { GamePlayMode } from '../types/game-detail'
 
 const route = useRoute()
+const router = useRouter()
 const { showToast } = useToast()
+const auth = useAuthStore()
+const roomFlow = ref<'friends' | 'random'>('friends')
+const isRoomDialogOpen = ref(false)
 
 const game = computed(() => {
   const gameId = String(route.params.gameId ?? '')
@@ -15,7 +21,41 @@ const game = computed(() => {
 
 function handleSelectMode(mode: GamePlayMode) {
   if (!game.value) return
+  if (mode.id === 'friends' || mode.id === 'random') {
+    if (!auth.isAuthenticated) {
+      auth.openLogin()
+      showToast('친구 대결과 랜덤 매칭은 로그인 후 이용할 수 있어요.')
+      return
+    }
+
+    roomFlow.value = mode.id
+    isRoomDialogOpen.value = true
+    return
+  }
+
+  router.push({
+    name: 'game-ready',
+    params: { gameId: game.value.id },
+    query: { mode: mode.id },
+  })
   showToast(`${game.value.title} ${mode.label} 모드는 준비 중이에요.`)
+}
+function handleEnterRoom(payload: {
+  mode: 'friends' | 'random'
+  roomCode: string
+  role?: 'host' | 'player'
+}) {
+  if (!game.value) return
+  isRoomDialogOpen.value = false
+  router.push({
+    name: 'game-ready',
+    params: { gameId: game.value.id },
+    query: {
+      mode: payload.mode,
+      room: payload.roomCode,
+      ...(payload.role ? { role: payload.role } : {}),
+    },
+  })
 }
 </script>
 
@@ -83,6 +123,13 @@ function handleSelectMode(mode: GamePlayMode) {
         </div>
       </div>
     </section>
+    <GameRoomDialog
+      :open="isRoomDialogOpen"
+      :game-title="game.title"
+      :flow="roomFlow"
+      @close="isRoomDialogOpen = false"
+      @enter-room="handleEnterRoom"
+    />
   </section>
 
   <section v-else class="game-detail-page__missing">

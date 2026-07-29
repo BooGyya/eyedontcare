@@ -1,8 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import { gameDetails } from '../mocks/game-details'
 import GameDetailPage from './GameDetailPage.vue'
+import GameReadyPage from './GameReadyPage.vue'
 import GamesPage from './GamesPage.vue'
 
 const routes = [
@@ -12,6 +14,11 @@ const routes = [
     name: 'game-detail',
     component: GameDetailPage,
   },
+  {
+    path: '/games/:gameId/ready',
+    name: 'game-ready',
+    component: GameReadyPage,
+  },
 ]
 
 describe('GameDetailPage', () => {
@@ -19,7 +26,9 @@ describe('GameDetailPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/air')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     for (const game of Object.values(gameDetails)) {
       await router.push(`/games/${game.id}`)
@@ -46,14 +55,19 @@ describe('GameDetailPage', () => {
     expect(router.currentRoute.value.params.gameId).toBe('blink')
   })
 
-  it('keeps mode selections on the page until their later game flow is implemented', async () => {
+  it('moves solo mode selections to the game preparation screen', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/draw')
     await router.isReady()
-    const wrapper = mount(GameDetailPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
 
     await wrapper.find('.game-detail-page__modes button').trigger('click')
+    await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/games/draw')
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/games/draw/ready?mode=solo',
+    )
   })
 })
