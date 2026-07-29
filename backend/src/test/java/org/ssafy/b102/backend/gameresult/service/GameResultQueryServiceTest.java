@@ -45,7 +45,7 @@ class GameResultQueryServiceTest {
 
 	private static final String MY_KEY = "USER:1";
 	private static final String OPPONENT_KEY = "USER:2";
-	private static final String GUEST_KEY = "GUEST:019abcde-5678-4abc-8def-0123456789ab";
+	private static final Long MY_USER_ID = 1L;
 	private static final Instant STARTED_AT = Instant.parse("2026-07-28T09:00:00Z");
 
 	@Autowired
@@ -80,7 +80,7 @@ class GameResultQueryServiceTest {
 		submit(MY_KEY, 0);
 		submitBetweenOthers();
 
-		MyGameResultPageResponse response = gameResultQueryService.getMyResults(MY_KEY, 1, 10);
+		MyGameResultPageResponse response = gameResultQueryService.getMyResults(MY_USER_ID, 1, 10);
 
 		assertThat(response.totalElements()).isEqualTo(1);
 		assertThat(response.content()).hasSize(1);
@@ -94,7 +94,7 @@ class GameResultQueryServiceTest {
 		submit(MY_KEY, 60);
 		submit(MY_KEY, 120);
 
-		MyGameResultPageResponse response = gameResultQueryService.getMyResults(MY_KEY, 1, 10);
+		MyGameResultPageResponse response = gameResultQueryService.getMyResults(MY_USER_ID, 1, 10);
 
 		assertThat(response.content())
 			.extracting(record -> record.playedAt())
@@ -107,8 +107,8 @@ class GameResultQueryServiceTest {
 		submit(MY_KEY, 60);
 		submit(MY_KEY, 120);
 
-		MyGameResultPageResponse firstPage = gameResultQueryService.getMyResults(MY_KEY, 1, 2);
-		MyGameResultPageResponse secondPage = gameResultQueryService.getMyResults(MY_KEY, 2, 2);
+		MyGameResultPageResponse firstPage = gameResultQueryService.getMyResults(MY_USER_ID, 1, 2);
+		MyGameResultPageResponse secondPage = gameResultQueryService.getMyResults(MY_USER_ID, 2, 2);
 
 		assertThat(firstPage.page()).isEqualTo(1);
 		assertThat(firstPage.size()).isEqualTo(2);
@@ -123,18 +123,10 @@ class GameResultQueryServiceTest {
 
 	@Test
 	void getMyResultsReturnsEmptyPageWhenNoRecordExists() {
-		MyGameResultPageResponse response = gameResultQueryService.getMyResults(MY_KEY, 1, 10);
+		MyGameResultPageResponse response = gameResultQueryService.getMyResults(MY_USER_ID, 1, 10);
 
 		assertThat(response.content()).isEmpty();
 		assertThat(response.totalElements()).isZero();
-	}
-
-	@Test
-	void getMyResultsRejectsGuest() {
-		assertThatThrownBy(() -> gameResultQueryService.getMyResults(GUEST_KEY, 1, 10))
-			.isInstanceOf(BusinessException.class)
-			.satisfies(thrown -> assertThat(((BusinessException) thrown).getErrorCode())
-				.isEqualTo(GameResultErrorCode.MEMBER_ONLY));
 	}
 
 	// ---------- 내 경기 기록 상세 조회 ----------
@@ -143,7 +135,7 @@ class GameResultQueryServiceTest {
 	void getResultReturnsDetailWithAllParticipants() {
 		Long resultId = submit(MY_KEY, 0);
 
-		GameResultDetailResponse response = gameResultQueryService.getResult(MY_KEY, resultId);
+		GameResultDetailResponse response = gameResultQueryService.getResult(MY_USER_ID, resultId);
 
 		assertThat(response.resultId()).isEqualTo(resultId);
 		assertThat(response.gameName()).isEqualTo(GameName.HOCKEY);
@@ -160,7 +152,7 @@ class GameResultQueryServiceTest {
 	void getResultIncludesGameResultJson() {
 		Long resultId = submit(MY_KEY, 0);
 
-		GameResultDetailResponse response = gameResultQueryService.getResult(MY_KEY, resultId);
+		GameResultDetailResponse response = gameResultQueryService.getResult(MY_USER_ID, resultId);
 
 		assertThat(response.gameResult()).containsEntry("durationMs", 60000);
 	}
@@ -169,7 +161,7 @@ class GameResultQueryServiceTest {
 	void getResultRejectsRequesterWhoDidNotParticipate() {
 		Long resultId = submitBetweenOthers();
 
-		assertThatThrownBy(() -> gameResultQueryService.getResult(MY_KEY, resultId))
+		assertThatThrownBy(() -> gameResultQueryService.getResult(MY_USER_ID, resultId))
 			.isInstanceOf(BusinessException.class)
 			.satisfies(thrown -> assertThat(((BusinessException) thrown).getErrorCode())
 				.isEqualTo(GameResultErrorCode.RESULT_ACCESS_DENIED));
@@ -177,20 +169,10 @@ class GameResultQueryServiceTest {
 
 	@Test
 	void getResultRejectsUnknownResultId() {
-		assertThatThrownBy(() -> gameResultQueryService.getResult(MY_KEY, -1L))
+		assertThatThrownBy(() -> gameResultQueryService.getResult(MY_USER_ID, -1L))
 			.isInstanceOf(BusinessException.class)
 			.satisfies(thrown -> assertThat(((BusinessException) thrown).getErrorCode())
 				.isEqualTo(GameResultErrorCode.RESULT_NOT_FOUND));
-	}
-
-	@Test
-	void getResultRejectsGuest() {
-		Long resultId = submit(MY_KEY, 0);
-
-		assertThatThrownBy(() -> gameResultQueryService.getResult(GUEST_KEY, resultId))
-			.isInstanceOf(BusinessException.class)
-			.satisfies(thrown -> assertThat(((BusinessException) thrown).getErrorCode())
-				.isEqualTo(GameResultErrorCode.MEMBER_ONLY));
 	}
 
 	// ---------- fixture ----------

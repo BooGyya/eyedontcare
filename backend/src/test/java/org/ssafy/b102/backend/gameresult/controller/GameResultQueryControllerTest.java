@@ -7,7 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
@@ -23,19 +27,27 @@ import org.ssafy.b102.backend.gameresult.exception.GameResultErrorCode;
 import org.ssafy.b102.backend.gameresult.service.GameResultQueryService;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.GlobalExceptionHandler;
+import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 
 class GameResultQueryControllerTest {
 
 	private static final String PARTICIPANT_KEY_HEADER = "X-Participant-Key";
-	private static final String REQUESTER_KEY = "USER:1";
+	private static final Long USER_ID = 1L;
 	private static final long RESULT_ID = 5001L;
 	private static final Instant PLAYED_AT = Instant.parse("2026-07-28T09:03:00Z");
 
+	@AfterEach
+	void clearSecurityContext() {
+		SecurityContextHolder.clearContext();
+	}
+
 	@Test
 	void getMyResultsReturnsPagedRecords() throws Exception {
-		mockMvc(new StubQueryService())
+		StubQueryService queryService = new StubQueryService();
+
+		mockMvc(queryService)
 			.perform(get("/api/v1/game-results/me")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
+				.header(PARTICIPANT_KEY_HEADER, "USER:999"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("RESULT_LIST_FOUND"))
 			.andExpect(jsonPath("$.message").value("경기 기록 목록을 조회했습니다."))
@@ -47,13 +59,16 @@ class GameResultQueryControllerTest {
 			.andExpect(jsonPath("$.data.content[0].playMode").value("RANDOM"))
 			.andExpect(jsonPath("$.data.content[0].myOutcome").value("WIN"))
 			.andExpect(jsonPath("$.data.content[0].myRank").value(1));
+
+		org.assertj.core.api.Assertions.assertThat(
+			queryService.requestedUserId
+		).isEqualTo(USER_ID);
 	}
 
 	@Test
 	void getMyResultsAcceptsPageAndSize() throws Exception {
 		mockMvc(new StubQueryService())
 			.perform(get("/api/v1/game-results/me")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.param("page", "2")
 				.param("size", "5"))
 			.andExpect(status().isOk());
@@ -63,33 +78,15 @@ class GameResultQueryControllerTest {
 	void getMyResultsRejectsPageBelowOne() throws Exception {
 		mockMvc(new StubQueryService())
 			.perform(get("/api/v1/game-results/me")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.param("page", "0"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("COMMON-001"));
 	}
 
 	@Test
-	void getMyResultsRejectsGuest() throws Exception {
-		mockMvc(new ThrowingQueryService(GameResultErrorCode.MEMBER_ONLY))
-			.perform(get("/api/v1/game-results/me")
-				.header(PARTICIPANT_KEY_HEADER, "GUEST:abc"))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("GAMERESULT-006"));
-	}
-
-	@Test
-	void getMyResultsRequiresParticipantKeyHeader() throws Exception {
-		mockMvc(new StubQueryService())
-			.perform(get("/api/v1/game-results/me"))
-			.andExpect(status().isBadRequest());
-	}
-
-	@Test
 	void getResultReturnsDetail() throws Exception {
 		mockMvc(new StubQueryService())
-			.perform(get("/api/v1/game-results/{resultId}", RESULT_ID)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
+			.perform(get("/api/v1/game-results/{resultId}", RESULT_ID))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("RESULT_FOUND"))
 			.andExpect(jsonPath("$.message").value("경기 기록을 조회했습니다."))
@@ -104,8 +101,7 @@ class GameResultQueryControllerTest {
 	@Test
 	void getResultReturnsNotFoundWhenResultDoesNotExist() throws Exception {
 		mockMvc(new ThrowingQueryService(GameResultErrorCode.RESULT_NOT_FOUND))
-			.perform(get("/api/v1/game-results/{resultId}", RESULT_ID)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
+			.perform(get("/api/v1/game-results/{resultId}", RESULT_ID))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("GAMERESULT-007"));
 	}
@@ -113,15 +109,25 @@ class GameResultQueryControllerTest {
 	@Test
 	void getResultReturnsForbiddenWhenRequesterDidNotParticipate() throws Exception {
 		mockMvc(new ThrowingQueryService(GameResultErrorCode.RESULT_ACCESS_DENIED))
-			.perform(get("/api/v1/game-results/{resultId}", RESULT_ID)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
+			.perform(get("/api/v1/game-results/{resultId}", RESULT_ID))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("GAMERESULT-008"));
 	}
 
 	private MockMvc mockMvc(GameResultQueryService queryService) {
+		SecurityContextHolder.getContext().setAuthentication(
+			new UsernamePasswordAuthenticationToken(
+				new AuthenticatedUser(USER_ID),
+				null,
+				List.of()
+			)
+		);
+
 		return MockMvcBuilders
 			.standaloneSetup(new GameResultQueryController(queryService))
+			.setCustomArgumentResolvers(
+				new AuthenticationPrincipalArgumentResolver()
+			)
 			.setValidator(validator())
 			.setControllerAdvice(new GlobalExceptionHandler())
 			.build();
@@ -140,12 +146,16 @@ class GameResultQueryControllerTest {
 
 	private static class StubQueryService extends GameResultQueryService {
 
+		private Long requestedUserId;
+
 		private StubQueryService() {
 			super(null, null);
 		}
 
 		@Override
-		public MyGameResultPageResponse getMyResults(String participantKey, int page, int size) {
+		public MyGameResultPageResponse getMyResults(Long userId, int page, int size) {
+			requestedUserId = userId;
+
 			return new MyGameResultPageResponse(
 				List.of(new MyGameResultResponse(
 					RESULT_ID, GameName.HOCKEY, PlayMode.RANDOM, null, Outcome.WIN, 1, PLAYED_AT
@@ -157,7 +167,9 @@ class GameResultQueryControllerTest {
 		}
 
 		@Override
-		public GameResultDetailResponse getResult(String participantKey, Long resultId) {
+		public GameResultDetailResponse getResult(Long userId, Long resultId) {
+			requestedUserId = userId;
+
 			return new GameResultDetailResponse(
 				RESULT_ID,
 				GameName.HOCKEY,
@@ -183,12 +195,12 @@ class GameResultQueryControllerTest {
 		}
 
 		@Override
-		public MyGameResultPageResponse getMyResults(String participantKey, int page, int size) {
+		public MyGameResultPageResponse getMyResults(Long userId, int page, int size) {
 			throw new BusinessException(errorCode);
 		}
 
 		@Override
-		public GameResultDetailResponse getResult(String participantKey, Long resultId) {
+		public GameResultDetailResponse getResult(Long userId, Long resultId) {
 			throw new BusinessException(errorCode);
 		}
 	}
