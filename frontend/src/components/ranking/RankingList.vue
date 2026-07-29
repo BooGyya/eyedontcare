@@ -161,7 +161,7 @@ function getTrendLabel(trend?: RankingPlayer['trend']) {
   margin: 4px 0 0;
   color: var(--color-ink);
   font-size: 24px;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
 }
 .ranking-list__header p {
   display: grid;

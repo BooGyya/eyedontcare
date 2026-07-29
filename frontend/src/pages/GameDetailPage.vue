@@ -141,7 +141,7 @@ function handleSelectMode(mode: GamePlayMode) {
 .game-detail-page__modes h2 {
   margin: 7px 0;
   color: var(--color-ink);
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
   word-break: keep-all;
 }
 .game-detail-page__intro h1 {

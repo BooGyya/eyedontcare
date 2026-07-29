@@ -165,7 +165,7 @@ function handleShowAllActivities() {
   margin: 7px 0;
   color: var(--color-ink);
   font-size: clamp(31px, 4vw, 44px);
-  letter-spacing: -0.06em;
+  letter-spacing: -0.02em;
   word-break: keep-all;
 }
 .profile-page__identity h1 em {
@@ -227,7 +227,7 @@ function handleShowAllActivities() {
 .profile-page__activities h2 {
   margin: 5px 0 0;
   font-size: 23px;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
 }
 .profile-page__customizer header p {
   margin: 0;

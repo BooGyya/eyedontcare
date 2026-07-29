@@ -142,7 +142,7 @@ function getPodiumHeight(record: RankingRecord) {
   margin: 0;
   overflow-wrap: anywhere;
   font-size: 16px;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
 }
 
 .weekly-ranking-card__chart {
