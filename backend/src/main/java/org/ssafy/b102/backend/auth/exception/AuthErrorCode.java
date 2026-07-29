@@ -15,6 +15,12 @@ public enum AuthErrorCode implements ErrorCode {
         HttpStatus.INTERNAL_SERVER_ERROR,
         "AUTH-002",
         "닉네임 생성에 실패했습니다."
+    ),
+
+    INVALID_CREDENTIALS(
+        HttpStatus.UNAUTHORIZED,
+        "AUTH-003",
+        "이메일 또는 비밀번호가 올바르지 않습니다."
     );
 
     private final HttpStatus status;

@@ -7,6 +7,11 @@ public enum AuthSuccessCode implements SuccessCode {
     SIGNUP_SUCCESS(
         "AUTH_SIGNUP_SUCCESS",
         "회원가입이 완료되었습니다."
+    ),
+
+    LOGIN_SUCCESS(
+        "AUTH_LOGIN_SUCCESS",
+        "로그인이 완료되었습니다."
     );
 
     private final String code;

@@ -8,8 +8,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.ssafy.b102.backend.auth.AuthSuccessCode;
+import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
-import org.ssafy.b102.backend.auth.dto.response.SignupResponse;
+import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.service.AuthService;
 import org.ssafy.b102.backend.global.common.response.ApiResponse;
 
@@ -24,10 +25,10 @@ public class AuthController {
     }
 
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<SignupResponse>> signup(
+    public ResponseEntity<ApiResponse<TokenResponse>> signup(
         @Valid @RequestBody SignupRequest request
     ) {
-        SignupResponse response = authService.signup(request);
+        TokenResponse response = authService.signup(request);
 
         return ResponseEntity
             .status(HttpStatus.CREATED)
@@ -37,5 +38,19 @@ public class AuthController {
                     response
                 )
             );
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<ApiResponse<TokenResponse>> login(
+        @Valid @RequestBody LoginRequest request
+    ) {
+        TokenResponse response = authService.login(request);
+
+        return ResponseEntity.ok(
+            ApiResponse.success(
+                AuthSuccessCode.LOGIN_SUCCESS,
+                response
+            )
+        );
     }
 }

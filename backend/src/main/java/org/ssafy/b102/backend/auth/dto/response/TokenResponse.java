@@ -2,13 +2,13 @@ package org.ssafy.b102.backend.auth.dto.response;
 
 import org.ssafy.b102.backend.global.security.jwt.TokenPair;
 
-public record SignupResponse(
+public record TokenResponse(
     String accessToken,
     String refreshToken
 ) {
 
-    public static SignupResponse from(TokenPair tokenPair) {
-        return new SignupResponse(
+    public static TokenResponse from(TokenPair tokenPair) {
+        return new TokenResponse(
             tokenPair.accessToken(),
             tokenPair.refreshToken()
         );

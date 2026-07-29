@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
 
 import java.lang.reflect.Field;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,8 +17,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
-import org.ssafy.b102.backend.auth.dto.response.SignupResponse;
+import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
 import org.ssafy.b102.backend.auth.repository.RefreshTokenStore;
 import org.ssafy.b102.backend.global.error.BusinessException;
@@ -105,7 +107,7 @@ class AuthServiceTest {
                 )
             );
 
-        SignupResponse response = authService.signup(request);
+        TokenResponse response = authService.signup(request);
 
         assertThat(response.accessToken())
             .isEqualTo(ACCESS_TOKEN);
@@ -279,11 +281,175 @@ class AuthServiceTest {
             .save(any(User.class));
     }
 
+    @Test
+    void 이메일을_정규화하고_로그인하면_토큰을_반환하고_저장한다() {
+        LoginRequest request = new LoginRequest(
+            " USER@Example.COM ",
+            RAW_PASSWORD
+        );
+
+        User user = createUser();
+
+        when(
+            userRepository.findByEmailAndDeletedAtIsNull(
+                "user@example.com"
+            )
+        ).thenReturn(Optional.of(user));
+
+        when(
+            passwordEncoder.matches(
+                RAW_PASSWORD,
+                PASSWORD_HASH
+            )
+        ).thenReturn(true);
+
+        when(jwtTokenProvider.issueTokenPair(USER_ID))
+            .thenReturn(
+                new TokenPair(
+                    ACCESS_TOKEN,
+                    REFRESH_TOKEN
+                )
+            );
+
+        TokenResponse response = authService.login(request);
+
+        assertThat(response.accessToken())
+            .isEqualTo(ACCESS_TOKEN);
+
+        assertThat(response.refreshToken())
+            .isEqualTo(REFRESH_TOKEN);
+
+        verify(refreshTokenStore).save(
+            USER_ID,
+            REFRESH_TOKEN
+        );
+    }
+
+    @Test
+    void 존재하지_않는_이메일이면_로그인에_실패한다() {
+        LoginRequest request = loginRequest();
+
+        when(
+            userRepository.findByEmailAndDeletedAtIsNull(
+                "user@example.com"
+            )
+        ).thenReturn(Optional.empty());
+
+        assertInvalidCredentials(request);
+        verifyLoginFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 비밀번호가_일치하지_않으면_로그인에_실패한다() {
+        LoginRequest request = loginRequest();
+        User user = createUser();
+
+        when(
+            userRepository.findByEmailAndDeletedAtIsNull(
+                "user@example.com"
+            )
+        ).thenReturn(Optional.of(user));
+
+        when(
+            passwordEncoder.matches(
+                RAW_PASSWORD,
+                PASSWORD_HASH
+            )
+        ).thenReturn(false);
+
+        assertInvalidCredentials(request);
+        verifyLoginFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 비밀번호가_null인_소셜_사용자는_로그인에_실패한다() {
+        LoginRequest request = loginRequest();
+        User user = createUser();
+        setUserField(user, "passwordHash", null);
+
+        when(
+            userRepository.findByEmailAndDeletedAtIsNull(
+                "user@example.com"
+            )
+        ).thenReturn(Optional.of(user));
+
+        assertInvalidCredentials(request);
+
+        verify(passwordEncoder, never())
+            .matches(any(), any());
+
+        verifyLoginFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 탈퇴한_사용자는_활성_사용자_조회에서_제외되어_로그인에_실패한다() {
+        LoginRequest request = loginRequest();
+
+        when(
+            userRepository.findByEmailAndDeletedAtIsNull(
+                "user@example.com"
+            )
+        ).thenReturn(Optional.empty());
+
+        assertInvalidCredentials(request);
+        verifyLoginFailureHasNoSideEffects();
+    }
+
+    private LoginRequest loginRequest() {
+        return new LoginRequest(
+            "user@example.com",
+            RAW_PASSWORD
+        );
+    }
+
+    private User createUser() {
+        User user = User.createLocal(
+            "user@example.com",
+            PASSWORD_HASH,
+            NICKNAME
+        );
+
+        setUserId(user, USER_ID);
+        return user;
+    }
+
+    private void assertInvalidCredentials(LoginRequest request) {
+        assertThatThrownBy(
+            () -> authService.login(request)
+        )
+            .isInstanceOf(BusinessException.class)
+            .satisfies(exception -> {
+                BusinessException businessException =
+                    (BusinessException) exception;
+
+                assertThat(businessException.getErrorCode())
+                    .isEqualTo(
+                        AuthErrorCode.INVALID_CREDENTIALS
+                    );
+            });
+    }
+
+    private void verifyLoginFailureHasNoSideEffects() {
+        verify(jwtTokenProvider, never())
+            .issueTokenPair(any());
+
+        verify(refreshTokenStore, never())
+            .save(any(), any());
+    }
+
     private void setUserId(User user, Long userId) {
+        setUserField(user, "id", userId);
+    }
+
+    private void setUserField(
+        User user,
+        String fieldName,
+        Object value
+    ) {
         try {
-            Field idField = User.class.getDeclaredField("id");
-            idField.setAccessible(true);
-            idField.set(user, userId);
+            Field field = User.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(user, value);
         } catch (
             NoSuchFieldException |
             IllegalAccessException exception

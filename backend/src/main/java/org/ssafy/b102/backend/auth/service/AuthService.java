@@ -3,8 +3,9 @@ package org.ssafy.b102.backend.auth.service;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
-import org.ssafy.b102.backend.auth.dto.response.SignupResponse;
+import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
 import org.ssafy.b102.backend.auth.repository.RefreshTokenStore;
 import org.ssafy.b102.backend.global.error.BusinessException;
@@ -40,7 +41,7 @@ public class AuthService {
     }
 
     @Transactional
-    public SignupResponse signup(SignupRequest request) {
+    public TokenResponse signup(SignupRequest request) {
         String email = normalizeEmail(request.email());
 
         validateEmailNotDuplicated(email);
@@ -56,15 +57,30 @@ public class AuthService {
 
         User savedUser = userRepository.save(user);
 
-        TokenPair tokenPair =
-            jwtTokenProvider.issueTokenPair(savedUser.getId());
+        return issueAndStoreTokens(savedUser);
+    }
 
-        refreshTokenStore.save(
-            savedUser.getId(),
-            tokenPair.refreshToken()
-        );
+    @Transactional
+    public TokenResponse login(LoginRequest request) {
+        String email = normalizeEmail(request.email());
 
-        return SignupResponse.from(tokenPair);
+        User user = userRepository
+            .findByEmailAndDeletedAtIsNull(email)
+            .orElseThrow(this::invalidCredentials);
+
+        String passwordHash = user.getPasswordHash();
+
+        if (
+            passwordHash == null ||
+            !passwordEncoder.matches(
+                request.password(),
+                passwordHash
+            )
+        ) {
+            throw invalidCredentials();
+        }
+
+        return issueAndStoreTokens(user);
     }
 
     private String normalizeEmail(String email) {
@@ -77,6 +93,24 @@ public class AuthService {
                 AuthErrorCode.EMAIL_ALREADY_EXISTS
             );
         }
+    }
+
+    private TokenResponse issueAndStoreTokens(User user) {
+        TokenPair tokenPair =
+            jwtTokenProvider.issueTokenPair(user.getId());
+
+        refreshTokenStore.save(
+            user.getId(),
+            tokenPair.refreshToken()
+        );
+
+        return TokenResponse.from(tokenPair);
+    }
+
+    private BusinessException invalidCredentials() {
+        return new BusinessException(
+            AuthErrorCode.INVALID_CREDENTIALS
+        );
     }
 
     private String generateUniqueNickname() {
