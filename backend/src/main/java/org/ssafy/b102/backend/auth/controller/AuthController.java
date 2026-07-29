@@ -3,6 +3,7 @@ package org.ssafy.b102.backend.auth.controller;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,7 @@ import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.service.AuthService;
 import org.ssafy.b102.backend.global.common.response.ApiResponse;
+import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -65,6 +67,21 @@ public class AuthController {
             ApiResponse.success(
                 AuthSuccessCode.REISSUE_SUCCESS,
                 response
+            )
+        );
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+        @AuthenticationPrincipal
+        AuthenticatedUser authenticatedUser
+    ) {
+        authService.logout(authenticatedUser.userId());
+
+        return ResponseEntity.ok(
+            ApiResponse.success(
+                AuthSuccessCode.LOGOUT_SUCCESS,
+                null
             )
         );
     }

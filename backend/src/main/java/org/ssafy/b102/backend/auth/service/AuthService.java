@@ -114,6 +114,10 @@ public class AuthService {
         return TokenResponse.from(tokenPair);
     }
 
+    public void logout(Long userId) {
+        refreshTokenStore.deleteByUserId(userId);
+    }
+
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase();
     }
