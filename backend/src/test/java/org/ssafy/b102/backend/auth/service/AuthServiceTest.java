@@ -11,25 +11,34 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Optional;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.ssafy.b102.backend.auth.dto.request.KakaoLoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
+import org.ssafy.b102.backend.auth.kakao.KakaoOAuthClient;
+import org.ssafy.b102.backend.auth.kakao.KakaoUserIdentity;
 import org.ssafy.b102.backend.auth.repository.RefreshTokenStore;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.global.security.jwt.TokenPair;
+import org.ssafy.b102.backend.user.entity.SocialAccount;
 import org.ssafy.b102.backend.user.entity.User;
+import org.ssafy.b102.backend.user.enums.SocialProvider;
+import org.ssafy.b102.backend.user.repository.SocialAccountRepository;
 import org.ssafy.b102.backend.user.repository.UserRepository;
 import org.ssafy.b102.backend.user.util.RandomNicknameGenerator;
 
@@ -51,6 +60,9 @@ class AuthServiceTest {
     private UserRepository userRepository;
 
     @Mock
+    private SocialAccountRepository socialAccountRepository;
+
+    @Mock
     private RandomNicknameGenerator randomNicknameGenerator;
 
     @Mock
@@ -62,16 +74,21 @@ class AuthServiceTest {
     @Mock
     private RefreshTokenStore refreshTokenStore;
 
+    @Mock
+    private KakaoOAuthClient kakaoOAuthClient;
+
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         authService = new AuthService(
             userRepository,
+            socialAccountRepository,
             randomNicknameGenerator,
             passwordEncoder,
             jwtTokenProvider,
-            refreshTokenStore
+            refreshTokenStore,
+            kakaoOAuthClient
         );
     }
 
@@ -669,10 +686,215 @@ class AuthServiceTest {
         verify(refreshTokenStore).deleteByUserId(USER_ID);
     }
 
+    @Test
+    void 기존_카카오_회원은_새_User를_생성하지_않고_로그인한다() {
+        KakaoLoginRequest request =
+            new KakaoLoginRequest("authorization-code");
+        User user = createUser();
+        SocialAccount socialAccount = SocialAccount.create(
+            user,
+            SocialProvider.KAKAO,
+            "12345"
+        );
+
+        when(
+            kakaoOAuthClient.authenticate(
+                request.authorizationCode()
+            )
+        ).thenReturn(new KakaoUserIdentity("12345"));
+        when(
+            socialAccountRepository.findActiveAccount(
+                SocialProvider.KAKAO,
+                "12345"
+            )
+        ).thenReturn(Optional.of(socialAccount));
+        when(jwtTokenProvider.issueTokenPair(USER_ID))
+            .thenReturn(
+                new TokenPair(ACCESS_TOKEN, REFRESH_TOKEN)
+            );
+
+        TokenResponse response =
+            authService.loginWithKakao(request);
+
+        assertThat(response.accessToken())
+            .isEqualTo(ACCESS_TOKEN);
+        assertThat(response.refreshToken())
+            .isEqualTo(REFRESH_TOKEN);
+        verify(userRepository, never()).save(any());
+        verify(socialAccountRepository, never())
+            .saveAndFlush(any());
+        verify(refreshTokenStore)
+            .save(USER_ID, REFRESH_TOKEN);
+    }
+
+    @Test
+    void 신규_카카오_회원은_User와_SocialAccount를_생성한다() {
+        KakaoLoginRequest request =
+            new KakaoLoginRequest("authorization-code");
+
+        when(
+            kakaoOAuthClient.authenticate(
+                request.authorizationCode()
+            )
+        ).thenReturn(new KakaoUserIdentity("12345"));
+        when(
+            socialAccountRepository.findActiveAccount(
+                SocialProvider.KAKAO,
+                "12345"
+            )
+        ).thenReturn(Optional.empty());
+        when(randomNicknameGenerator.generate())
+            .thenReturn(NICKNAME);
+        when(
+            userRepository.existsByNicknameAndDeletedAtIsNull(
+                NICKNAME
+            )
+        ).thenReturn(false);
+        when(userRepository.save(any(User.class)))
+            .thenAnswer(invocation -> {
+                User user = invocation.getArgument(0);
+                setUserId(user, USER_ID);
+                return user;
+            });
+        when(
+            socialAccountRepository.saveAndFlush(
+                any(SocialAccount.class)
+            )
+        ).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtTokenProvider.issueTokenPair(USER_ID))
+            .thenReturn(
+                new TokenPair(ACCESS_TOKEN, REFRESH_TOKEN)
+            );
+
+        authService.loginWithKakao(request);
+
+        ArgumentCaptor<User> userCaptor =
+            ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+
+        User savedUser = userCaptor.getValue();
+        assertThat(savedUser.getEmail()).isNull();
+        assertThat(savedUser.getPasswordHash()).isNull();
+        assertThat(savedUser.getNickname()).isEqualTo(NICKNAME);
+
+        ArgumentCaptor<SocialAccount> accountCaptor =
+            ArgumentCaptor.forClass(SocialAccount.class);
+        verify(socialAccountRepository)
+            .saveAndFlush(accountCaptor.capture());
+
+        SocialAccount savedAccount = accountCaptor.getValue();
+        assertThat(savedAccount.getUser()).isSameAs(savedUser);
+        assertThat(savedAccount.getProvider())
+            .isEqualTo(SocialProvider.KAKAO);
+        assertThat(savedAccount.getProviderUserId())
+            .isEqualTo("12345");
+    }
+
+    @Test
+    void 안전하게_식별한_소셜_계정_UNIQUE_충돌만_AUTH_008이다() {
+        mockNewKakaoUser();
+
+        DataIntegrityViolationException conflict =
+            constraintViolation(
+                "uk_social_accounts_provider_identity"
+            );
+
+        when(
+            socialAccountRepository.saveAndFlush(
+                any(SocialAccount.class)
+            )
+        ).thenThrow(conflict);
+
+        assertThatThrownBy(
+            () -> authService.loginWithKakao(
+                new KakaoLoginRequest("authorization-code")
+            )
+        )
+            .isInstanceOf(BusinessException.class)
+            .satisfies(exception -> assertThat(
+                ((BusinessException) exception).getErrorCode()
+            ).isEqualTo(AuthErrorCode.SOCIAL_ACCOUNT_CONFLICT));
+
+        verify(jwtTokenProvider, never())
+            .issueTokenPair(any());
+        verify(refreshTokenStore, never()).save(any(), any());
+    }
+
+    @Test
+    void 다른_DB_제약_오류는_AUTH_008로_변환하지_않는다() {
+        mockNewKakaoUser();
+
+        DataIntegrityViolationException unexpected =
+            constraintViolation("uk_users_nickname");
+
+        when(
+            socialAccountRepository.saveAndFlush(
+                any(SocialAccount.class)
+            )
+        ).thenThrow(unexpected);
+
+        assertThatThrownBy(
+            () -> authService.loginWithKakao(
+                new KakaoLoginRequest("authorization-code")
+            )
+        ).isSameAs(unexpected);
+    }
+
+    @Test
+    void 탈퇴할_때_연결된_SocialAccount를_명시적으로_삭제한다() {
+        User user = createUser();
+        when(
+            userRepository.findByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(Optional.of(user));
+
+        authService.withdraw(USER_ID);
+
+        verify(socialAccountRepository).deleteByUserId(USER_ID);
+        verify(refreshTokenStore).deleteByUserId(USER_ID);
+    }
+
     private LoginRequest loginRequest() {
         return new LoginRequest(
             "user@example.com",
             RAW_PASSWORD
+        );
+    }
+
+    private void mockNewKakaoUser() {
+        when(
+            kakaoOAuthClient.authenticate("authorization-code")
+        ).thenReturn(new KakaoUserIdentity("12345"));
+        when(
+            socialAccountRepository.findActiveAccount(
+                SocialProvider.KAKAO,
+                "12345"
+            )
+        ).thenReturn(Optional.empty());
+        when(randomNicknameGenerator.generate())
+            .thenReturn(NICKNAME);
+        when(
+            userRepository.existsByNicknameAndDeletedAtIsNull(
+                NICKNAME
+            )
+        ).thenReturn(false);
+        when(userRepository.save(any(User.class)))
+            .thenAnswer(invocation -> {
+                User user = invocation.getArgument(0);
+                setUserId(user, USER_ID);
+                return user;
+            });
+    }
+
+    private DataIntegrityViolationException constraintViolation(
+        String constraintName
+    ) {
+        return new DataIntegrityViolationException(
+            "database constraint violation",
+            new ConstraintViolationException(
+                "constraint violation",
+                new SQLException(),
+                constraintName
+            )
         );
     }
 

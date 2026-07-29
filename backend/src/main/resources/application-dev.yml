@@ -5,6 +5,11 @@ app:
 jwt:
   secret-key: ${JWT_SECRET_KEY}
 
+kakao:
+  client-id: ${KAKAO_CLIENT_ID:local-kakao-client-id}
+  client-secret: ${KAKAO_CLIENT_SECRET:local-kakao-client-secret}
+  redirect-uri: ${KAKAO_REDIRECT_URI:http://localhost:5173/auth/kakao/callback}
+
 spring:
   data:
     redis:
@@ -26,4 +31,3 @@ spring:
   sql:
     init:
       mode: always
-

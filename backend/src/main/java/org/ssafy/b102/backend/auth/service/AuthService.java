@@ -1,19 +1,27 @@
 package org.ssafy.b102.backend.auth.service;
 
 import java.time.Instant;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.ssafy.b102.backend.auth.dto.request.KakaoLoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
+import org.ssafy.b102.backend.auth.kakao.KakaoOAuthClient;
+import org.ssafy.b102.backend.auth.kakao.KakaoUserIdentity;
 import org.ssafy.b102.backend.auth.repository.RefreshTokenStore;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.global.security.jwt.TokenPair;
+import org.ssafy.b102.backend.user.entity.SocialAccount;
 import org.ssafy.b102.backend.user.entity.User;
+import org.ssafy.b102.backend.user.enums.SocialProvider;
+import org.ssafy.b102.backend.user.repository.SocialAccountRepository;
 import org.ssafy.b102.backend.user.repository.UserRepository;
 import org.ssafy.b102.backend.user.util.RandomNicknameGenerator;
 
@@ -21,25 +29,35 @@ import org.ssafy.b102.backend.user.util.RandomNicknameGenerator;
 public class AuthService {
 
     private static final int MAX_NICKNAME_GENERATION_ATTEMPTS = 10;
+    private static final String SOCIAL_ACCOUNT_USER_CONSTRAINT =
+        "uk_social_accounts_user";
+    private static final String SOCIAL_ACCOUNT_IDENTITY_CONSTRAINT =
+        "uk_social_accounts_provider_identity";
 
     private final UserRepository userRepository;
+    private final SocialAccountRepository socialAccountRepository;
     private final RandomNicknameGenerator randomNicknameGenerator;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenStore refreshTokenStore;
+    private final KakaoOAuthClient kakaoOAuthClient;
 
     public AuthService(
         UserRepository userRepository,
+        SocialAccountRepository socialAccountRepository,
         RandomNicknameGenerator randomNicknameGenerator,
         PasswordEncoder passwordEncoder,
         JwtTokenProvider jwtTokenProvider,
-        RefreshTokenStore refreshTokenStore
+        RefreshTokenStore refreshTokenStore,
+        KakaoOAuthClient kakaoOAuthClient
     ) {
         this.userRepository = userRepository;
+        this.socialAccountRepository = socialAccountRepository;
         this.randomNicknameGenerator = randomNicknameGenerator;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.refreshTokenStore = refreshTokenStore;
+        this.kakaoOAuthClient = kakaoOAuthClient;
     }
 
     @Transactional
@@ -81,6 +99,26 @@ public class AuthService {
         ) {
             throw invalidCredentials();
         }
+
+        return issueAndStoreTokens(user);
+    }
+
+    @Transactional
+    public TokenResponse loginWithKakao(
+        KakaoLoginRequest request
+    ) {
+        KakaoUserIdentity identity =
+            kakaoOAuthClient.authenticate(
+                request.authorizationCode()
+            );
+
+        User user = socialAccountRepository
+            .findActiveAccount(
+                SocialProvider.KAKAO,
+                identity.providerUserId()
+            )
+            .map(SocialAccount::getUser)
+            .orElseGet(() -> createKakaoUser(identity));
 
         return issueAndStoreTokens(user);
     }
@@ -129,6 +167,7 @@ public class AuthService {
                 )
             );
 
+        socialAccountRepository.deleteByUserId(userId);
         user.withdraw(Instant.now());
         refreshTokenStore.deleteByUserId(userId);
     }
@@ -155,6 +194,62 @@ public class AuthService {
         );
 
         return TokenResponse.from(tokenPair);
+    }
+
+    private User createKakaoUser(KakaoUserIdentity identity) {
+        User user = User.createSocial(
+            generateUniqueNickname()
+        );
+
+        User savedUser = userRepository.save(user);
+        SocialAccount socialAccount = SocialAccount.create(
+            savedUser,
+            SocialProvider.KAKAO,
+            identity.providerUserId()
+        );
+
+        try {
+            socialAccountRepository.saveAndFlush(
+                socialAccount
+            );
+        } catch (DataIntegrityViolationException exception) {
+            if (isSocialAccountUniqueConflict(exception)) {
+                throw new BusinessException(
+                    AuthErrorCode.SOCIAL_ACCOUNT_CONFLICT
+                );
+            }
+
+            throw exception;
+        }
+
+        return savedUser;
+    }
+
+    private boolean isSocialAccountUniqueConflict(
+        DataIntegrityViolationException exception
+    ) {
+        Throwable cause = exception;
+
+        while (cause != null) {
+            if (
+                cause instanceof ConstraintViolationException
+                    constraintViolation
+            ) {
+                String constraintName =
+                    constraintViolation.getConstraintName();
+
+                return SOCIAL_ACCOUNT_USER_CONSTRAINT.equals(
+                    constraintName
+                ) ||
+                    SOCIAL_ACCOUNT_IDENTITY_CONSTRAINT.equals(
+                        constraintName
+                    );
+            }
+
+            cause = cause.getCause();
+        }
+
+        return false;
     }
 
     private BusinessException invalidCredentials() {
