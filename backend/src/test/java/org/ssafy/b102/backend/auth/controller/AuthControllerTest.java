@@ -4,9 +4,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
@@ -17,19 +22,33 @@ import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
 import org.ssafy.b102.backend.auth.service.AuthService;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.GlobalExceptionHandler;
+import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 
 class AuthControllerTest {
 
+    private static final Long USER_ID = 1L;
+
     private MockMvc mockMvc;
+    private StubAuthService authService;
 
     @BeforeEach
     void setUp() {
+        authService = new StubAuthService();
+
         mockMvc = MockMvcBuilders
             .standaloneSetup(
-                new AuthController(new StubAuthService())
+                new AuthController(authService)
+            )
+            .setCustomArgumentResolvers(
+                new AuthenticationPrincipalArgumentResolver()
             )
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -530,8 +549,43 @@ class AuthControllerTest {
             .andExpect(jsonPath("$.code").value("AUTH-004"));
     }
 
+    @Test
+    void 인증된_principal로_요청_본문_없이_로그아웃한다()
+        throws Exception {
+
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new AuthenticatedUser(USER_ID),
+                null,
+                List.of()
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/auth/logout")
+                    .header("X-Participant-Key", "USER:999")
+                    .header("X-User-Id", "999")
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_LOGOUT_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("로그아웃에 성공했습니다.")
+            )
+            .andExpect(jsonPath("$.data").doesNotExist());
+
+        org.assertj.core.api.Assertions.assertThat(
+            authService.logoutUserId
+        ).isEqualTo(USER_ID);
+    }
+
     private static final class StubAuthService
         extends AuthService {
+
+        private Long logoutUserId;
 
         private StubAuthService() {
             super(
@@ -593,6 +647,11 @@ class AuthControllerTest {
                 "new-access-token",
                 "new-refresh-token"
             );
+        }
+
+        @Override
+        public void logout(Long userId) {
+            logoutUserId = userId;
         }
     }
 }

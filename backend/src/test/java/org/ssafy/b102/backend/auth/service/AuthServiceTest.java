@@ -4,9 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.util.Optional;
@@ -547,6 +548,57 @@ class AuthServiceTest {
             USER_ID,
             NEW_REFRESH_TOKEN
         );
+    }
+
+    @Test
+    void 로그아웃하면_인증된_사용자의_리프레시_토큰을_삭제한다() {
+        authService.logout(USER_ID);
+
+        verify(refreshTokenStore).deleteByUserId(USER_ID);
+        verify(refreshTokenStore, never()).findByUserId(any());
+        verify(refreshTokenStore, never()).save(any(), any());
+        verifyNoInteractions(
+            userRepository,
+            randomNicknameGenerator,
+            passwordEncoder,
+            jwtTokenProvider
+        );
+    }
+
+    @Test
+    void 리프레시_토큰이_없어도_반복_로그아웃에_성공한다() {
+        authService.logout(USER_ID);
+        authService.logout(USER_ID);
+
+        verify(refreshTokenStore, times(2))
+            .deleteByUserId(USER_ID);
+    }
+
+    @Test
+    void 로그아웃으로_삭제된_리프레시_토큰은_재발급할_수_없다() {
+        authService.logout(USER_ID);
+
+        when(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                REFRESH_TOKEN
+            )
+        ).thenReturn(Optional.of(USER_ID));
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(true);
+        when(refreshTokenStore.findByUserId(USER_ID))
+            .thenReturn(Optional.empty());
+
+        assertInvalidRefreshToken(
+            new ReissueRequest(REFRESH_TOKEN)
+        );
+
+        verify(refreshTokenStore).deleteByUserId(USER_ID);
+        verify(refreshTokenStore).findByUserId(USER_ID);
+        verify(jwtTokenProvider, never())
+            .issueTokenPair(any());
+        verify(refreshTokenStore, never())
+            .save(any(), any());
     }
 
     private LoginRequest loginRequest() {

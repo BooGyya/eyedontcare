@@ -17,6 +17,11 @@ public enum AuthSuccessCode implements SuccessCode {
     REISSUE_SUCCESS(
         "AUTH_REISSUE_SUCCESS",
         "토큰 재발급이 완료되었습니다."
+    ),
+
+    LOGOUT_SUCCESS(
+        "AUTH_LOGOUT_SUCCESS",
+        "로그아웃에 성공했습니다."
     );
 
     private final String code;

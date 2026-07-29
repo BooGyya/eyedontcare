@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -219,6 +220,134 @@ class SecurityIntegrationTest {
         verify(authService).reissue(
             new ReissueRequest("refresh-token")
         );
+    }
+
+    @Test
+    void 유효한_액세스_토큰으로_로그아웃하고_사용자_헤더는_무시한다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+
+        mockMvc.perform(
+                post("/api/v1/auth/logout")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+                    .header(
+                        "X-Participant-Key",
+                        "USER:999"
+                    )
+                    .header("X-User-Id", "999")
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_LOGOUT_SUCCESS")
+            )
+            .andExpect(jsonPath("$.data").doesNotExist());
+
+        verify(authService).logout(1L);
+    }
+
+    @Test
+    void 로그아웃은_반복해서_호출해도_성공한다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+
+        for (int request = 0; request < 2; request++) {
+            mockMvc.perform(
+                    post("/api/v1/auth/logout")
+                        .header(
+                            HttpHeaders.AUTHORIZATION,
+                            bearer(token)
+                        )
+                )
+                .andExpect(status().isOk());
+        }
+
+        verify(authService, times(2)).logout(1L);
+    }
+
+    @Test
+    void 로그아웃은_액세스_토큰이_없으면_401을_반환한다()
+        throws Exception {
+
+        mockMvc.perform(post("/api/v1/auth/logout"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-001"));
+    }
+
+    @Test
+    void 만료_변조_리프레시_토큰으로_로그아웃하면_401을_반환한다()
+        throws Exception {
+
+        String expiredToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().minusSeconds(60L),
+            secretKey()
+        );
+
+        SecretKey otherKey = Keys.hmacShaKeyFor(
+            "different-secret-key-for-testing"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
+
+        String tamperedToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().plusSeconds(1_800L),
+            otherKey
+        );
+
+        String refreshToken =
+            jwtTokenProvider.issueRefreshToken(1L);
+
+        expectInvalidLogoutToken(expiredToken);
+        expectInvalidLogoutToken(tamperedToken);
+        expectInvalidLogoutToken(refreshToken);
+    }
+
+    @Test
+    void 로그아웃한_액세스_토큰은_만료_전까지_보호_API에_사용할_수_있다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+
+        mockMvc.perform(
+                post("/api/v1/auth/logout")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isOk());
+
+        when(
+            gameResultQueryService.getMyResults(
+                1L,
+                1,
+                10
+            )
+        ).thenReturn(
+            new MyGameResultPageResponse(
+                List.of(),
+                1,
+                10,
+                0
+            )
+        );
+
+        mockMvc.perform(
+                get("/api/v1/game-results/me")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isOk());
     }
 
     @Test
@@ -574,6 +703,21 @@ class SecurityIntegrationTest {
                 jsonPath("$.message")
                     .value("유효하지 않은 액세스 토큰입니다.")
             )
+            .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    private void expectInvalidLogoutToken(String token)
+        throws Exception {
+
+        mockMvc.perform(
+                post("/api/v1/auth/logout")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"))
             .andExpect(jsonPath("$.data").doesNotExist());
     }
 
