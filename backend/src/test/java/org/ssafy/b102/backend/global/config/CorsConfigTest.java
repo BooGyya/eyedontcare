@@ -8,15 +8,33 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.ssafy.b102.backend.global.security.SecurityAccessDeniedHandler;
+import org.ssafy.b102.backend.global.security.SecurityAuthenticationEntryPoint;
+import org.ssafy.b102.backend.global.security.SecurityErrorResponseWriter;
+import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.ping.controller.PingController;
 import org.ssafy.b102.backend.ping.service.PingService;
+import org.ssafy.b102.backend.user.repository.UserRepository;
 
 @WebMvcTest(PingController.class)
-@Import({CorsConfig.class, PingService.class})
+@Import({
+	CorsConfig.class,
+	SecurityConfig.class,
+	SecurityAuthenticationEntryPoint.class,
+	SecurityAccessDeniedHandler.class,
+	SecurityErrorResponseWriter.class,
+	PingService.class
+})
+@ImportAutoConfiguration(
+	ServletWebSecurityAutoConfiguration.class
+)
 @TestPropertySource(properties = "app.cors.allowed-origins=http://localhost:5173")
 class CorsConfigTest {
 
@@ -25,6 +43,12 @@ class CorsConfigTest {
 
 	@Autowired
 	private MockMvc mockMvc;
+
+	@MockitoBean
+	private JwtTokenProvider jwtTokenProvider;
+
+	@MockitoBean
+	private UserRepository userRepository;
 
 	@Test
 	void preflightFromAllowedOriginIsAccepted() throws Exception {

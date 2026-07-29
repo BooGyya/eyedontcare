@@ -1,5 +1,6 @@
 package org.ssafy.b102.backend.global.security.jwt;
 
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -7,8 +8,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
 import javax.crypto.SecretKey;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +57,40 @@ public class JwtTokenProvider {
             TokenType.REFRESH,
             properties.refreshTokenExpiration()
         );
+    }
+
+    public Optional<Long> parseAccessTokenUserId(String token) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            var claims = Jwts.parser()
+                .verifyWith(secretKey)
+                .clock(() -> Date.from(clock.instant()))
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+            String tokenType = claims.get(
+                TOKEN_TYPE_CLAIM,
+                String.class
+            );
+
+            if (!TokenType.ACCESS.name().equals(tokenType)) {
+                return Optional.empty();
+            }
+
+            Long userId = Long.valueOf(claims.getSubject());
+            return userId > 0
+                ? Optional.of(userId)
+                : Optional.empty();
+        } catch (
+            JwtException |
+            IllegalArgumentException exception
+        ) {
+            return Optional.empty();
+        }
     }
 
     private String issueToken(

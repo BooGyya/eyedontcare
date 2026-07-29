@@ -18,12 +18,10 @@ import org.ssafy.b102.backend.global.error.BusinessException;
  * 경기 기록 조회 서비스.
  *
  * <p>제출은 쓰기 트랜잭션, 조회는 읽기 전용이라 {@link GameResultService}와 분리했다.
- * 게스트는 {@code user_id}가 없어 자신의 기록을 특정할 수 없으므로 회원만 조회할 수 있다.
+ * 인증된 회원 ID로만 자신의 기록을 조회한다.
  */
 @Service
 public class GameResultQueryService {
-
-	private static final String USER_KEY_PREFIX = "USER:";
 
 	private final GameResultRepository gameResultRepository;
 	private final ParticipantRepository participantRepository;
@@ -37,8 +35,7 @@ public class GameResultQueryService {
 	}
 
 	@Transactional(readOnly = true)
-	public MyGameResultPageResponse getMyResults(String participantKey, int page, int size) {
-		Long userId = requireUserId(participantKey);
+	public MyGameResultPageResponse getMyResults(Long userId, int page, int size) {
 		Pageable pageable = PageRequest.of(page - 1, size);
 
 		Page<Participant> myResults = participantRepository.findMyResults(userId, pageable);
@@ -47,9 +44,7 @@ public class GameResultQueryService {
 	}
 
 	@Transactional(readOnly = true)
-	public GameResultDetailResponse getResult(String participantKey, Long resultId) {
-		Long userId = requireUserId(participantKey);
-
+	public GameResultDetailResponse getResult(Long userId, Long resultId) {
 		GameResult gameResult = gameResultRepository.findById(resultId)
 			.orElseThrow(() -> new BusinessException(GameResultErrorCode.RESULT_NOT_FOUND));
 
@@ -57,20 +52,5 @@ public class GameResultQueryService {
 			.orElseThrow(() -> new BusinessException(GameResultErrorCode.RESULT_ACCESS_DENIED));
 
 		return GameResultDetailResponse.from(gameResult);
-	}
-
-	/**
-	 * 참가자 키에서 회원 ID를 얻는다. 게스트와 AI는 조회 대상이 아니다.
-	 */
-	private Long requireUserId(String participantKey) {
-		if (participantKey == null || !participantKey.startsWith(USER_KEY_PREFIX)) {
-			throw new BusinessException(GameResultErrorCode.MEMBER_ONLY);
-		}
-
-		try {
-			return Long.parseLong(participantKey.substring(USER_KEY_PREFIX.length()));
-		} catch (NumberFormatException exception) {
-			throw new BusinessException(GameResultErrorCode.MEMBER_ONLY);
-		}
 	}
 }
