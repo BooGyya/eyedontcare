@@ -152,7 +152,7 @@ class MatchmakingControllerTest {
 		private final MatchStatus matchStatus;
 
 		private StubService(MatchStatus matchStatus) {
-			super(null, null);
+			super(null, null, null);
 			this.matchStatus = matchStatus;
 		}
 
