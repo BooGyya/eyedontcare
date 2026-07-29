@@ -14,6 +14,11 @@ public enum AuthSuccessCode implements SuccessCode {
         "로그인이 완료되었습니다."
     ),
 
+    KAKAO_LOGIN_SUCCESS(
+        "AUTH_KAKAO_LOGIN_SUCCESS",
+        "카카오 로그인이 완료되었습니다."
+    ),
+
     REISSUE_SUCCESS(
         "AUTH_REISSUE_SUCCESS",
         "토큰 재발급이 완료되었습니다."

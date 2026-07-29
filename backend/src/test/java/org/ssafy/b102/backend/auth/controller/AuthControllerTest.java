@@ -16,6 +16,7 @@ import org.springframework.security.web.method.annotation.AuthenticationPrincipa
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
+import org.ssafy.b102.backend.auth.dto.request.KakaoLoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
@@ -358,6 +359,55 @@ class AuthControllerTest {
     }
 
     @Test
+    void 카카오_로그인에_성공하면_200과_서비스_토큰을_반환한다()
+        throws Exception {
+
+        mockMvc.perform(
+                post("/api/v1/auth/login/kakao")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "authorizationCode": "authorization-code"
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_KAKAO_LOGIN_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.data.accessToken")
+                    .value("access-token")
+            )
+            .andExpect(
+                jsonPath("$.data.refreshToken")
+                    .value("refresh-token")
+            );
+    }
+
+    @Test
+    void 카카오_인가_코드가_비어_있으면_COMMON_001이다()
+        throws Exception {
+
+        mockMvc.perform(
+                post("/api/v1/auth/login/kakao")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "authorizationCode": " "
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("COMMON-001"));
+    }
+
+    @Test
     void 로그인_인증에_실패하면_401을_반환한다()
         throws Exception {
 
@@ -628,6 +678,8 @@ class AuthControllerTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 null
             );
         }
@@ -660,6 +712,16 @@ class AuthControllerTest {
                 );
             }
 
+            return new TokenResponse(
+                "access-token",
+                "refresh-token"
+            );
+        }
+
+        @Override
+        public TokenResponse loginWithKakao(
+            KakaoLoginRequest request
+        ) {
             return new TokenResponse(
                 "access-token",
                 "refresh-token"

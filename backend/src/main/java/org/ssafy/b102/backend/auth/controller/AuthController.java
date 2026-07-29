@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.ssafy.b102.backend.auth.AuthSuccessCode;
+import org.ssafy.b102.backend.auth.dto.request.KakaoLoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
@@ -53,6 +54,21 @@ public class AuthController {
         return ResponseEntity.ok(
             ApiResponse.success(
                 AuthSuccessCode.LOGIN_SUCCESS,
+                response
+            )
+        );
+    }
+
+    @PostMapping("/login/kakao")
+    public ResponseEntity<ApiResponse<TokenResponse>> loginWithKakao(
+        @Valid @RequestBody KakaoLoginRequest request
+    ) {
+        TokenResponse response =
+            authService.loginWithKakao(request);
+
+        return ResponseEntity.ok(
+            ApiResponse.success(
+                AuthSuccessCode.KAKAO_LOGIN_SUCCESS,
                 response
             )
         );

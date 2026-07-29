@@ -87,6 +87,20 @@ public class User extends BaseTimeEntity {
         );
     }
 
+    public static User createSocial(String nickname) {
+        Objects.requireNonNull(
+            nickname,
+            "nickname은 null일 수 없습니다."
+        );
+
+        return new User(
+            null,
+            null,
+            nickname,
+            DEFAULT_PROFILE_IMAGE_CODE
+        );
+    }
+
     public Long getId() {
         return id;
     }

@@ -184,6 +184,37 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    void 카카오_로그인_API는_토큰_없이_접근할_수_있다()
+        throws Exception {
+
+        when(
+            authService.loginWithKakao(any())
+        ).thenReturn(
+            new TokenResponse(
+                "access-token",
+                "refresh-token"
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/auth/login/kakao")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "authorizationCode": "authorization-code"
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_KAKAO_LOGIN_SUCCESS")
+            );
+    }
+
+    @Test
     void 토큰_재발급_API는_Authorization_헤더_없이_접근할_수_있다()
         throws Exception {
 
