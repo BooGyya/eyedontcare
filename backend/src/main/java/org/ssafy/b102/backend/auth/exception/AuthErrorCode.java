@@ -1,0 +1,48 @@
+package org.ssafy.b102.backend.auth.exception;
+
+import org.springframework.http.HttpStatus;
+import org.ssafy.b102.backend.global.error.ErrorCode;
+
+public enum AuthErrorCode implements ErrorCode {
+
+    EMAIL_ALREADY_EXISTS(
+        HttpStatus.CONFLICT,
+        "AUTH-001",
+        "이미 사용 중인 이메일입니다."
+    ),
+
+    NICKNAME_GENERATION_FAILED(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        "AUTH-002",
+        "닉네임 생성에 실패했습니다."
+    );
+
+    private final HttpStatus status;
+    private final String code;
+    private final String message;
+
+    AuthErrorCode(
+        HttpStatus status,
+        String code,
+        String message
+    ) {
+        this.status = status;
+        this.code = code;
+        this.message = message;
+    }
+
+    @Override
+    public HttpStatus status() {
+        return status;
+    }
+
+    @Override
+    public String code() {
+        return code;
+    }
+
+    @Override
+    public String message() {
+        return message;
+    }
+}
