@@ -127,7 +127,12 @@ function openGameStartDialog() {
   countdownTimer = globalThis.setInterval(() => {
     if (countdown.value === 1) {
       clearGameStartCountdown()
-      isGamePlaybackPending.value = true
+      if (game.value)
+        router.push({
+          name: 'game-play',
+          params: { gameId: game.value.id },
+          query: route.query,
+        })
       return
     }
     countdown.value -= 1
