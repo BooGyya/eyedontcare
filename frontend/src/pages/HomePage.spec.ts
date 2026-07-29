@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WeeklyRankingCard from '../components/home/WeeklyRankingCard.vue'
 import { weeklyRankingGames } from '../mocks/home'
 import HomePage from './HomePage.vue'
@@ -181,5 +181,57 @@ describe('HomePage weekly ranking carousel', () => {
     expect(wrapper.get('.hero-banner__bubble').text()).toContain(
       '눈으로 뭐 할래?',
     )
+  })
+
+  it('switches hero banner slides with the indicator dots', async () => {
+    const wrapper = mount(HomePage, {
+      global: { plugins: [createTestRouter()] },
+    })
+    const indicators = wrapper.findAll('.hero-banner__indicator')
+
+    expect(indicators).toHaveLength(4)
+    expect(wrapper.text()).toContain('눈으로 놀고')
+
+    await indicators[1].trigger('click')
+    expect(wrapper.text()).toContain('다섯 가지 미니게임')
+
+    await indicators[3].trigger('click')
+    expect(wrapper.text()).toContain('랭킹')
+    expect(wrapper.text()).toContain('게임 시작하기')
+  })
+
+  it('shows a trophy icon in the weekly ranking heading', () => {
+    const wrapper = mount(HomePage, {
+      global: { plugins: [createTestRouter()] },
+    })
+
+    expect(wrapper.get('#weekly-ranking-title').text()).toContain('🏆')
+  })
+
+  it('advances the hero carousel automatically and loops', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(HomePage, {
+        global: { plugins: [createTestRouter()] },
+      })
+      const indicators = wrapper.findAll('.hero-banner__indicator')
+
+      expect(indicators[0].classes()).toContain(
+        'hero-banner__indicator--active',
+      )
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(indicators[1].classes()).toContain(
+        'hero-banner__indicator--active',
+      )
+
+      await indicators[3].trigger('click')
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(indicators[0].classes()).toContain(
+        'hero-banner__indicator--active',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -3,6 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import mascotImage from '../assets/images/brand/mascot.png'
 import rhythmImage from '../assets/images/games/game-rhythm-main.png'
+import drawArtImage from '../assets/images/games/game-draw-main.png'
+import airArtImage from '../assets/images/games/game-air-main.png'
+import calmFaceImage from '../assets/images/profiles/profile-calm.png'
+import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
 import WeeklyRankingCard from '../components/home/WeeklyRankingCard.vue'
 import { useToast } from '../composables/useToast'
 import { homeQuickActions, weeklyRankingGames } from '../mocks/home'
@@ -10,6 +14,7 @@ import type { QuickAction } from '../types/home'
 
 const router = useRouter()
 const { showToast } = useToast()
+const currentHeroSlide = ref(0)
 const currentRankingIndex = ref(0)
 const visibleRankingCount = ref(3)
 const dragStartX = ref<number | null>(null)
@@ -138,11 +143,34 @@ function handleCarouselClick(event: globalThis.MouseEvent) {
 onMounted(() => {
   updateVisibleRankingCount()
   globalThis.addEventListener('resize', updateVisibleRankingCount)
+  startHeroTimer()
 })
 
 onBeforeUnmount(() => {
   globalThis.removeEventListener('resize', updateVisibleRankingCount)
+  stopHeroTimer()
 })
+
+const heroTimer = ref<ReturnType<typeof globalThis.setInterval> | null>(null)
+
+function startHeroTimer() {
+  stopHeroTimer()
+  heroTimer.value = globalThis.setInterval(() => {
+    currentHeroSlide.value = (currentHeroSlide.value + 1) % 4
+  }, 5000)
+}
+
+function stopHeroTimer() {
+  if (heroTimer.value !== null) {
+    globalThis.clearInterval(heroTimer.value)
+    heroTimer.value = null
+  }
+}
+
+function selectHeroSlide(index: number) {
+  currentHeroSlide.value = index
+  startHeroTimer()
+}
 
 function handleQuickAction(action: QuickAction) {
   if (action.destination) {
@@ -159,60 +187,153 @@ function handleQuickAction(action: QuickAction) {
 <template>
   <section class="home-page">
     <section class="hero-banner" aria-labelledby="home-title">
-      <div class="hero-banner__copy">
-        <h1 id="home-title" class="hero-title">
-          <span>눈으로 놀고,</span>
-          <span
-            >잠깐의 <b class="hero-title__purple">휴식</b>, 큰
-            <b class="hero-title__green">즐거움!</b></span
+      <div v-show="currentHeroSlide === 0" class="hero-banner__slide">
+        <div class="hero-banner__copy">
+          <h1 id="home-title" class="hero-title">
+            <span><b class="hero-title__purple">눈</b>으로 놀고,</span>
+            <span
+              >잠깐의 휴식, 큰 <b class="hero-title__green">즐거움!</b></span
+            >
+          </h1>
+          <p>눈 하나로 즐기는 소셜 브레이크 게임</p>
+          <RouterLink
+            class="hero-banner__cta"
+            data-testid="start-games"
+            to="/games"
           >
-        </h1>
-        <p>눈 하나로 즐기는 소셜 브레이크 게임</p>
-        <RouterLink
-          class="hero-banner__cta"
-          data-testid="start-games"
-          to="/games"
+            <span>▶</span> 게임 시작하기
+          </RouterLink>
+        </div>
+
+        <div
+          class="hero-banner__visual"
+          aria-label="눈 건강 게임을 즐기는 캐릭터와 게임 공간"
+          role="img"
         >
-          <span>▶</span> 게임 시작하기
-        </RouterLink>
+          <span class="hero-banner__sparkle hero-banner__sparkle--one">✦</span>
+          <span class="hero-banner__sparkle hero-banner__sparkle--two">✧</span>
+          <span class="hero-banner__sparkle hero-banner__sparkle--three"
+            >⌁</span
+          >
+          <div class="hero-banner__bubble">
+            오늘은<br /><b>눈으로 뭐 할래?</b>
+          </div>
+          <img
+            class="hero-banner__mascot"
+            :src="mascotImage"
+            alt="눈 건강 게임을 즐기는 eye dont care 캐릭터"
+            draggable="false"
+          />
+          <div class="hero-banner__preview" aria-hidden="true">
+            <span>PLAY!</span>
+            <img :src="rhythmImage" alt="" draggable="false" />
+          </div>
+        </div>
+      </div>
+
+      <div v-show="currentHeroSlide === 1" class="hero-banner__slide">
+        <div class="hero-banner__copy">
+          <h1 class="hero-title">
+            <span><b class="hero-title__purple">다섯 가지</b> 미니게임,</span>
+            <span
+              >오늘은 <b class="hero-title__green">뭐부터</b> 놀아볼까요?</span
+            >
+          </h1>
+          <p>눈 깜빡이기부터 에어하키까지, 전부 눈으로 즐겨요</p>
+          <RouterLink class="hero-banner__cta" to="/games">
+            <span>▶</span> 게임 시작하기
+          </RouterLink>
+        </div>
+        <div class="hero-banner__visual" aria-hidden="true">
+          <span class="hero-banner__sparkle hero-banner__sparkle--one">✦</span>
+          <span class="hero-banner__sparkle hero-banner__sparkle--two">✧</span>
+          <img
+            class="hero-banner__art hero-banner__art--tilt-left"
+            :src="drawArtImage"
+            alt=""
+            draggable="false"
+          />
+          <img
+            class="hero-banner__art hero-banner__art--tilt-right"
+            :src="airArtImage"
+            alt=""
+            draggable="false"
+          />
+        </div>
+      </div>
+
+      <div v-show="currentHeroSlide === 2" class="hero-banner__slide">
+        <div class="hero-banner__copy">
+          <h1 class="hero-title">
+            <span><b class="hero-title__purple">20분</b> 집중했다면,</span>
+            <span>20초는 <b class="hero-title__green">눈 휴식 시간</b>!</span>
+          </h1>
+          <p>멀리 바라보며 눈에게 쉬는 시간을 선물하세요</p>
+          <RouterLink class="hero-banner__cta" to="/games">
+            <span>▶</span> 게임 시작하기
+          </RouterLink>
+        </div>
+        <div class="hero-banner__visual" aria-hidden="true">
+          <span class="hero-banner__sparkle hero-banner__sparkle--one">✦</span>
+          <span class="hero-banner__rest-zzz">z z Z</span>
+          <img
+            class="hero-banner__calm"
+            :src="calmFaceImage"
+            alt=""
+            draggable="false"
+          />
+        </div>
+      </div>
+
+      <div v-show="currentHeroSlide === 3" class="hero-banner__slide">
+        <div class="hero-banner__copy">
+          <h1 class="hero-title">
+            <span>친구들과 함께,</span>
+            <span
+              >이번 주 <b class="hero-title__purple">랭킹</b>에
+              <b class="hero-title__green">도전!</b></span
+            >
+          </h1>
+          <p>소모임에서 같이 놀고 TOP 3 기록을 노려보세요</p>
+          <RouterLink class="hero-banner__cta" to="/games">
+            <span>▶</span> 게임 시작하기
+          </RouterLink>
+        </div>
+        <div class="hero-banner__visual" aria-hidden="true">
+          <span class="hero-banner__sparkle hero-banner__sparkle--two">✧</span>
+          <img
+            class="hero-banner__group"
+            :src="groupJoinImage"
+            alt=""
+            draggable="false"
+          />
+        </div>
       </div>
 
       <div
-        class="hero-banner__visual"
-        aria-label="눈 건강 게임을 즐기는 캐릭터와 게임 공간"
-        role="img"
+        class="hero-banner__indicators"
+        role="tablist"
+        aria-label="배너 위치"
       >
-        <span class="hero-banner__sparkle hero-banner__sparkle--one">✦</span>
-        <span class="hero-banner__sparkle hero-banner__sparkle--two">✧</span>
-        <span class="hero-banner__sparkle hero-banner__sparkle--three">⌁</span>
-        <div class="hero-banner__bubble">
-          오늘은<br /><b>눈으로 뭐 할래?</b>
-        </div>
-        <img
-          class="hero-banner__mascot"
-          :src="mascotImage"
-          alt="눈 건강 게임을 즐기는 eye dont care 캐릭터"
-          draggable="false"
-        />
-        <div class="hero-banner__arcade" aria-hidden="true">
-          <span>PLAY!</span>
-          <div><img :src="rhythmImage" alt="" draggable="false" /></div>
-          <i />
-          <i />
-        </div>
-      </div>
-
-      <div class="hero-banner__indicators" aria-label="배너 위치">
-        <i class="hero-banner__indicator--active" />
-        <i />
-        <i />
-        <i />
+        <button
+          v-for="(_, index) in 4"
+          :key="index"
+          type="button"
+          class="hero-banner__indicator"
+          :class="{
+            'hero-banner__indicator--active': currentHeroSlide === index,
+          }"
+          :aria-label="`${index + 1}번째 배너 보기`"
+          :aria-selected="currentHeroSlide === index"
+          role="tab"
+          @click="selectHeroSlide(index)"
+        ></button>
       </div>
     </section>
 
     <section class="weekly-ranking" aria-labelledby="weekly-ranking-title">
       <div class="weekly-ranking__heading">
-        <h2 id="weekly-ranking-title"><span>♜</span> 이번 주 랭킹 TOP 3</h2>
+        <h2 id="weekly-ranking-title"><span>🏆</span> 이번 주 랭킹 TOP 3</h2>
       </div>
 
       <div class="weekly-ranking__viewport">
@@ -223,7 +344,16 @@ function handleQuickAction(action: QuickAction) {
           :disabled="currentRankingIndex === 0"
           @click="moveRanking(-1)"
         >
-          ‹
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M14.5 6L9 12l5.5 6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
         <div
           ref="rankingClip"
@@ -255,7 +385,16 @@ function handleQuickAction(action: QuickAction) {
           :disabled="currentRankingIndex === maxRankingIndex"
           @click="moveRanking(1)"
         >
-          ›
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M9.5 6l5.5 6-5.5 6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
       </div>
     </section>
@@ -295,14 +434,30 @@ function handleQuickAction(action: QuickAction) {
 
 .hero-banner {
   position: relative;
-  display: grid;
+  display: block;
   min-height: 326px;
-  grid-template-columns: 0.92fr 1.08fr;
   margin-top: 0;
   overflow: hidden;
   border: 1px solid #e5e2fa;
   border-radius: 24px;
   background: linear-gradient(112deg, #fff 0%, #fbfaff 58%, #f7f4ff 100%);
+}
+
+.hero-banner__slide {
+  display: grid;
+  grid-template-columns: 0.92fr 1.08fr;
+  animation: hero-slide-fade 0.45s ease;
+}
+
+@keyframes hero-slide-fade {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .hero-banner__copy {
@@ -318,9 +473,7 @@ function handleQuickAction(action: QuickAction) {
   margin: 0;
   color: var(--color-ink);
   font-size: clamp(35px, 3.35vw, 52px);
-  font-weight: 800;
   line-height: 1.28;
-  letter-spacing: -0.09em;
   word-break: keep-all;
 }
 
@@ -389,8 +542,8 @@ function handleQuickAction(action: QuickAction) {
 
 .hero-banner__bubble {
   position: absolute;
-  top: 40px;
-  right: 32%;
+  top: 16px;
+  left: 45%;
   z-index: 3;
   width: 186px;
   padding: 20px 10px;
@@ -428,64 +581,41 @@ function handleQuickAction(action: QuickAction) {
   color: #754ddd;
 }
 
-.hero-banner__arcade {
+.hero-banner__preview {
   position: absolute;
-  right: 7%;
-  bottom: 24px;
-  display: grid;
-  width: 178px;
-  height: 190px;
-  align-items: start;
-  padding: 15px 13px;
-  border: 7px solid #50338e;
-  border-radius: 20px 20px 12px 12px;
-  background: linear-gradient(145deg, #7950c6, #422779 80%);
-  box-shadow:
-    inset -11px -9px rgba(30, 15, 71, 0.25),
-    0 15px 25px rgba(75, 43, 139, 0.2);
-  transform: perspective(700px) rotateY(-9deg) rotateZ(2deg);
+  right: 6%;
+  bottom: 26px;
+  width: 224px;
+  padding: 12px 12px 14px;
+  border: 1px solid #e5e2fa;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 30px rgba(80, 62, 160, 0.18);
+  transform: rotate(3.5deg);
 }
 
-.hero-banner__arcade > span {
-  color: #ffec6e;
-  font-size: 23px;
+.hero-banner__preview span {
+  position: absolute;
+  top: -12px;
+  left: 16px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: #7a5a10;
+  background: #ffd95e;
+  box-shadow: 0 4px 10px rgba(122, 90, 16, 0.18);
+  font-size: 13px;
   font-style: italic;
   font-weight: 900;
   letter-spacing: 0.04em;
-  text-align: center;
 }
 
-.hero-banner__arcade > div {
-  height: 88px;
-  overflow: hidden;
-  border: 4px solid #251449;
-  border-radius: 8px;
-  background: #1f1241;
-}
-
-.hero-banner__arcade img {
+.hero-banner__preview img {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: 128px;
   object-fit: cover;
-  opacity: 0.8;
-}
-
-.hero-banner__arcade i {
-  position: absolute;
-  bottom: 14px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #f46e88;
-}
-
-.hero-banner__arcade i:first-of-type {
-  right: 28px;
-}
-
-.hero-banner__arcade i:last-of-type {
-  right: 51px;
-  background: #ffbd43;
+  border-radius: 12px;
+  background: #eeeffb;
 }
 
 .hero-banner__sparkle {
@@ -512,6 +642,53 @@ function handleQuickAction(action: QuickAction) {
   font-size: 38px;
 }
 
+.hero-banner__art {
+  position: absolute;
+  top: 50%;
+  width: min(46%, 300px);
+  border-radius: 18px;
+  background: #eeeffb;
+  padding: 14px;
+  box-shadow: 0 14px 26px rgba(80, 62, 160, 0.16);
+}
+
+.hero-banner__art--tilt-left {
+  left: 6%;
+  transform: translateY(-56%) rotate(-5deg);
+}
+
+.hero-banner__art--tilt-right {
+  right: 6%;
+  transform: translateY(-40%) rotate(4deg);
+}
+
+.hero-banner__calm {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: min(52%, 300px);
+  transform: translateX(-50%);
+}
+
+.hero-banner__rest-zzz {
+  position: absolute;
+  top: 16%;
+  right: 22%;
+  color: #7451dd;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  transform: rotate(-8deg);
+}
+
+.hero-banner__group {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  width: min(64%, 380px);
+  transform: translateX(-50%);
+}
+
 .hero-banner__indicators {
   position: absolute;
   bottom: 20px;
@@ -522,12 +699,14 @@ function handleQuickAction(action: QuickAction) {
   transform: translateX(-50%);
 }
 
-.hero-banner__indicators i {
+.hero-banner__indicator {
   width: 12px;
   height: 12px;
+  padding: 0;
   border: 2px solid #6d61b8;
   border-radius: 50%;
   background: #fff;
+  cursor: pointer;
 }
 
 .hero-banner__indicators .hero-banner__indicator--active {
@@ -548,7 +727,6 @@ function handleQuickAction(action: QuickAction) {
   margin: 0;
   color: var(--color-ink);
   font-size: 20px;
-  letter-spacing: -0.05em;
 }
 
 .weekly-ranking__heading h2 span {
@@ -620,13 +798,16 @@ function handleQuickAction(action: QuickAction) {
   color: var(--color-ink);
   background: #fff;
   box-shadow: var(--shadow-float);
-  font-size: 34px;
-  line-height: 1;
   cursor: pointer;
   transform: translateY(-50%);
   transition:
     opacity 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+.weekly-ranking__scroll-control svg {
+  width: 22px;
+  height: 22px;
 }
 
 .weekly-ranking__scroll-control:disabled {
@@ -756,10 +937,9 @@ function handleQuickAction(action: QuickAction) {
     left: 4%;
   }
 
-  .hero-banner__arcade {
+  .hero-banner__preview {
     right: 3%;
-    transform: scale(0.88) perspective(700px) rotateY(-9deg) rotateZ(2deg);
-    transform-origin: right bottom;
+    width: 200px;
   }
 
   .quick-action-strip__item {
@@ -788,6 +968,10 @@ function handleQuickAction(action: QuickAction) {
     border-radius: 20px;
   }
 
+  .hero-banner__slide {
+    display: block;
+  }
+
   .hero-banner__copy {
     padding: 35px 26px 0;
   }
@@ -812,18 +996,29 @@ function handleQuickAction(action: QuickAction) {
   }
 
   .hero-banner__bubble {
-    top: 25px;
-    right: 10%;
+    top: 14px;
+    left: 48%;
     width: 150px;
     padding: 15px 8px;
     font-size: 13px;
   }
 
-  .hero-banner__arcade {
-    right: 6%;
-    bottom: 27px;
-    transform: scale(0.72) perspective(700px) rotateY(-9deg) rotateZ(2deg);
-    transform-origin: right bottom;
+  .hero-banner__preview {
+    right: 5%;
+    bottom: 22px;
+    width: 160px;
+  }
+
+  .hero-banner__preview img {
+    height: 92px;
+  }
+
+  .hero-banner__art {
+    width: 52%;
+  }
+
+  .hero-banner__group {
+    width: 78%;
   }
 
   .weekly-ranking__heading h2 {
@@ -841,7 +1036,11 @@ function handleQuickAction(action: QuickAction) {
   .weekly-ranking__scroll-control {
     width: 34px;
     height: 34px;
-    font-size: 27px;
+  }
+
+  .weekly-ranking__scroll-control svg {
+    width: 18px;
+    height: 18px;
   }
 
   .weekly-ranking__scroll-control--previous {

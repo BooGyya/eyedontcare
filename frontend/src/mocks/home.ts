@@ -17,7 +17,7 @@ import type { QuickAction, WeeklyRankingGame } from '../types/home'
 export const weeklyRankingGames: WeeklyRankingGame[] = [
   {
     id: 'blink',
-    title: '눈 깜빡이기',
+    title: 'Eye Show Speed (눈 깜빡이기)',
     mode: '1 vs 1',
     image: gameBlinkImage,
     tone: 'purple',
@@ -49,7 +49,7 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
   },
   {
     id: 'draw',
-    title: '눈으로 그리기',
+    title: 'Eye Draw (눈으로 그리기)',
     mode: '1인',
     image: gameDrawImage,
     tone: 'mint',
@@ -81,7 +81,7 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
   },
   {
     id: 'stare',
-    title: 'Eye-See',
+    title: 'Eye See (눈싸움)',
     mode: '1 vs 1',
     image: gameHoldImage,
     tone: 'blue',
@@ -113,7 +113,7 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
   },
   {
     id: 'challenge',
-    title: '깜빡이 챌린지',
+    title: 'Blink the Beat (리듬 게임)',
     mode: '1인',
     image: gameRhythmImage,
     tone: 'orange',
@@ -145,7 +145,7 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
   },
   {
     id: 'air',
-    title: '에어하키',
+    title: 'Eye Hockey (에어 하키)',
     mode: '1 vs 1',
     image: gameAirImage,
     tone: 'sky',
