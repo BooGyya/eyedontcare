@@ -45,18 +45,18 @@ export const gameCatalog: GameCatalogItem[] = [
   {
     id: 'rhythm',
     title: '리듬 게임',
-    description: '리듬에 맞춰 시선 신호를 보내는 준비 중 게임입니다.',
+    description: '눈으로 랜덤 비트를 따라가며 콤보를 완성해요!',
     image: gameRhythmMainImage,
     category: '리듬',
-    status: 'coming-soon',
+    status: 'available',
   },
   {
     id: 'air',
     title: '에어하키',
-    description: '다가오는 바람을 피해 시선을 움직이는 준비 중 게임입니다.',
+    description: '시선으로 패들을 움직여 상대 골문에 퍽을 넣어보세요!',
     image: gameAirImage,
     category: '반응',
-    status: 'coming-soon',
+    status: 'available',
   },
 ]
 

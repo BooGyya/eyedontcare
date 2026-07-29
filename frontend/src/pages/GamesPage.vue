@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import GameCard from '../components/games/GameCard.vue'
+import GameComingSoonCard from '../components/games/GameComingSoonCard.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import { gameCatalog } from '../mocks/pages'
@@ -39,6 +40,7 @@ function handleEnterGame(game: GameCatalogItem) {
         :game="game"
         @enter="handleEnterGame"
       />
+      <GameComingSoonCard />
     </div>
   </section>
 </template>
