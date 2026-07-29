@@ -36,7 +36,7 @@ withDefaults(
   color: var(--color-ink);
   font-size: clamp(29px, 3vw, 40px);
   line-height: 1.25;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.02em;
   word-break: keep-all;
 }
 

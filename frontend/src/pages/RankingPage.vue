@@ -51,7 +51,11 @@ watch(
 
 <template>
   <section class="ranking-page">
-    <PageHeader title="랭킹" description="게임별 최고 기록을 비교해 보세요." />
+    <PageHeader
+      eyebrow="LEADER BOARD"
+      title="랭킹"
+      description="게임별 최고 기록을 비교해 보세요."
+    />
 
     <section class="ranking-page__game-filter" aria-label="게임별 랭킹 필터">
       <SegmentedTabs
@@ -68,15 +72,7 @@ watch(
 
 <style scoped>
 .ranking-page {
-  width: min(100%, 1200px);
-  margin-inline: auto;
-  padding: 12px 0 48px;
-}
-.ranking-page :deep(.page-header) {
-  margin: 0 0 18px;
-}
-.ranking-page__game-filter {
-  margin-top: 4px;
+  padding: 32px 0 54px;
 }
 .ranking-page__list {
   width: 100%;
@@ -84,8 +80,7 @@ watch(
 }
 @media (max-width: 640px) {
   .ranking-page {
-    width: 100%;
-    padding-top: 16px;
+    padding-top: 24px;
   }
   .ranking-page__list {
     margin-top: 14px;

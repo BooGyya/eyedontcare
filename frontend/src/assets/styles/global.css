@@ -24,3 +24,11 @@ a:focus-visible {
   outline: 3px solid rgba(79, 116, 219, 0.5);
   outline-offset: 3px;
 }
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}

@@ -536,7 +536,7 @@ function handleWithdraw() {
   margin: 7px 0;
   color: var(--color-ink);
   font-size: clamp(31px, 4vw, 44px);
-  letter-spacing: -0.06em;
+  letter-spacing: -0.02em;
   word-break: keep-all;
 }
 .profile-page__identity p,
@@ -581,7 +581,7 @@ function handleWithdraw() {
 .profile-page__account h2 {
   margin: 5px 0 0;
   font-size: 23px;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
 }
 .profile-page__form-grid {
   display: grid;

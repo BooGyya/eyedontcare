@@ -1345,7 +1345,6 @@ function handleEnterRoom(payload: {
   margin: 0;
   color: var(--color-ink);
   font-size: clamp(38px, 4.2vw, 58px);
-  letter-spacing: -0.05em;
   word-break: keep-all;
 }
 .game-detail-page__description-button {
@@ -1757,8 +1756,6 @@ function handleEnterRoom(payload: {
   color: #6b7cf5;
   background: #fbfbff;
   font-size: clamp(26px, 3vw, 36px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 .game-detail-page__guide-title::before,
 .game-detail-page__guide-title::after {
@@ -1868,8 +1865,6 @@ function handleEnterRoom(payload: {
   margin: 0;
   color: var(--color-ink);
   font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 .game-detail-page__guide-difficulty-grid {
   display: grid;
@@ -1941,8 +1936,6 @@ function handleEnterRoom(payload: {
   gap: 7px;
   margin: 0;
   font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 .game-detail-page__guide-card h3 b {
   display: grid;
@@ -2086,8 +2079,6 @@ function handleEnterRoom(payload: {
   margin: 0;
   color: var(--color-ink);
   font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 .game-detail-page__guide-formula-parts {
   display: flex;
@@ -2151,8 +2142,6 @@ function handleEnterRoom(payload: {
   margin: 0;
   color: var(--color-ink);
   font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 .game-detail-page__steps--guide ol {
   display: grid;
@@ -2242,7 +2231,6 @@ function handleEnterRoom(payload: {
   margin: 0;
   color: var(--color-ink);
   font-size: 23px;
-  letter-spacing: -0.04em;
 }
 .game-detail-page__steps ol {
   display: grid;

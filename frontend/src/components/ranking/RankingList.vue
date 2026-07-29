@@ -153,7 +153,7 @@ function getPlayerAvatar(player: RankingPlayer) {
   margin: 0;
   color: var(--color-ink);
   font-size: 24px;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
 }
 .ranking-list__podium {
   display: grid;
@@ -173,24 +173,34 @@ function getPlayerAvatar(player: RankingPlayer) {
   border-radius: 15px 15px 9px 9px;
   background: #fff;
   text-align: center;
+  cursor: default;
   transition:
     transform 0.18s ease,
-    box-shadow 0.18s ease;
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
 }
 .ranking-list__podium-card:hover {
+  box-shadow: var(--shadow-float);
+  transform: translateY(-6px) scale(1.02);
+}
+.ranking-list__podium-card:active {
   box-shadow: var(--shadow-card);
-  transform: translateY(-3px);
+  transform: translateY(-1px) scale(0.99);
 }
 .ranking-list__podium-card--1 {
   min-height: 197px;
-  border-color: #d9dcfa;
-  background: #f7f8ff;
+  border-color: #dcdff6;
+  background: #f3f4fd;
 }
 .ranking-list__podium-card--2 {
   min-height: 172px;
+  border-color: #f3e2bb;
+  background: #fdf6ec;
 }
 .ranking-list__podium-card--3 {
   min-height: 154px;
+  border-color: #d4eede;
+  background: #f4fbf6;
 }
 .ranking-list__crown {
   position: absolute;
@@ -225,20 +235,38 @@ function getPlayerAvatar(player: RankingPlayer) {
   white-space: nowrap;
 }
 .ranking-list__podium-card small {
-  margin-top: 4px;
-  color: var(--color-accent-blue);
-  font-size: 12px;
+  margin-top: 5px;
+  color: var(--color-ink);
+  font-size: 15px;
   font-weight: 800;
+}
+.ranking-list__podium-card--1 small {
+  font-size: 17px;
 }
 .ranking-list__podium-card b {
   position: absolute;
-  right: 9px;
-  bottom: 8px;
-  color: var(--color-muted);
-  font-size: 11px;
+  top: -12px;
+  left: -10px;
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 6px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(23, 36, 61, 0.16);
 }
 .ranking-list__podium-card--1 b {
-  color: #b68513;
+  background: #7c88ec;
+}
+.ranking-list__podium-card--2 b {
+  background: #f0b13f;
+}
+.ranking-list__podium-card--3 b {
+  background: #5fc492;
 }
 .ranking-list__cards {
   padding: 18px 28px 24px;
@@ -267,12 +295,18 @@ function getPlayerAvatar(player: RankingPlayer) {
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease,
-    transform 0.18s ease;
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 .ranking-list li:hover {
   border-color: #d7e2ff;
   background: #fafcff;
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-2px);
+}
+.ranking-list li:active {
+  box-shadow: none;
+  transform: translateY(0);
 }
 .ranking-list__row--current-user {
   border-color: #cfdcff !important;
@@ -445,6 +479,13 @@ function getPlayerAvatar(player: RankingPlayer) {
   }
   .ranking-list__podium-card small {
     font-size: 10px;
+  }
+  .ranking-list__podium-card b {
+    top: -10px;
+    left: -8px;
+    min-width: 28px;
+    height: 28px;
+    font-size: 11px;
   }
   .ranking-list__cards {
     padding: 14px 12px 18px;

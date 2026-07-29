@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
   margin: 10px 0 7px;
   color: var(--color-ink);
   font-size: 31px;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
 }
 .auth-dialog > p {
   margin: 0 0 25px;
