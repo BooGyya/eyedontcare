@@ -43,17 +43,20 @@ public class MatchmakingService {
 
 	private final MatchmakingEntryRepository matchmakingEntryRepository;
 	private final ObjectProvider<RandomRoomCreator> randomRoomCreator;
+	private final MatchNotifier matchNotifier;
 
 	public MatchmakingService(
 		MatchmakingEntryRepository matchmakingEntryRepository,
-		ObjectProvider<RandomRoomCreator> randomRoomCreator
+		ObjectProvider<RandomRoomCreator> randomRoomCreator,
+		MatchNotifier matchNotifier
 	) {
 		this.matchmakingEntryRepository = matchmakingEntryRepository;
 		this.randomRoomCreator = randomRoomCreator;
+		this.matchNotifier = matchNotifier;
 	}
 
 	public MatchStatusResponse join(String participantKey, String gameType) {
-		validateParticipantKey(participantKey);
+		validateParticipant(participantKey);
 		GameName resolvedGameType = resolveGameType(gameType);
 
 		MatchmakingEntry requested =
@@ -70,7 +73,7 @@ public class MatchmakingService {
 	}
 
 	public MatchStatusResponse cancel(String participantKey) {
-		validateParticipantKey(participantKey);
+		validateParticipant(participantKey);
 
 		MatchmakingEntry entry = matchmakingEntryRepository.find(participantKey)
 			.orElseThrow(() -> new BusinessException(MatchmakingErrorCode.REQUEST_NOT_FOUND));
@@ -82,6 +85,26 @@ public class MatchmakingService {
 		matchmakingEntryRepository.delete(participantKey);
 
 		return MatchStatusResponse.cancelled(entry);
+	}
+
+	/**
+	 * WebSocket 연결 종료 시의 정리. REST {@link #cancel}과 달리 조용해야 한다.
+	 *
+	 * <p>신청이 없어도 예외를 던지지 않고, 이미 {@code ENTERING_ROOM}이면 취소하지 않는다.
+	 * 성사되어 대기방 입장 흐름이 진행 중인 참가자를 연결 끊김만으로 되돌려서는 안 되기 때문이다.
+	 * 아직 {@code SEARCHING}인 참가자만 큐와 상태에서 정리한다.
+	 */
+	public void cancelSilently(String participantKey) {
+		matchmakingEntryRepository.find(participantKey)
+			.filter(MatchmakingEntry::isSearching)
+			.ifPresent(entry -> matchmakingEntryRepository.delete(participantKey));
+	}
+
+	/**
+	 * 현재 참가자 상태를 조회한다. WebSocket 연결 시점에 이미 성사돼 있으면 즉시 알림을 재전송하기 위해 쓴다.
+	 */
+	public Optional<MatchmakingEntry> findEntry(String participantKey) {
+		return matchmakingEntryRepository.find(participantKey);
 	}
 
 	/**
@@ -116,9 +139,13 @@ public class MatchmakingService {
 		}
 
 		Instant now = Instant.now();
-		candidates.stream()
+		List<MatchmakingEntry> matched = candidates.stream()
 			.map(candidate -> candidate.enterRoom(waitingRoomId.get(), now))
-			.forEach(matchmakingEntryRepository::save);
+			.toList();
+
+		matched.forEach(matchmakingEntryRepository::save);
+		matched.forEach(entry ->
+			matchNotifier.notifyMatched(entry.participantKey(), entry.waitingRoomId(), entry.gameType()));
 	}
 
 	/**
@@ -149,8 +176,10 @@ public class MatchmakingService {
 
 	/**
 	 * 임시 인증. 인증 도메인이 완성되면 JWT에서 추출한 참가자 키로 대체된다.
+	 *
+	 * <p>REST 진입점과 WebSocket 핸들러가 같은 규칙으로 키를 검증하도록 public으로 공개한다.
 	 */
-	private void validateParticipantKey(String participantKey) {
+	public void validateParticipant(String participantKey) {
 		if (participantKey == null) {
 			throw new BusinessException(MatchmakingErrorCode.INVALID_PARTICIPANT_KEY);
 		}

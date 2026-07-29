@@ -24,6 +24,7 @@ import org.ssafy.b102.backend.matchmaking.entity.MatchStatus;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
+import org.ssafy.b102.testfixture.websocket.RecordingMatchNotifier;
 
 @DataRedisTest
 @Import({
@@ -31,6 +32,7 @@ import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
 	RedisKeyBuilder.class,
 	MatchmakingEntryRepository.class,
 	MatchmakingService.class,
+	RecordingMatchNotifier.class,
 	MatchmakingServiceTest.TestRoomCreatorConfig.class
 })
 class MatchmakingServiceTest {
@@ -50,6 +52,9 @@ class MatchmakingServiceTest {
 	private ControllableRoomCreator roomCreator;
 
 	@Autowired
+	private RecordingMatchNotifier matchNotifier;
+
+	@Autowired
 	private StringRedisTemplate stringRedisTemplate;
 
 	@Autowired
@@ -58,6 +63,7 @@ class MatchmakingServiceTest {
 	@BeforeEach
 	void setUp() {
 		roomCreator.succeedAlways();
+		matchNotifier.clear();
 		List.of(REQUESTER_KEY, OPPONENT_KEY, THIRD_KEY)
 			.forEach(matchmakingEntryRepository::delete);
 		stringRedisTemplate.delete(queueKey(GAME_TYPE));
@@ -131,6 +137,33 @@ class MatchmakingServiceTest {
 				assertThat(entry.waitingRoomId()).isEqualTo(roomId);
 			});
 		assertThat(stringRedisTemplate.opsForZSet().size(queueKey(GAME_TYPE))).isZero();
+	}
+
+	/**
+	 * 성사되면 두 참가자 모두에게 알림 포트를 호출한다. 신청자뿐 아니라 먼저 기다리던 참가자도
+	 * 자기 소켓으로 결과를 받아야 하므로, 알림은 성사가 감지되는 서비스 계층에서 일어난다.
+	 */
+	@Test
+	void joinNotifiesBothParticipantsOnMatch() {
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+
+		matchmakingService.join(OPPONENT_KEY, GAME_TYPE);
+
+		UUID roomId = matchmakingEntryRepository.find(OPPONENT_KEY).orElseThrow().waitingRoomId();
+		assertThat(matchNotifier.notifiedKeys())
+			.containsExactlyInAnyOrder(REQUESTER_KEY, OPPONENT_KEY);
+		assertThat(matchNotifier.notified())
+			.allSatisfy(notified -> {
+				assertThat(notified.roomId()).isEqualTo(roomId);
+				assertThat(notified.gameType()).isEqualTo(GameName.HOCKEY);
+			});
+	}
+
+	@Test
+	void joinDoesNotNotifyWhenNoOpponentWaits() {
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+
+		assertThat(matchNotifier.notified()).isEmpty();
 	}
 
 	@Test
@@ -287,6 +320,58 @@ class MatchmakingServiceTest {
 			.isInstanceOf(BusinessException.class)
 			.satisfies(thrown -> assertThat(((BusinessException) thrown).getErrorCode())
 				.isEqualTo(MatchmakingErrorCode.CANCEL_NOT_ALLOWED));
+	}
+
+	/**
+	 * WebSocket 연결 종료 시의 조용한 취소. SEARCHING이면 신청을 정리한다.
+	 */
+	@Test
+	void cancelSilentlyRemovesSearchingEntry() {
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+
+		matchmakingService.cancelSilently(REQUESTER_KEY);
+
+		assertThat(matchmakingEntryRepository.find(REQUESTER_KEY)).isEmpty();
+		assertThat(stringRedisTemplate.opsForZSet().size(queueKey(GAME_TYPE))).isZero();
+	}
+
+	/**
+	 * 이미 성사된 참가자는 연결이 끊겨도 취소하지 않는다. 대기방 입장 흐름이 진행 중이기 때문이다.
+	 */
+	@Test
+	void cancelSilentlyKeepsEnteringRoomEntry() {
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+		matchmakingService.join(OPPONENT_KEY, GAME_TYPE);
+
+		matchmakingService.cancelSilently(REQUESTER_KEY);
+
+		assertThat(matchmakingEntryRepository.find(REQUESTER_KEY))
+			.get()
+			.satisfies(entry -> assertThat(entry.matchStatus()).isEqualTo(MatchStatus.ENTERING_ROOM));
+	}
+
+	/**
+	 * 신청이 없어도 예외를 던지지 않는다. REST의 cancel과 달리 연결 종료 정리는 조용해야 한다.
+	 */
+	@Test
+	void cancelSilentlyDoesNothingWhenNoEntry() {
+		matchmakingService.cancelSilently(REQUESTER_KEY);
+
+		assertThat(matchmakingEntryRepository.find(REQUESTER_KEY)).isEmpty();
+	}
+
+	@Test
+	void findEntryReturnsCurrentEntry() {
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+
+		assertThat(matchmakingService.findEntry(REQUESTER_KEY))
+			.get()
+			.satisfies(entry -> assertThat(entry.matchStatus()).isEqualTo(MatchStatus.SEARCHING));
+	}
+
+	@Test
+	void findEntryIsEmptyWhenNoRequestExists() {
+		assertThat(matchmakingService.findEntry(REQUESTER_KEY)).isEmpty();
 	}
 
 	@Test

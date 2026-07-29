@@ -16,6 +16,7 @@ import org.ssafy.b102.backend.matchmaking.dto.response.MatchStatusResponse;
 import org.ssafy.b102.backend.matchmaking.entity.MatchStatus;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
+import org.ssafy.b102.testfixture.websocket.RecordingMatchNotifier;
 
 /**
  * WaitingRoom 도메인이 없는 현재 상태를 그대로 재현한다.
@@ -29,7 +30,8 @@ import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
 	RedisConfig.class,
 	RedisKeyBuilder.class,
 	MatchmakingEntryRepository.class,
-	MatchmakingService.class
+	MatchmakingService.class,
+	RecordingMatchNotifier.class
 })
 class MatchmakingWithoutRoomCreatorTest {
 
