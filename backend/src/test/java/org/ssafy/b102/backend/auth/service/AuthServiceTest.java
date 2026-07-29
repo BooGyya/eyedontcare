@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
+import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
@@ -38,6 +39,10 @@ class AuthServiceTest {
     private static final String NICKNAME = "다정한수달0001";
     private static final String ACCESS_TOKEN = "access-token";
     private static final String REFRESH_TOKEN = "refresh-token";
+    private static final String NEW_ACCESS_TOKEN =
+        "new-access-token";
+    private static final String NEW_REFRESH_TOKEN =
+        "new-refresh-token";
 
     @Mock
     private UserRepository userRepository;
@@ -395,11 +400,198 @@ class AuthServiceTest {
         verifyLoginFailureHasNoSideEffects();
     }
 
+    @Test
+    void 유효한_리프레시_토큰이면_새_토큰을_발급하고_저장한다() {
+        ReissueRequest request =
+            new ReissueRequest(REFRESH_TOKEN);
+
+        when(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                REFRESH_TOKEN
+            )
+        ).thenReturn(Optional.of(USER_ID));
+
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(true);
+
+        when(refreshTokenStore.findByUserId(USER_ID))
+            .thenReturn(Optional.of(REFRESH_TOKEN));
+
+        when(jwtTokenProvider.issueTokenPair(USER_ID))
+            .thenReturn(
+                new TokenPair(
+                    NEW_ACCESS_TOKEN,
+                    NEW_REFRESH_TOKEN
+                )
+            );
+
+        TokenResponse response = authService.reissue(request);
+
+        assertThat(response.accessToken())
+            .isEqualTo(NEW_ACCESS_TOKEN);
+        assertThat(response.refreshToken())
+            .isEqualTo(NEW_REFRESH_TOKEN);
+
+        verify(refreshTokenStore).save(
+            USER_ID,
+            response.refreshToken()
+        );
+    }
+
+    @Test
+    void 저장된_토큰과_요청_토큰이_다르면_재발급에_실패한다() {
+        mockValidRefreshTokenParsing();
+
+        when(refreshTokenStore.findByUserId(USER_ID))
+            .thenReturn(Optional.of("different-token"));
+
+        assertInvalidRefreshToken(
+            new ReissueRequest(REFRESH_TOKEN)
+        );
+        verifyReissueFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 저장된_리프레시_토큰이_없으면_재발급에_실패한다() {
+        mockValidRefreshTokenParsing();
+
+        when(refreshTokenStore.findByUserId(USER_ID))
+            .thenReturn(Optional.empty());
+
+        assertInvalidRefreshToken(
+            new ReissueRequest(REFRESH_TOKEN)
+        );
+        verifyReissueFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 존재하지_않거나_탈퇴한_회원이면_재발급에_실패한다() {
+        when(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                REFRESH_TOKEN
+            )
+        ).thenReturn(Optional.of(USER_ID));
+
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(false);
+
+        assertInvalidRefreshToken(
+            new ReissueRequest(REFRESH_TOKEN)
+        );
+
+        verify(refreshTokenStore, never())
+            .findByUserId(any());
+        verifyReissueFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 유효하지_않은_리프레시_토큰이면_재발급에_실패한다() {
+        when(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                REFRESH_TOKEN
+            )
+        ).thenReturn(Optional.empty());
+
+        assertInvalidRefreshToken(
+            new ReissueRequest(REFRESH_TOKEN)
+        );
+
+        verify(userRepository, never())
+            .existsByIdAndDeletedAtIsNull(any());
+        verify(refreshTokenStore, never())
+            .findByUserId(any());
+        verifyReissueFailureHasNoSideEffects();
+    }
+
+    @Test
+    void 회전된_이전_리프레시_토큰은_재사용할_수_없다() {
+        ReissueRequest request =
+            new ReissueRequest(REFRESH_TOKEN);
+
+        when(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                REFRESH_TOKEN
+            )
+        ).thenReturn(Optional.of(USER_ID));
+
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(true);
+
+        when(refreshTokenStore.findByUserId(USER_ID))
+            .thenReturn(
+                Optional.of(REFRESH_TOKEN),
+                Optional.of(NEW_REFRESH_TOKEN)
+            );
+
+        when(jwtTokenProvider.issueTokenPair(USER_ID))
+            .thenReturn(
+                new TokenPair(
+                    NEW_ACCESS_TOKEN,
+                    NEW_REFRESH_TOKEN
+                )
+            );
+
+        TokenResponse response = authService.reissue(request);
+
+        assertThat(response.refreshToken())
+            .isEqualTo(NEW_REFRESH_TOKEN);
+
+        assertInvalidRefreshToken(request);
+
+        verify(jwtTokenProvider, times(1))
+            .issueTokenPair(USER_ID);
+        verify(refreshTokenStore, times(1)).save(
+            USER_ID,
+            NEW_REFRESH_TOKEN
+        );
+    }
+
     private LoginRequest loginRequest() {
         return new LoginRequest(
             "user@example.com",
             RAW_PASSWORD
         );
+    }
+
+    private void mockValidRefreshTokenParsing() {
+        when(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                REFRESH_TOKEN
+            )
+        ).thenReturn(Optional.of(USER_ID));
+
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(true);
+    }
+
+    private void assertInvalidRefreshToken(
+        ReissueRequest request
+    ) {
+        assertThatThrownBy(
+            () -> authService.reissue(request)
+        )
+            .isInstanceOf(BusinessException.class)
+            .satisfies(exception -> {
+                BusinessException businessException =
+                    (BusinessException) exception;
+
+                assertThat(businessException.getErrorCode())
+                    .isEqualTo(
+                        AuthErrorCode.INVALID_REFRESH_TOKEN
+                    );
+            });
+    }
+
+    private void verifyReissueFailureHasNoSideEffects() {
+        verify(jwtTokenProvider, never())
+            .issueTokenPair(any());
+
+        verify(refreshTokenStore, never())
+            .save(any(), any());
     }
 
     private User createUser() {

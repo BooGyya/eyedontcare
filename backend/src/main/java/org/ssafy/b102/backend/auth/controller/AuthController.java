@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.ssafy.b102.backend.auth.AuthSuccessCode;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
+import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.service.AuthService;
@@ -49,6 +50,20 @@ public class AuthController {
         return ResponseEntity.ok(
             ApiResponse.success(
                 AuthSuccessCode.LOGIN_SUCCESS,
+                response
+            )
+        );
+    }
+
+    @PostMapping("/reissue")
+    public ResponseEntity<ApiResponse<TokenResponse>> reissue(
+        @Valid @RequestBody ReissueRequest request
+    ) {
+        TokenResponse response = authService.reissue(request);
+
+        return ResponseEntity.ok(
+            ApiResponse.success(
+                AuthSuccessCode.REISSUE_SUCCESS,
                 response
             )
         );

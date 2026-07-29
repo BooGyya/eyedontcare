@@ -4,6 +4,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
+import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
@@ -83,6 +84,36 @@ public class AuthService {
         return issueAndStoreTokens(user);
     }
 
+    public TokenResponse reissue(ReissueRequest request) {
+        String refreshToken = request.refreshToken();
+
+        Long userId = jwtTokenProvider
+            .parseRefreshTokenUserId(refreshToken)
+            .orElseThrow(this::invalidRefreshToken);
+
+        if (!userRepository.existsByIdAndDeletedAtIsNull(userId)) {
+            throw invalidRefreshToken();
+        }
+
+        String storedRefreshToken = refreshTokenStore
+            .findByUserId(userId)
+            .orElseThrow(this::invalidRefreshToken);
+
+        if (!storedRefreshToken.equals(refreshToken)) {
+            throw invalidRefreshToken();
+        }
+
+        TokenPair tokenPair =
+            jwtTokenProvider.issueTokenPair(userId);
+
+        refreshTokenStore.save(
+            userId,
+            tokenPair.refreshToken()
+        );
+
+        return TokenResponse.from(tokenPair);
+    }
+
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase();
     }
@@ -110,6 +141,12 @@ public class AuthService {
     private BusinessException invalidCredentials() {
         return new BusinessException(
             AuthErrorCode.INVALID_CREDENTIALS
+        );
+    }
+
+    private BusinessException invalidRefreshToken() {
+        return new BusinessException(
+            AuthErrorCode.INVALID_REFRESH_TOKEN
         );
     }
 

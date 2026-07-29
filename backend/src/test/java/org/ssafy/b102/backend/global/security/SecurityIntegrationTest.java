@@ -37,6 +37,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.ssafy.b102.backend.auth.controller.AuthController;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
+import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.service.AuthService;
@@ -179,6 +180,45 @@ class SecurityIntegrationTest {
                         """)
             )
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void 토큰_재발급_API는_Authorization_헤더_없이_접근할_수_있다()
+        throws Exception {
+
+        when(
+            authService.reissue(any(ReissueRequest.class))
+        ).thenReturn(
+            new TokenResponse(
+                "new-access-token",
+                "new-refresh-token"
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "refreshToken": "refresh-token"
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.data.accessToken")
+                    .value("new-access-token")
+            )
+            .andExpect(
+                jsonPath("$.data.refreshToken")
+                    .value("new-refresh-token")
+            );
+
+        verify(authService).reissue(
+            new ReissueRequest("refresh-token")
+        );
     }
 
     @Test
