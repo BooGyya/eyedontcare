@@ -1,3 +1,9 @@
+app:
+  matchmaking:
+    # 매칭 대기 자체에는 시간 제한이 없다. 이 값은 연결이 끊긴 참가자를 청소하는 안전망이다.
+    # WebSocket(/ws/match)이 붙어 연결 종료를 감지하게 되면 재검토한다.
+    entry-ttl: PT30M
+
 spring:
   application:
     name: backend
