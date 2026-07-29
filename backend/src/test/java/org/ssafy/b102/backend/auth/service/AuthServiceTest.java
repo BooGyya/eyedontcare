@@ -3,6 +3,7 @@ package org.ssafy.b102.backend.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -599,6 +601,72 @@ class AuthServiceTest {
             .issueTokenPair(any());
         verify(refreshTokenStore, never())
             .save(any(), any());
+    }
+
+    @Test
+    void 활성_회원은_개인정보를_익명화하고_리프레시_토큰을_삭제한다() {
+        User user = createUser();
+        Instant beforeWithdrawal = Instant.now();
+
+        when(
+            userRepository.findByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(Optional.of(user));
+
+        authService.withdraw(USER_ID);
+
+        assertThat(user.getDeletedAt())
+            .isAfterOrEqualTo(beforeWithdrawal);
+        assertThat(user.getEmail()).isNull();
+        assertThat(user.getPasswordHash()).isNull();
+        assertThat(user.getNickname())
+            .isEqualTo("withdrawn-" + USER_ID);
+
+        verify(userRepository)
+            .findByIdAndDeletedAtIsNull(USER_ID);
+        verify(refreshTokenStore).deleteByUserId(USER_ID);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void 활성_회원이_없으면_AUTH_005로_탈퇴에_실패한다() {
+        when(
+            userRepository.findByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(Optional.empty());
+
+        assertThatThrownBy(
+            () -> authService.withdraw(USER_ID)
+        )
+            .isInstanceOf(BusinessException.class)
+            .satisfies(exception -> {
+                BusinessException businessException =
+                    (BusinessException) exception;
+
+                assertThat(businessException.getErrorCode())
+                    .isEqualTo(AuthErrorCode.USER_NOT_FOUND);
+            });
+
+        verify(refreshTokenStore, never())
+            .deleteByUserId(any());
+    }
+
+    @Test
+    void Redis_삭제_실패는_숨기지_않아_트랜잭션_rollback을_허용한다() {
+        User user = createUser();
+        RuntimeException redisFailure =
+            new RuntimeException("redis unavailable");
+
+        when(
+            userRepository.findByIdAndDeletedAtIsNull(USER_ID)
+        ).thenReturn(Optional.of(user));
+        doThrow(redisFailure)
+            .when(refreshTokenStore)
+            .deleteByUserId(USER_ID);
+
+        assertThatThrownBy(
+            () -> authService.withdraw(USER_ID)
+        ).isSameAs(redisFailure);
+
+        verify(refreshTokenStore).deleteByUserId(USER_ID);
     }
 
     private LoginRequest loginRequest() {

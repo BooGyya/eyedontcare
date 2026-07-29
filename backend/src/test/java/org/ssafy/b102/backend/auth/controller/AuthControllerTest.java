@@ -1,5 +1,6 @@
 package org.ssafy.b102.backend.auth.controller;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -582,10 +583,44 @@ class AuthControllerTest {
         ).isEqualTo(USER_ID);
     }
 
+    @Test
+    void 인증된_principal로_요청_본문_없이_회원_탈퇴한다()
+        throws Exception {
+
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new AuthenticatedUser(USER_ID),
+                null,
+                List.of()
+            )
+        );
+
+        mockMvc.perform(
+                delete("/api/v1/auth/withdraw")
+                    .header("X-Participant-Key", "USER:999")
+                    .header("X-User-Id", "999")
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_WITHDRAWAL_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("회원 탈퇴가 완료되었습니다.")
+            )
+            .andExpect(jsonPath("$.data").doesNotExist());
+
+        org.assertj.core.api.Assertions.assertThat(
+            authService.withdrawalUserId
+        ).isEqualTo(USER_ID);
+    }
+
     private static final class StubAuthService
         extends AuthService {
 
         private Long logoutUserId;
+        private Long withdrawalUserId;
 
         private StubAuthService() {
             super(
@@ -652,6 +687,11 @@ class AuthControllerTest {
         @Override
         public void logout(Long userId) {
             logoutUserId = userId;
+        }
+
+        @Override
+        public void withdraw(Long userId) {
+            withdrawalUserId = userId;
         }
     }
 }

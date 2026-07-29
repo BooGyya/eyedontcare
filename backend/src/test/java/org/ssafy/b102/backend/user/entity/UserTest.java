@@ -1,0 +1,100 @@
+package org.ssafy.b102.backend.user.entity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.lang.reflect.Field;
+import java.time.Instant;
+import org.junit.jupiter.api.Test;
+import org.ssafy.b102.backend.global.common.entity.BaseTimeEntity;
+import org.ssafy.b102.backend.user.enums.ProfileImageCode;
+
+class UserTest {
+
+    private static final Long USER_ID = 123L;
+
+    @Test
+    void 탈퇴하면_개인정보를_익명화하고_식별자와_생성시각을_유지한다() {
+        Instant createdAt =
+            Instant.parse("2026-07-01T00:00:00Z");
+        Instant withdrawnAt =
+            Instant.parse("2026-07-30T00:00:00Z");
+
+        User user = User.createLocal(
+            "user@example.com",
+            "encoded-password",
+            "nickname"
+        );
+
+        setField(User.class, user, "id", USER_ID);
+        setField(
+            User.class,
+            user,
+            "profileImageCode",
+            ProfileImageCode.PROFILE_3
+        );
+        setField(
+            BaseTimeEntity.class,
+            user,
+            "createdAt",
+            createdAt
+        );
+
+        user.withdraw(withdrawnAt);
+
+        assertThat(user.getId()).isEqualTo(USER_ID);
+        assertThat(user.getCreatedAt()).isEqualTo(createdAt);
+        assertThat(user.getDeletedAt()).isEqualTo(withdrawnAt);
+        assertThat(user.getEmail()).isNull();
+        assertThat(user.getPasswordHash()).isNull();
+        assertThat(user.getNickname())
+            .isEqualTo("withdrawn-" + USER_ID)
+            .hasSizeLessThanOrEqualTo(50);
+        assertThat(user.getProfileImageCode())
+            .isEqualTo(ProfileImageCode.PROFILE_1);
+    }
+
+    @Test
+    void 이미_탈퇴한_사용자는_최초_탈퇴_상태를_유지한다() {
+        Instant firstWithdrawal =
+            Instant.parse("2026-07-30T00:00:00Z");
+        Instant secondWithdrawal =
+            Instant.parse("2026-07-30T01:00:00Z");
+
+        User user = User.createLocal(
+            "user@example.com",
+            "encoded-password",
+            "nickname"
+        );
+        setField(User.class, user, "id", USER_ID);
+
+        user.withdraw(firstWithdrawal);
+        user.withdraw(secondWithdrawal);
+
+        assertThat(user.getDeletedAt())
+            .isEqualTo(firstWithdrawal);
+        assertThat(user.getNickname())
+            .isEqualTo("withdrawn-" + USER_ID);
+    }
+
+    private void setField(
+        Class<?> declaringClass,
+        Object target,
+        String fieldName,
+        Object value
+    ) {
+        try {
+            Field field =
+                declaringClass.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (
+            NoSuchFieldException |
+            IllegalAccessException exception
+        ) {
+            throw new IllegalStateException(
+                "테스트 필드 설정에 실패했습니다.",
+                exception
+            );
+        }
+    }
+}

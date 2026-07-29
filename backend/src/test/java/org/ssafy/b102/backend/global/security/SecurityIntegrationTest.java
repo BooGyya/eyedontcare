@@ -351,6 +351,178 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    void 유효한_액세스_토큰으로_회원_탈퇴하고_사용자_헤더는_무시한다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+
+        mockMvc.perform(
+                delete("/api/v1/auth/withdraw")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+                    .header(
+                        "X-Participant-Key",
+                        "USER:999"
+                    )
+                    .header("X-User-Id", "999")
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_WITHDRAWAL_SUCCESS")
+            )
+            .andExpect(jsonPath("$.data").doesNotExist());
+
+        verify(authService).withdraw(1L);
+    }
+
+    @Test
+    void 탈퇴_후_같은_액세스_토큰과_반복_탈퇴는_401이다()
+        throws Exception {
+
+        String token = jwtTokenProvider.issueAccessToken(1L);
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(1L)
+        ).thenReturn(true, false, false);
+
+        mockMvc.perform(
+                delete("/api/v1/auth/withdraw")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isOk());
+
+        mockMvc.perform(
+                get("/api/v1/game-results/me")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"));
+
+        mockMvc.perform(
+                delete("/api/v1/auth/withdraw")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"));
+
+        verify(authService).withdraw(1L);
+    }
+
+    @Test
+    void 탈퇴_API는_토큰이_없으면_401을_반환한다()
+        throws Exception {
+
+        mockMvc.perform(delete("/api/v1/auth/withdraw"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-001"));
+    }
+
+    @Test
+    void 만료_변조_리프레시_토큰으로_탈퇴하면_401을_반환한다()
+        throws Exception {
+
+        String expiredToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().minusSeconds(60L),
+            secretKey()
+        );
+
+        SecretKey otherKey = Keys.hmacShaKeyFor(
+            "different-secret-key-for-testing"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
+
+        String tamperedToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().plusSeconds(1_800L),
+            otherKey
+        );
+
+        String refreshToken =
+            jwtTokenProvider.issueRefreshToken(1L);
+
+        expectInvalidWithdrawalToken(expiredToken);
+        expectInvalidWithdrawalToken(tamperedToken);
+        expectInvalidWithdrawalToken(refreshToken);
+    }
+
+    @Test
+    void 탈퇴_후_기존_리프레시_토큰과_로그인은_거부된다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+
+        mockMvc.perform(
+                delete("/api/v1/auth/withdraw")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isOk());
+
+        when(
+            authService.reissue(any(ReissueRequest.class))
+        ).thenThrow(
+            new BusinessException(
+                org.ssafy.b102.backend.auth.exception
+                    .AuthErrorCode.INVALID_REFRESH_TOKEN
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "refreshToken": "old-refresh-token"
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("AUTH-004"));
+
+        when(
+            authService.login(any(LoginRequest.class))
+        ).thenThrow(
+            new BusinessException(
+                org.ssafy.b102.backend.auth.exception
+                    .AuthErrorCode.INVALID_CREDENTIALS
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "email": "user@example.com",
+                          "password": "password123"
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("AUTH-003"));
+    }
+
+    @Test
     void 게임_목록과_상세는_토큰_없이_접근할_수_있다()
         throws Exception {
 
@@ -711,6 +883,21 @@ class SecurityIntegrationTest {
 
         mockMvc.perform(
                 post("/api/v1/auth/logout")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"))
+            .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    private void expectInvalidWithdrawalToken(String token)
+        throws Exception {
+
+        mockMvc.perform(
+                delete("/api/v1/auth/withdraw")
                     .header(
                         HttpHeaders.AUTHORIZATION,
                         bearer(token)

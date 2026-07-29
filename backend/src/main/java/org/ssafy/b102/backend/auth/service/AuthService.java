@@ -1,5 +1,6 @@
 package org.ssafy.b102.backend.auth.service;
 
+import java.time.Instant;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -115,6 +116,20 @@ public class AuthService {
     }
 
     public void logout(Long userId) {
+        refreshTokenStore.deleteByUserId(userId);
+    }
+
+    @Transactional
+    public void withdraw(Long userId) {
+        User user = userRepository
+            .findByIdAndDeletedAtIsNull(userId)
+            .orElseThrow(
+                () -> new BusinessException(
+                    AuthErrorCode.USER_NOT_FOUND
+                )
+            );
+
+        user.withdraw(Instant.now());
         refreshTokenStore.deleteByUserId(userId);
     }
 
