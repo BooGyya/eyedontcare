@@ -9,8 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
-import org.ssafy.b102.backend.auth.dto.response.SignupResponse;
+import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
 import org.ssafy.b102.backend.auth.service.AuthService;
 import org.ssafy.b102.backend.global.error.BusinessException;
@@ -300,6 +301,125 @@ class AuthControllerTest {
             );
     }
 
+    @Test
+    void 로그인에_성공하면_200과_토큰을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+			{
+			  "email": "user@example.com",
+			  "password": "password123"
+			}
+			""";
+
+        mockMvc.perform(
+                post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_LOGIN_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("로그인이 완료되었습니다.")
+            )
+            .andExpect(
+                jsonPath("$.data.accessToken")
+                    .value("access-token")
+            )
+            .andExpect(
+                jsonPath("$.data.refreshToken")
+                    .value("refresh-token")
+            );
+    }
+
+    @Test
+    void 로그인_인증에_실패하면_401을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+			{
+			  "email": "unknown@example.com",
+			  "password": "password123"
+			}
+			""";
+
+        mockMvc.perform(
+                post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH-003")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("이메일 또는 비밀번호가 올바르지 않습니다.")
+            )
+            .andExpect(
+                jsonPath("$.data").doesNotExist()
+            );
+    }
+
+    @Test
+    void 로그인_요청_검증에_실패하면_400을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+			{
+			  "email": "invalid-email",
+			  "password": "password123"
+			}
+			""";
+
+        mockMvc.perform(
+                post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("COMMON-001")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("요청 값이 올바르지 않습니다.")
+            );
+    }
+
+    @Test
+    void 로그인_요청_본문이_잘못된_JSON이면_400을_반환한다()
+        throws Exception {
+
+        String malformedJson = """
+			{
+			  "email": "user@example.com",
+			  "password":
+			}
+			""";
+
+        mockMvc.perform(
+                post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(malformedJson)
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("COMMON-002")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("요청 본문을 읽을 수 없습니다.")
+            );
+    }
+
     private static final class StubAuthService
         extends AuthService {
 
@@ -314,7 +434,7 @@ class AuthControllerTest {
         }
 
         @Override
-        public SignupResponse signup(SignupRequest request) {
+        public TokenResponse signup(SignupRequest request) {
             if (
                 "duplicate@example.com"
                     .equals(request.email())
@@ -324,7 +444,24 @@ class AuthControllerTest {
                 );
             }
 
-            return new SignupResponse(
+            return new TokenResponse(
+                "access-token",
+                "refresh-token"
+            );
+        }
+
+        @Override
+        public TokenResponse login(LoginRequest request) {
+            if (
+                "unknown@example.com"
+                    .equals(request.email())
+            ) {
+                throw new BusinessException(
+                    AuthErrorCode.INVALID_CREDENTIALS
+                );
+            }
+
+            return new TokenResponse(
                 "access-token",
                 "refresh-token"
             );
