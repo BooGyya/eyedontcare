@@ -200,6 +200,95 @@ class JwtTokenProviderTest {
     }
 
     @Test
+    void 유효한_리프레시_토큰에서_사용자_ID를_추출한다() {
+        String token = jwtTokenProvider.issueRefreshToken(1L);
+
+        assertThat(
+            jwtTokenProvider.parseRefreshTokenUserId(token)
+        ).contains(1L);
+    }
+
+    @Test
+    void 액세스_토큰은_리프레시_토큰으로_허용하지_않는다() {
+        String token = jwtTokenProvider.issueAccessToken(1L);
+
+        assertThat(
+            jwtTokenProvider.parseRefreshTokenUserId(token)
+        ).isEmpty();
+    }
+
+    @Test
+    void 만료된_리프레시_토큰은_허용하지_않는다() {
+        JwtProperties properties = new JwtProperties(
+            SECRET_KEY,
+            ACCESS_TOKEN_EXPIRATION_SECONDS,
+            REFRESH_TOKEN_EXPIRATION_SECONDS
+        );
+
+        JwtTokenProvider expiredTokenIssuer =
+            new JwtTokenProvider(
+                properties,
+                Clock.fixed(
+                    FIXED_TIME.minusSeconds(
+                        REFRESH_TOKEN_EXPIRATION_SECONDS + 1
+                    ),
+                    ZoneOffset.UTC
+                )
+            );
+
+        String token = expiredTokenIssuer.issueRefreshToken(1L);
+
+        assertThat(
+            jwtTokenProvider.parseRefreshTokenUserId(token)
+        ).isEmpty();
+    }
+
+    @Test
+    void 변조된_리프레시_토큰은_허용하지_않는다() {
+        String token = jwtTokenProvider.issueRefreshToken(1L);
+        String tamperedToken = token.substring(
+            0,
+            token.length() - 1
+        ) + (token.endsWith("a") ? "b" : "a");
+
+        assertThat(
+            jwtTokenProvider.parseRefreshTokenUserId(
+                tamperedToken
+            )
+        ).isEmpty();
+    }
+
+    @Test
+    void 리프레시_토큰의_사용자_ID가_Long이_아니면_허용하지_않는다() {
+        String token = Jwts.builder()
+            .subject("not-a-long")
+            .claim("tokenType", TokenType.REFRESH.name())
+            .issuedAt(Date.from(FIXED_TIME))
+            .expiration(Date.from(FIXED_TIME.plusSeconds(1_800L)))
+            .signWith(secretKey)
+            .compact();
+
+        assertThat(
+            jwtTokenProvider.parseRefreshTokenUserId(token)
+        ).isEmpty();
+    }
+
+    @Test
+    void 리프레시_토큰의_사용자_ID가_0_이하이면_허용하지_않는다() {
+        String token = Jwts.builder()
+            .subject("0")
+            .claim("tokenType", TokenType.REFRESH.name())
+            .issuedAt(Date.from(FIXED_TIME))
+            .expiration(Date.from(FIXED_TIME.plusSeconds(1_800L)))
+            .signWith(secretKey)
+            .compact();
+
+        assertThat(
+            jwtTokenProvider.parseRefreshTokenUserId(token)
+        ).isEmpty();
+    }
+
+    @Test
     void 사용자_ID가_Long이_아니면_허용하지_않는다() {
         String token = Jwts.builder()
             .subject("not-a-long")

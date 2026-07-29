@@ -60,6 +60,17 @@ public class JwtTokenProvider {
     }
 
     public Optional<Long> parseAccessTokenUserId(String token) {
+        return parseTokenUserId(token, TokenType.ACCESS);
+    }
+
+    public Optional<Long> parseRefreshTokenUserId(String token) {
+        return parseTokenUserId(token, TokenType.REFRESH);
+    }
+
+    private Optional<Long> parseTokenUserId(
+        String token,
+        TokenType expectedTokenType
+    ) {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
@@ -77,7 +88,7 @@ public class JwtTokenProvider {
                 String.class
             );
 
-            if (!TokenType.ACCESS.name().equals(tokenType)) {
+            if (!expectedTokenType.name().equals(tokenType)) {
                 return Optional.empty();
             }
 

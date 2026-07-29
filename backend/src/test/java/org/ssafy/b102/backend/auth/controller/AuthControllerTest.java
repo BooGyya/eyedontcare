@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.ssafy.b102.backend.auth.dto.request.LoginRequest;
+import org.ssafy.b102.backend.auth.dto.request.ReissueRequest;
 import org.ssafy.b102.backend.auth.dto.request.SignupRequest;
 import org.ssafy.b102.backend.auth.dto.response.TokenResponse;
 import org.ssafy.b102.backend.auth.exception.AuthErrorCode;
@@ -420,6 +421,115 @@ class AuthControllerTest {
             );
     }
 
+    @Test
+    void 토큰_재발급에_성공하면_200과_새_토큰을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+            {
+              "refreshToken": "refresh-token"
+            }
+            """;
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("AUTH_REISSUE_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("토큰 재발급이 완료되었습니다.")
+            )
+            .andExpect(
+                jsonPath("$.data.accessToken")
+                    .value("new-access-token")
+            )
+            .andExpect(
+                jsonPath("$.data.refreshToken")
+                    .value("new-refresh-token")
+            );
+    }
+
+    @Test
+    void 리프레시_토큰이_비어_있으면_400을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+            {
+              "refreshToken": " "
+            }
+            """;
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("COMMON-001"));
+    }
+
+    @Test
+    void 리프레시_토큰이_누락되면_400을_반환한다()
+        throws Exception {
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{}")
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("COMMON-001"));
+    }
+
+    @Test
+    void 유효하지_않은_리프레시_토큰이면_401을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+            {
+              "refreshToken": "invalid-refresh-token"
+            }
+            """;
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("AUTH-004"))
+            .andExpect(
+                jsonPath("$.message")
+                    .value("유효하지 않은 리프레시 토큰입니다.")
+            )
+            .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void 액세스_토큰을_재발급_본문으로_보내면_401을_반환한다()
+        throws Exception {
+
+        String requestBody = """
+            {
+              "refreshToken": "access-token"
+            }
+            """;
+
+        mockMvc.perform(
+                post("/api/v1/auth/reissue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody)
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("AUTH-004"));
+    }
+
     private static final class StubAuthService
         extends AuthService {
 
@@ -464,6 +574,24 @@ class AuthControllerTest {
             return new TokenResponse(
                 "access-token",
                 "refresh-token"
+            );
+        }
+
+        @Override
+        public TokenResponse reissue(ReissueRequest request) {
+            if (
+                !"refresh-token".equals(
+                    request.refreshToken()
+                )
+            ) {
+                throw new BusinessException(
+                    AuthErrorCode.INVALID_REFRESH_TOKEN
+                );
+            }
+
+            return new TokenResponse(
+                "new-access-token",
+                "new-refresh-token"
             );
         }
     }
