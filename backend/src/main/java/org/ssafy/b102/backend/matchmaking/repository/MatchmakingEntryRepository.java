@@ -255,6 +255,57 @@ public class MatchmakingEntryRepository {
 		return true;
 	}
 
+	/**
+	 * 대기방 입장 확인. {@code ENTERING_ROOM} 참가자를 {@code IN_WAITING_ROOM}으로 전환한다.
+	 *
+	 * <p>{@code roomId}가 일치할 때만 전환한다. 이미 {@code IN_WAITING_ROOM}이면 멱등 성공,
+	 * 다른 {@code roomId}이거나 다른 상태면 건드리지 않는다(stale 콜백 보호).
+	 *
+	 * @return 전환했거나 이미 입장 상태면 {@code true}, 대상이 아니면 {@code false}
+	 */
+	public boolean markEntered(String participantKey, UUID roomId) {
+		Optional<MatchmakingEntry> found = find(participantKey);
+		if (found.isEmpty()) {
+			return false;
+		}
+
+		MatchmakingEntry entry = found.get();
+		if (!roomId.equals(entry.waitingRoomId())) {
+			return false;
+		}
+		if (entry.matchStatus() == MatchStatus.IN_WAITING_ROOM) {
+			return true;
+		}
+		if (entry.matchStatus() == MatchStatus.ENTERING_ROOM) {
+			save(entry.enterWaitingRoom(Instant.now()));
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * 대기방 IN_GAME 완료 후 entry를 삭제한다(compare-delete).
+	 *
+	 * <p>반드시 {@code roomId}를 비교한다. participantKey만 비교해 삭제하면 과거 콜백이 새 매칭
+	 * entry를 지울 수 있다. 이미 삭제됐으면 멱등 성공, 다른 {@code roomId}면 건드리지 않는다.
+	 *
+	 * @return 삭제했거나 이미 없으면 {@code true}, 다른 {@code roomId}라 보호했으면 {@code false}
+	 */
+	public boolean completeAndDelete(String participantKey, UUID roomId) {
+		Optional<MatchmakingEntry> found = find(participantKey);
+		if (found.isEmpty()) {
+			return true;
+		}
+		if (!roomId.equals(found.get().waitingRoomId())) {
+			return false;
+		}
+
+		delete(participantKey);
+
+		return true;
+	}
+
 	private Map<String, String> toFields(MatchmakingEntry entry) {
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put(FIELD_PARTICIPANT_KEY, entry.participantKey());
