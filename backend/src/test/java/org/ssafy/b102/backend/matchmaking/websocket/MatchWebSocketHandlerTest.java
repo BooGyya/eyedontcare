@@ -212,7 +212,7 @@ class MatchWebSocketHandlerTest {
 		private Optional<MatchmakingEntry> entry = Optional.empty();
 
 		private StubMatchmakingService() {
-			super(null, null, null);
+			super(null, null, null, null, null);
 		}
 
 		void setEntry(MatchmakingEntry entry) {

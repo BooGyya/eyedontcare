@@ -15,6 +15,9 @@ import org.ssafy.b102.backend.matchmaking.dto.response.MatchStatusResponse;
 import org.ssafy.b102.backend.matchmaking.entity.MatchmakingEntry;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
+import org.ssafy.b102.backend.guest.service.GuestSessionService;
+import org.ssafy.b102.backend.guest.support.GuestParticipantKey;
+import org.ssafy.b102.backend.user.repository.UserRepository;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
 
 /**
@@ -44,15 +47,21 @@ public class MatchmakingService {
 	private final MatchmakingEntryRepository matchmakingEntryRepository;
 	private final ObjectProvider<RandomRoomCreator> randomRoomCreator;
 	private final MatchNotifier matchNotifier;
+	private final UserRepository userRepository;
+	private final GuestSessionService guestSessionService;
 
 	public MatchmakingService(
 		MatchmakingEntryRepository matchmakingEntryRepository,
 		ObjectProvider<RandomRoomCreator> randomRoomCreator,
-		MatchNotifier matchNotifier
+		MatchNotifier matchNotifier,
+		UserRepository userRepository,
+		GuestSessionService guestSessionService
 	) {
 		this.matchmakingEntryRepository = matchmakingEntryRepository;
 		this.randomRoomCreator = randomRoomCreator;
 		this.matchNotifier = matchNotifier;
+		this.userRepository = userRepository;
+		this.guestSessionService = guestSessionService;
 	}
 
 	public MatchStatusResponse join(String participantKey, String gameType) {
@@ -108,10 +117,10 @@ public class MatchmakingService {
 	}
 
 	/**
-	 * 대기 순서가 빠른 두 명을 선점하고 대기방 생성을 요청한다.
+	 * 대기 순서가 빠른 두 명을 하나의 시도로 예약하고 대기방 생성을 요청한다.
 	 *
-	 * <p>인원이 부족하거나 방 생성에 실패하면 선점을 해제한다. 이때 기존 {@code queuedAt}으로
-	 * 되돌리므로 대기 순서가 밀리지 않는다.
+	 * <p>흐름: 예약({@code MATCHING}) → 방 생성 → 같은 시도 재검증 후 {@code ENTERING_ROOM} 확정 →
+	 * {@code MATCH_SUCCESS} 전송. 방 생성 실패(빈 값·예외)나 finalize 실패는 모두 보상한다.
 	 */
 	private void tryMatch(GameName gameType) {
 		RandomRoomCreator roomCreator = randomRoomCreator.getIfAvailable();
@@ -120,32 +129,76 @@ public class MatchmakingService {
 			return;
 		}
 
-		List<MatchmakingEntry> candidates =
-			matchmakingEntryRepository.popCandidates(gameType, MATCH_SIZE);
-
-		if (candidates.size() < MATCH_SIZE) {
-			candidates.forEach(matchmakingEntryRepository::requeue);
+		UUID matchAttemptId = UUID.randomUUID();
+		List<MatchmakingEntry> reserved =
+			matchmakingEntryRepository.reserveCandidates(gameType, matchAttemptId, MATCH_SIZE);
+		if (reserved.isEmpty()) {
 			return;
 		}
 
-		List<String> participantKeys = candidates.stream()
+		List<String> participantKeys = reserved.stream()
 			.map(MatchmakingEntry::participantKey)
 			.toList();
 
 		Optional<UUID> waitingRoomId = createRoom(roomCreator, gameType, participantKeys);
 		if (waitingRoomId.isEmpty()) {
-			candidates.forEach(matchmakingEntryRepository::requeue);
+			compensate(reserved, matchAttemptId);
 			return;
 		}
 
-		Instant now = Instant.now();
-		List<MatchmakingEntry> matched = candidates.stream()
-			.map(candidate -> candidate.enterRoom(waitingRoomId.get(), now))
-			.toList();
+		boolean finalized =
+			matchmakingEntryRepository.finalizeToRoom(reserved, matchAttemptId, waitingRoomId.get());
+		if (!finalized) {
+			log.warn(
+				"finalize에 실패했습니다. 생성된 RANDOM 대기방은 TTL로 만료됩니다. roomId={}, attemptId={}",
+				waitingRoomId.get(),
+				matchAttemptId
+			);
+			compensate(reserved, matchAttemptId);
+			return;
+		}
 
-		matched.forEach(matchmakingEntryRepository::save);
-		matched.forEach(entry ->
-			matchNotifier.notifyMatched(entry.participantKey(), entry.waitingRoomId(), entry.gameType()));
+		reserved.forEach(entry ->
+			matchNotifier.notifyMatched(entry.participantKey(), waitingRoomId.get(), gameType));
+	}
+
+	/**
+	 * 방 생성·finalize 실패 보상. 유효한 참가자만 현재 시각 기준으로 다시 큐에 넣고,
+	 * 무효한 참가자(탈퇴 회원·만료 게스트)는 정리한다. 기존 대기 순서는 승계하지 않는다.
+	 *
+	 * <p>생성됐을 수 있는 orphan RANDOM 대기방은 별도로 정리하지 않고 TTL(10분) 만료에 맡긴다(팀 합의).
+	 */
+	private void compensate(List<MatchmakingEntry> reserved, UUID matchAttemptId) {
+		for (MatchmakingEntry entry : reserved) {
+			if (isParticipantValid(entry.participantKey())) {
+				matchmakingEntryRepository.reregisterAtCurrentTime(entry, matchAttemptId);
+			} else {
+				matchmakingEntryRepository.delete(entry.participantKey());
+			}
+		}
+	}
+
+	/**
+	 * 재등록 전 참가자가 여전히 유효한지 확인한다. 회원은 존재·미탈퇴, 게스트는 세션 유효.
+	 */
+	private boolean isParticipantValid(String participantKey) {
+		if (participantKey.startsWith(USER_KEY_PREFIX)) {
+			try {
+				long userId = Long.parseLong(participantKey.substring(USER_KEY_PREFIX.length()));
+				return userRepository.existsByIdAndDeletedAtIsNull(userId);
+			} catch (NumberFormatException exception) {
+				return false;
+			}
+		}
+		if (participantKey.startsWith(GUEST_KEY_PREFIX)) {
+			try {
+				return guestSessionService.exists(GuestParticipantKey.parse(participantKey).guestSessionId());
+			} catch (RuntimeException exception) {
+				return false;
+			}
+		}
+
+		return false;
 	}
 
 	/**
