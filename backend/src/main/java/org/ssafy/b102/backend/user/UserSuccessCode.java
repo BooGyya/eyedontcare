@@ -12,6 +12,11 @@ public enum UserSuccessCode implements SuccessCode {
     NICKNAME_CHECK_SUCCESS(
         "NICKNAME_CHECK_SUCCESS",
         "닉네임 중복 확인이 완료되었습니다."
+    ),
+
+    USER_UPDATE_SUCCESS(
+        "USER_UPDATE_SUCCESS",
+        "내 정보 수정이 완료되었습니다."
     );
 
     private final String code;

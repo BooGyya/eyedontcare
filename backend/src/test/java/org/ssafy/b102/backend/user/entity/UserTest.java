@@ -13,6 +13,28 @@ class UserTest {
     private static final Long USER_ID = 123L;
 
     @Test
+    void 프로필을_수정하면_허용된_필드만_변경한다() {
+        User user = User.createLocal(
+            "user@example.com",
+            "encoded-password",
+            "Original1"
+        );
+
+        user.updateProfile(
+            "NewName",
+            ProfileImageCode.PROFILE_3
+        );
+
+        assertThat(user.getNickname()).isEqualTo("NewName");
+        assertThat(user.getProfileImageCode())
+            .isEqualTo(ProfileImageCode.PROFILE_3);
+        assertThat(user.getEmail())
+            .isEqualTo("user@example.com");
+        assertThat(user.getPasswordHash())
+            .isEqualTo("encoded-password");
+    }
+
+    @Test
     void 탈퇴하면_개인정보를_익명화하고_식별자와_생성시각을_유지한다() {
         Instant createdAt =
             Instant.parse("2026-07-01T00:00:00Z");
