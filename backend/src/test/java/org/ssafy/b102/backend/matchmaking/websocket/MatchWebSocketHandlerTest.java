@@ -154,7 +154,7 @@ class MatchWebSocketHandlerTest {
 		StubWebSocketSession session = new StubWebSocketSession("s1");
 		UUID roomId = UUID.randomUUID();
 		service.setEntry(new MatchmakingEntry(
-			MEMBER_KEY, GameName.EYEFIGHT, MatchStatus.ENTERING_ROOM, roomId, NOW, NOW));
+			MEMBER_KEY, GameName.EYEFIGHT, MatchStatus.ENTERING_ROOM, roomId, NOW, NOW, null));
 
 		handler.handleTextMessage(session, memberFrame(MEMBER_USER_ID));
 
@@ -169,7 +169,7 @@ class MatchWebSocketHandlerTest {
 	void doesNotPushWhenStillSearching() throws Exception {
 		StubWebSocketSession session = new StubWebSocketSession("s1");
 		service.setEntry(new MatchmakingEntry(
-			MEMBER_KEY, GameName.EYEFIGHT, MatchStatus.SEARCHING, null, NOW, NOW));
+			MEMBER_KEY, GameName.EYEFIGHT, MatchStatus.SEARCHING, null, NOW, NOW, null));
 
 		handler.handleTextMessage(session, memberFrame(MEMBER_USER_ID));
 

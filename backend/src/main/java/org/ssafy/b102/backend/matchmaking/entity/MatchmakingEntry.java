@@ -12,6 +12,9 @@ import org.ssafy.b102.backend.game.entity.GameName;
  *
  * <p>시각을 밀리초로 잘라 보관한다. 매칭 큐(Sorted Set)의 score가 {@code queuedAt}의
  * epoch milli이므로, 잘라두지 않으면 저장 후 다시 읽은 값이 원본과 달라진다.
+ *
+ * <p>{@code matchAttemptId}는 예약({@code MATCHING})부터 방 배정까지 하나의 매칭 시도를
+ * 식별한다. finalize·보상 시 이 값을 비교해 stale 콜백이 새 매칭을 건드리지 못하게 한다.
  */
 public record MatchmakingEntry(
 	String participantKey,
@@ -19,7 +22,8 @@ public record MatchmakingEntry(
 	MatchStatus matchStatus,
 	UUID waitingRoomId,
 	Instant queuedAt,
-	Instant statusChangedAt
+	Instant statusChangedAt,
+	UUID matchAttemptId
 ) {
 
 	public MatchmakingEntry {
@@ -28,11 +32,26 @@ public record MatchmakingEntry(
 	}
 
 	public static MatchmakingEntry searching(String participantKey, GameName gameType, Instant now) {
-		return new MatchmakingEntry(participantKey, gameType, MatchStatus.SEARCHING, null, now, now);
+		return new MatchmakingEntry(participantKey, gameType, MatchStatus.SEARCHING, null, now, now, null);
 	}
 
 	/**
-	 * 매칭 성사. {@code queuedAt}은 유지한다.
+	 * 매칭 대상으로 예약한다. {@code queuedAt}은 유지하고 {@code matchAttemptId}를 부여한다.
+	 */
+	public MatchmakingEntry reserve(UUID matchAttemptId, Instant now) {
+		return new MatchmakingEntry(
+			participantKey,
+			gameType,
+			MatchStatus.MATCHING,
+			null,
+			queuedAt,
+			now,
+			matchAttemptId
+		);
+	}
+
+	/**
+	 * 매칭 성사. {@code queuedAt}과 {@code matchAttemptId}는 유지한다.
 	 */
 	public MatchmakingEntry enterRoom(UUID waitingRoomId, Instant now) {
 		return new MatchmakingEntry(
@@ -41,12 +60,37 @@ public record MatchmakingEntry(
 			MatchStatus.ENTERING_ROOM,
 			waitingRoomId,
 			queuedAt,
-			now
+			now,
+			matchAttemptId
+		);
+	}
+
+	/**
+	 * 대기방 WebSocket 입장 확인. {@code waitingRoomId}·{@code matchAttemptId}는 유지한다.
+	 */
+	public MatchmakingEntry enterWaitingRoom(Instant now) {
+		return new MatchmakingEntry(
+			participantKey,
+			gameType,
+			MatchStatus.IN_WAITING_ROOM,
+			waitingRoomId,
+			queuedAt,
+			now,
+			matchAttemptId
 		);
 	}
 
 	public boolean isSearching() {
 		return matchStatus == MatchStatus.SEARCHING;
+	}
+
+	/**
+	 * 주어진 시도로 예약된 상태인지. finalize·보상·lifecycle에서 stale 콜백을 거른다.
+	 */
+	public boolean isReservedBy(UUID matchAttemptId) {
+		return matchStatus == MatchStatus.MATCHING
+			&& matchAttemptId != null
+			&& matchAttemptId.equals(this.matchAttemptId);
 	}
 
 	public double queueScore() {
