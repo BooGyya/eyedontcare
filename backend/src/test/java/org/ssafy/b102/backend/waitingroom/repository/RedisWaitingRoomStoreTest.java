@@ -93,6 +93,55 @@ class RedisWaitingRoomStoreTest {
 					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
 	}
 
+	@Test
+	void convertsLeaveRedisFailureToWaitingRoomStoreUnavailable() {
+		StringRedisTemplate redisTemplate = new StringRedisTemplate() {
+			@Override
+			public <T> T execute(
+				RedisScript<T> script,
+				List<String> keys,
+				Object... args
+			) {
+				throw new RedisConnectionFailureException("unavailable");
+			}
+		};
+		RedisWaitingRoomStore store = new RedisWaitingRoomStore(
+			redisTemplate,
+			new RedisKeyBuilder("test"),
+			JsonMapper.builder().findAndAddModules().build()
+		);
+
+		assertThatThrownBy(() -> store.leaveAtomically(leaveCommand()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+	}
+
+	@Test
+	void convertsUnexpectedLeaveScriptResultToStoreUnavailable() {
+		StringRedisTemplate redisTemplate = new StringRedisTemplate() {
+			@Override
+			@SuppressWarnings("unchecked")
+			public <T> T execute(
+				RedisScript<T> script,
+				List<String> keys,
+				Object... args
+			) {
+				return (T) "UNKNOWN";
+			}
+		};
+		RedisWaitingRoomStore store = new RedisWaitingRoomStore(
+			redisTemplate,
+			new RedisKeyBuilder("test"),
+			JsonMapper.builder().findAndAddModules().build()
+		);
+
+		assertThatThrownBy(() -> store.leaveAtomically(leaveCommand()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+	}
+
 	private JoinInviteRoomCommand joinCommand() {
 		return new JoinInviteRoomCommand(
 			UUID.fromString("c93c76b2-7f78-4275-b8af-7cdd921bbb4f"),
@@ -102,6 +151,17 @@ class RedisWaitingRoomStoreTest {
 			Instant.parse("2026-07-30T04:01:00Z"),
 			2,
 			Duration.ofMinutes(10)
+		);
+	}
+
+	private LeaveWaitingRoomCommand leaveCommand() {
+		return new LeaveWaitingRoomCommand(
+			UUID.fromString("c93c76b2-7f78-4275-b8af-7cdd921bbb4f"),
+			"0123",
+			"USER:2",
+			2,
+			Duration.ofMinutes(10),
+			Duration.ofSeconds(30)
 		);
 	}
 }

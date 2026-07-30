@@ -35,6 +35,16 @@ public enum WaitingRoomErrorCode implements ErrorCode {
 		HttpStatus.CONFLICT,
 		"WAITING-007",
 		"현재 입장할 수 없는 대기방입니다."
+	),
+	WAITING_ROOM_NOT_FOUND(
+		HttpStatus.NOT_FOUND,
+		"WAITING-008",
+		"대기방을 찾을 수 없습니다."
+	),
+	PARTICIPANT_NOT_FOUND(
+		HttpStatus.NOT_FOUND,
+		"WAITING-009",
+		"대기방 참가자를 찾을 수 없습니다."
 	);
 
 	private final HttpStatus status;

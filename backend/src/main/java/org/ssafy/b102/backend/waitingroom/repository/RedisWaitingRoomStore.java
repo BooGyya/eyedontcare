@@ -1,6 +1,7 @@
 package org.ssafy.b102.backend.waitingroom.repository;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.core.io.ClassPathResource;
@@ -34,6 +35,9 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	);
 	private static final DefaultRedisScript<String> JOIN_SCRIPT = stringScript(
 		"redis/waiting-room/join-invite-room.lua"
+	);
+	private static final DefaultRedisScript<String> LEAVE_SCRIPT = stringScript(
+		"redis/waiting-room/leave-waiting-room.lua"
 	);
 
 	private final StringRedisTemplate redisTemplate;
@@ -136,6 +140,66 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		}
 	}
 
+	@Override
+	public Optional<WaitingRoomMetadata> findRoomMetadata(UUID roomId) {
+		try {
+			Map<Object, Object> fields = redisTemplate.opsForHash().entries(roomKey(roomId));
+			if (fields.isEmpty()) {
+				return Optional.empty();
+			}
+
+			RoomType roomType = RoomType.valueOf(requiredField(fields, "roomType"));
+			RoomStatus roomStatus = RoomStatus.valueOf(requiredField(fields, "roomStatus"));
+			String roomCode = (String) fields.get("roomCode");
+			if (roomType != RoomType.INVITE) {
+				throw storeUnavailable();
+			}
+			if (roomCode == null || !roomCode.matches("[0-9]{4}")) {
+				throw storeUnavailable();
+			}
+			requiredField(fields, "gameName");
+			requiredField(fields, "createdAt");
+
+			return Optional.of(
+				new WaitingRoomMetadata(roomId, roomType, roomStatus, roomCode)
+			);
+		} catch (BusinessException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public LeaveWaitingRoomResult leaveAtomically(LeaveWaitingRoomCommand command) {
+		List<String> keys = List.of(
+			roomKey(command.roomId()),
+			participantsKey(command.roomId()),
+			inviteCodeKey(command.roomCode())
+		);
+
+		try {
+			String result = redisTemplate.execute(
+				LEAVE_SCRIPT,
+				keys,
+				command.roomId().toString(),
+				command.participantKey(),
+				Long.toString(command.activeTtl().toMillis()),
+				Long.toString(command.closedTtl().toMillis()),
+				command.roomCode(),
+				Integer.toString(command.maxParticipants())
+			);
+			if (result == null) {
+				throw storeUnavailable();
+			}
+			return LeaveWaitingRoomResult.valueOf(result);
+		} catch (BusinessException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
 	private List<String> keys(WaitingRoom room) {
 		return List.of(
 			roomKey(room.roomId()),
@@ -179,6 +243,14 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 
 	private String inviteCodeKey(String roomCode) {
 		return redisKeyBuilder.build(DOMAIN, "invite-code", roomCode);
+	}
+
+	private String requiredField(Map<Object, Object> fields, String name) {
+		Object value = fields.get(name);
+		if (!(value instanceof String text) || text.isBlank()) {
+			throw storeUnavailable();
+		}
+		return text;
 	}
 
 	private void cleanup(List<String> keys, String roomId) {

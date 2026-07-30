@@ -11,6 +11,10 @@ public enum WaitingRoomSuccessCode implements SuccessCode {
 	WAITING_ROOM_JOIN_SUCCESS(
 		"WAITING_ROOM_JOIN_SUCCESS",
 		"초대방 입장이 완료되었습니다."
+	),
+	WAITING_ROOM_LEAVE_SUCCESS(
+		"WAITING_ROOM_LEAVE_SUCCESS",
+		"대기방 퇴장이 완료되었습니다."
 	);
 
 	private final String code;

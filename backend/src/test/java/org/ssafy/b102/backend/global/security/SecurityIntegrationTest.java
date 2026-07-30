@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -61,6 +62,7 @@ import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.security.jwt.JwtProperties;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.global.security.jwt.TokenType;
+import org.ssafy.b102.backend.guest.exception.GuestSessionErrorCode;
 import org.ssafy.b102.backend.matchmaking.controller.MatchmakingController;
 import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
 import org.ssafy.b102.backend.matchmaking.support.MatchParticipantResolver;
@@ -1500,6 +1502,107 @@ class SecurityIntegrationTest {
         expectInvalidWaitingRoomJoinToken(token);
     }
 
+    @Test
+    void waitingRoomLeaveAllowsAnonymousValidGuest() throws Exception {
+        mockMvc.perform(
+                post(
+                    "/api/v1/waiting-rooms/{roomId}/leave",
+                    "c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+                )
+                    .header(
+                        "X-Guest-Session-Id",
+                        "7e329e72-e8da-4c62-8282-754e7b5c0864"
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("WAITING_ROOM_LEAVE_SUCCESS")
+            );
+    }
+
+    @Test
+    void waitingRoomLeaveWithoutGuestIdentityReturnsGuest401()
+        throws Exception {
+
+        doThrow(new BusinessException(
+            GuestSessionErrorCode.INVALID_GUEST_SESSION
+        )).when(waitingRoomService).leave(any(), any(), eq(null));
+
+        mockMvc.perform(
+                post(
+                    "/api/v1/waiting-rooms/{roomId}/leave",
+                    "c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+                )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("GUEST-001"));
+    }
+
+    @Test
+    void waitingRoomLeaveUsesMemberWhenGuestHeaderIsAlsoPresent()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+        java.util.UUID roomId = java.util.UUID.fromString(
+            "c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+        );
+        java.util.UUID guestId = java.util.UUID.fromString(
+            "7e329e72-e8da-4c62-8282-754e7b5c0864"
+        );
+
+        mockMvc.perform(
+                post("/api/v1/waiting-rooms/{roomId}/leave", roomId)
+                    .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                    .header("X-Guest-Session-Id", guestId)
+            )
+            .andExpect(status().isOk());
+
+        verify(waitingRoomService).leave(
+            eq(roomId),
+            eq(new AuthenticatedUser(1L)),
+            eq(guestId)
+        );
+    }
+
+    @Test
+    void waitingRoomLeaveRejectsExpiredTamperedAndRefreshTokens()
+        throws Exception {
+
+        SecretKey key = secretKey();
+        expectInvalidWaitingRoomLeaveToken(signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().minusSeconds(1L),
+            key
+        ));
+        expectInvalidWaitingRoomLeaveToken(signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().plusSeconds(300L),
+            Keys.hmacShaKeyFor(
+                Decoders.BASE64.decode(
+                    "YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk="
+                )
+            )
+        ));
+        expectInvalidWaitingRoomLeaveToken(signedToken(
+            1L,
+            TokenType.REFRESH,
+            Instant.now().plusSeconds(300L),
+            key
+        ));
+    }
+
+    @Test
+    void waitingRoomLeaveRejectsWithdrawnMemberToken() throws Exception {
+        String token = jwtTokenProvider.issueAccessToken(1L);
+        when(userRepository.existsByIdAndDeletedAtIsNull(1L))
+            .thenReturn(false);
+
+        expectInvalidWaitingRoomLeaveToken(token);
+    }
+
     private String activeUserToken(Long userId) {
         when(
             userRepository.existsByIdAndDeletedAtIsNull(userId)
@@ -1596,6 +1699,23 @@ class SecurityIntegrationTest {
                     )
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"roomCode\":\"0123\"}")
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"));
+    }
+
+    private void expectInvalidWaitingRoomLeaveToken(String token)
+        throws Exception {
+
+        mockMvc.perform(
+                post(
+                    "/api/v1/waiting-rooms/{roomId}/leave",
+                    "c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+                )
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
             )
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("SECURITY-002"));

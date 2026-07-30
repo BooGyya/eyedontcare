@@ -1,6 +1,7 @@
 package org.ssafy.b102.backend.waitingroom.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.time.Duration;
@@ -295,6 +296,207 @@ class RedisWaitingRoomStoreIntegrationTest {
 		}
 	}
 
+	@Test
+	void waitingHostLeaveClosesRoomAndPreservesParticipants() {
+		setupFullRoom();
+
+		assertThat(store.findRoomMetadata(ROOM_ID))
+			.contains(new WaitingRoomMetadata(
+				ROOM_ID,
+				RoomType.INVITE,
+				RoomStatus.WAITING,
+				"0123"
+			));
+		assertThat(store.leaveAtomically(leaveCommand("USER:1")))
+			.isEqualTo(LeaveWaitingRoomResult.ROOM_CLOSED);
+
+		assertThat(redisTemplate.opsForHash().get(ROOM_KEY, "roomStatus"))
+			.isEqualTo("CLOSED");
+		assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY)).isEqualTo(2);
+		assertThat(redisTemplate.opsForHash().hasKey(PARTICIPANTS_KEY, "USER:1")).isTrue();
+		assertThat(redisTemplate.opsForHash().hasKey(PARTICIPANTS_KEY, "GUEST:one")).isTrue();
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+		assertClosedTtls();
+	}
+
+	@Test
+	void waitingPlayerLeaveRemovesOnlyPlayerAndRenewsActiveTtl() {
+		setupFullRoom();
+		redisTemplate.expire(ROOM_KEY, Duration.ofMinutes(5));
+		redisTemplate.expire(PARTICIPANTS_KEY, Duration.ofMinutes(5));
+		redisTemplate.expire(INVITE_CODE_KEY, Duration.ofMinutes(5));
+
+		assertThat(store.leaveAtomically(leaveCommand("GUEST:one")))
+			.isEqualTo(LeaveWaitingRoomResult.LEFT);
+
+		assertThat(redisTemplate.opsForHash().get(ROOM_KEY, "roomStatus"))
+			.isEqualTo("WAITING");
+		assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY)).isEqualTo(1);
+		assertThat(redisTemplate.opsForHash().hasKey(PARTICIPANTS_KEY, "USER:1")).isTrue();
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isTrue();
+		assertRenewedTtls();
+
+		assertThat(store.joinInviteRoomAtomically(joinCommand("GUEST:two")).snapshot()
+			.participants())
+			.filteredOn(participant -> participant.participantKey().equals("GUEST:two"))
+			.extracting(participant -> participant.slotNo())
+			.containsExactly(2);
+	}
+
+	@Test
+	void countdownHostAndPlayerLeaveBothCloseWithoutRemovingParticipants() {
+		for (String participantKey : List.of("USER:1", "GUEST:one")) {
+			tearDown();
+			setupFullRoom();
+			redisTemplate.opsForHash().put(ROOM_KEY, "roomStatus", "COUNTDOWN");
+
+			assertThat(store.leaveAtomically(leaveCommand(participantKey)))
+				.isEqualTo(LeaveWaitingRoomResult.ROOM_CLOSED);
+			assertThat(redisTemplate.opsForHash().get(ROOM_KEY, "roomStatus"))
+				.isEqualTo("CLOSED");
+			assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY)).isEqualTo(2);
+			assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+			assertClosedTtls();
+		}
+	}
+
+	@Test
+	void closedExistingParticipantIsIdempotentWithoutRenewingTtl() {
+		setupFullRoom();
+		store.leaveAtomically(leaveCommand("USER:1"));
+		redisTemplate.expire(ROOM_KEY, Duration.ofSeconds(10));
+		redisTemplate.expire(PARTICIPANTS_KEY, Duration.ofSeconds(10));
+
+		assertThat(store.leaveAtomically(leaveCommand("USER:1")))
+			.isEqualTo(LeaveWaitingRoomResult.ALREADY_CLOSED);
+
+		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS)).isBetween(8L, 10L);
+		assertThat(redisTemplate.getExpire(PARTICIPANTS_KEY, TimeUnit.SECONDS))
+			.isBetween(8L, 10L);
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+	}
+
+	@Test
+	void nonParticipantAndRepeatedWaitingPlayerLeaveDoNotRenewTtl() {
+		setupFullRoom();
+		assertThat(store.leaveAtomically(leaveCommand("GUEST:one")))
+			.isEqualTo(LeaveWaitingRoomResult.LEFT);
+		redisTemplate.expire(ROOM_KEY, Duration.ofMinutes(5));
+		redisTemplate.expire(PARTICIPANTS_KEY, Duration.ofMinutes(5));
+		redisTemplate.expire(INVITE_CODE_KEY, Duration.ofMinutes(5));
+
+		assertThat(store.leaveAtomically(leaveCommand("GUEST:one")))
+			.isEqualTo(LeaveWaitingRoomResult.PARTICIPANT_NOT_FOUND);
+		assertThat(store.leaveAtomically(leaveCommand("USER:other")))
+			.isEqualTo(LeaveWaitingRoomResult.PARTICIPANT_NOT_FOUND);
+		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS))
+			.isBetween(290L, 300L);
+		assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY)).isEqualTo(1);
+	}
+
+	@Test
+	void inviteIndexMustMatchBeforeClosing() {
+		setupFullRoom();
+		redisTemplate.delete(INVITE_CODE_KEY);
+		assertThat(store.leaveAtomically(leaveCommand("USER:1")))
+			.isEqualTo(LeaveWaitingRoomResult.CORRUPTED);
+		assertThat(redisTemplate.opsForHash().get(ROOM_KEY, "roomStatus"))
+			.isEqualTo("WAITING");
+
+		String otherRoomId = UUID.randomUUID().toString();
+		redisTemplate.opsForValue().set(INVITE_CODE_KEY, otherRoomId, TTL);
+		assertThat(store.leaveAtomically(leaveCommand("USER:1")))
+			.isEqualTo(LeaveWaitingRoomResult.CORRUPTED);
+		assertThat(redisTemplate.opsForValue().get(INVITE_CODE_KEY)).isEqualTo(otherRoomId);
+	}
+
+	@Test
+	void malformedMetadataAndParticipantAreStoreUnavailableResults() {
+		store.createInviteRoomAtomically(command());
+		redisTemplate.opsForHash().delete(ROOM_KEY, "roomCode");
+		assertThatThrownBy(() -> store.findRoomMetadata(ROOM_ID))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+
+		tearDown();
+		store.createInviteRoomAtomically(command());
+		redisTemplate.opsForHash().put(PARTICIPANTS_KEY, "USER:1", "not-json");
+		assertThat(store.leaveAtomically(leaveCommand("USER:1")))
+			.isEqualTo(LeaveWaitingRoomResult.CORRUPTED);
+	}
+
+	@Test
+	void samePlayerConcurrentLeaveHasOneSuccess() throws Exception {
+		setupFullRoom();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			List<Future<LeaveWaitingRoomResult>> results = executor.invokeAll(List.of(
+				() -> store.leaveAtomically(leaveCommand("GUEST:one")),
+				() -> store.leaveAtomically(leaveCommand("GUEST:one"))
+			));
+			assertThat(results)
+				.extracting(future -> future.get())
+				.containsExactlyInAnyOrder(
+					LeaveWaitingRoomResult.LEFT,
+					LeaveWaitingRoomResult.PARTICIPANT_NOT_FOUND
+				);
+			assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY)).isEqualTo(1);
+		} finally {
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void hostAndPlayerConcurrentLeaveEndsClosedConsistently() throws Exception {
+		setupFullRoom();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			executor.invokeAll(List.of(
+				() -> store.leaveAtomically(leaveCommand("USER:1")),
+				() -> store.leaveAtomically(leaveCommand("GUEST:one"))
+			));
+
+			assertThat(redisTemplate.opsForHash().get(ROOM_KEY, "roomStatus"))
+				.isEqualTo("CLOSED");
+			assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+			assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY))
+				.isBetween(1L, 2L);
+			assertClosedTtls();
+		} finally {
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void playerLeaveAndNewJoinNeverExceedCapacityOrDuplicateSlots() throws Exception {
+		setupFullRoom();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<LeaveWaitingRoomResult> leave = executor.submit(
+				() -> store.leaveAtomically(leaveCommand("GUEST:one"))
+			);
+			Future<JoinInviteRoomResult> join = executor.submit(
+				() -> store.joinInviteRoomAtomically(joinCommand("GUEST:two"))
+			);
+
+			assertThat(leave.get()).isEqualTo(LeaveWaitingRoomResult.LEFT);
+			assertThat(join.get().status())
+				.isIn(
+					JoinInviteRoomResult.Status.JOINED,
+					JoinInviteRoomResult.Status.FULL
+				);
+			assertThat(redisTemplate.opsForHash().size(PARTICIPANTS_KEY))
+				.isBetween(1L, 2L);
+			assertThat(redisTemplate.opsForHash().values(PARTICIPANTS_KEY))
+				.extracting(Object::toString)
+				.extracting(value -> value.replaceAll(".*\"slotNo\":([0-9]+).*", "$1"))
+				.doesNotHaveDuplicates();
+		} finally {
+			executor.shutdownNow();
+		}
+	}
+
 	CreateInviteRoomCommand command() {
 		Instant now = Instant.parse("2026-07-30T04:00:00Z");
 		return new CreateInviteRoomCommand(
@@ -321,6 +523,23 @@ class RedisWaitingRoomStoreIntegrationTest {
 
 	private JoinInviteRoomCommand joinCommand(String participantKey) {
 		return joinCommandWithCapacity(participantKey, 2);
+	}
+
+	private LeaveWaitingRoomCommand leaveCommand(String participantKey) {
+		return new LeaveWaitingRoomCommand(
+			ROOM_ID,
+			"0123",
+			participantKey,
+			2,
+			TTL,
+			Duration.ofSeconds(30)
+		);
+	}
+
+	private void setupFullRoom() {
+		store.createInviteRoomAtomically(command());
+		assertThat(store.joinInviteRoomAtomically(joinCommand("GUEST:one")).status())
+			.isEqualTo(JoinInviteRoomResult.Status.JOINED);
 	}
 
 	private JoinInviteRoomCommand joinCommandWithCapacity(
@@ -350,6 +569,17 @@ class RedisWaitingRoomStoreIntegrationTest {
 			.map(key -> redisTemplate.getExpire(key, TimeUnit.SECONDS))
 			.toList();
 		assertThat(ttls).allSatisfy(ttl -> assertThat(ttl).isBetween(590L, 600L));
+		assertThat(ttls.stream().mapToLong(Long::longValue).max().orElseThrow()
+			- ttls.stream().mapToLong(Long::longValue).min().orElseThrow())
+			.isLessThanOrEqualTo(1L);
+	}
+
+	private void assertClosedTtls() {
+		List<Long> ttls = List.of(ROOM_KEY, PARTICIPANTS_KEY)
+			.stream()
+			.map(key -> redisTemplate.getExpire(key, TimeUnit.SECONDS))
+			.toList();
+		assertThat(ttls).allSatisfy(ttl -> assertThat(ttl).isBetween(25L, 30L));
 		assertThat(ttls.stream().mapToLong(Long::longValue).max().orElseThrow()
 			- ttls.stream().mapToLong(Long::longValue).min().orElseThrow())
 			.isLessThanOrEqualTo(1L);
