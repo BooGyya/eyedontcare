@@ -159,7 +159,10 @@ function handleEnterRoom(payload: {
 
     <section
       class="game-detail-page__modes"
-      :class="{ 'game-detail-page__modes--compact': game.modes.length >= 4 }"
+      :class="{
+        'game-detail-page__modes--compact': game.modes.length >= 4,
+        'game-detail-page__modes--single': game.modes.length === 1,
+      }"
       aria-label="게임 모드 선택"
     >
       <button
@@ -1447,6 +1450,10 @@ function handleEnterRoom(payload: {
   border-radius: 24px;
   background: #fff;
   box-shadow: var(--shadow-card);
+}
+.game-detail-page__modes--single {
+  grid-template-columns: minmax(280px, 460px);
+  justify-content: center;
 }
 .game-detail-page__modes--compact {
   grid-template-columns: repeat(4, minmax(0, 1fr));
