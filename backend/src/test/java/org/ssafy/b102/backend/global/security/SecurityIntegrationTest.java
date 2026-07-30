@@ -60,6 +60,8 @@ import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.global.security.jwt.TokenType;
 import org.ssafy.b102.backend.matchmaking.controller.MatchmakingController;
 import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
+import org.ssafy.b102.backend.matchmaking.support.MatchParticipantResolver;
+import org.ssafy.b102.backend.matchmaking.support.ResolvedParticipant;
 import org.ssafy.b102.backend.user.controller.UserController;
 import org.ssafy.b102.backend.user.dto.response.NicknameCheckResponse;
 import org.ssafy.b102.backend.user.dto.response.UserResponse;
@@ -145,6 +147,9 @@ class SecurityIntegrationTest {
 
     @MockitoBean
     private MatchmakingService matchmakingService;
+
+    @MockitoBean
+    private MatchParticipantResolver matchParticipantResolver;
 
     @MockitoBean
     private UserService userService;
@@ -578,6 +583,11 @@ class SecurityIntegrationTest {
     @Test
     void 랜덤_매칭_요청과_취소는_토큰_없이_접근할_수_있다()
         throws Exception {
+
+        when(matchParticipantResolver.resolveForJoin(any(), any()))
+            .thenReturn(ResolvedParticipant.member("USER:1"));
+        when(matchParticipantResolver.resolveExistingKey(any(), any()))
+            .thenReturn("USER:1");
 
         mockMvc.perform(
                 post("/api/v1/match/join")

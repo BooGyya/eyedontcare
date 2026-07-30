@@ -1,5 +1,6 @@
 package org.ssafy.b102.backend.matchmaking.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.UUID;
 import org.ssafy.b102.backend.game.entity.GameName;
@@ -21,7 +22,17 @@ public record MatchStatusResponse(
 	GameName gameType,
 	MatchStatus matchStatus,
 	UUID waitingRoomId,
-	Instant queuedAt
+	Instant queuedAt,
+
+	/**
+	 * 게스트 참가자에게만 내려간다. 프론트가 이후 요청·WebSocket에서 같은 세션을 재사용하도록.
+	 * 회원 응답에는 포함되지 않는다.
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	UUID guestSessionId,
+
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	String guestNickname
 ) {
 
 	public static MatchStatusResponse from(MatchmakingEntry entry) {
@@ -30,7 +41,9 @@ public record MatchStatusResponse(
 			entry.gameType(),
 			entry.matchStatus(),
 			entry.waitingRoomId(),
-			entry.queuedAt()
+			entry.queuedAt(),
+			null,
+			null
 		);
 	}
 
@@ -43,7 +56,24 @@ public record MatchStatusResponse(
 			entry.gameType(),
 			MatchStatus.CANCELLED,
 			null,
-			entry.queuedAt()
+			entry.queuedAt(),
+			null,
+			null
+		);
+	}
+
+	/**
+	 * 게스트 세션 정보를 얹은 사본을 만든다. 회원 응답에는 쓰지 않는다.
+	 */
+	public MatchStatusResponse withGuest(UUID guestSessionId, String guestNickname) {
+		return new MatchStatusResponse(
+			participantKey,
+			gameType,
+			matchStatus,
+			waitingRoomId,
+			queuedAt,
+			guestSessionId,
+			guestNickname
 		);
 	}
 }

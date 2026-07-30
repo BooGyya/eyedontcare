@@ -5,56 +5,77 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.GlobalExceptionHandler;
+import org.ssafy.b102.backend.global.security.AuthenticatedUser;
+import org.ssafy.b102.backend.guest.config.GuestSessionProperties;
+import org.ssafy.b102.backend.guest.entity.GuestSession;
+import org.ssafy.b102.backend.guest.service.GuestSessionService;
 import org.ssafy.b102.backend.matchmaking.dto.response.MatchStatusResponse;
 import org.ssafy.b102.backend.matchmaking.entity.MatchStatus;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
+import org.ssafy.b102.backend.matchmaking.support.MatchParticipantResolver;
 
 class MatchmakingControllerTest {
 
-	private static final String PARTICIPANT_KEY_HEADER = "X-Participant-Key";
-	private static final String REQUESTER_KEY = "USER:1";
+	private static final String GUEST_SESSION_HEADER = "X-Guest-Session-Id";
+	private static final Long MEMBER_USER_ID = 1L;
+	private static final String MEMBER_KEY = "USER:1";
 	private static final String JOIN_PATH = "/api/v1/match/join";
 	private static final String CANCEL_PATH = "/api/v1/match/cancel";
 	private static final String JOIN_BODY = "{\"gameType\":\"EYEFIGHT\"}";
 	private static final Instant QUEUED_AT = Instant.parse("2026-07-29T09:00:00Z");
+	private static final Instant NOW = Instant.parse("2026-07-30T00:00:00Z");
 	private static final UUID ROOM_ID = UUID.fromString("019abcde-1234-4abc-8def-0123456789ab");
+	private static final UUID GUEST_ID = UUID.fromString("019abcde-5678-4abc-8def-0123456789ab");
+	private static final String GUEST_NICKNAME = "용감한수달";
+
+	@AfterEach
+	void clearSecurityContext() {
+		SecurityContextHolder.clearContext();
+	}
+
+	// --- 회원 (JWT) ---
 
 	@Test
-	void joinReturnsQueuedStatus() throws Exception {
-		mockMvc(new StubService(MatchStatus.SEARCHING))
+	void memberJoinReturnsQueuedStatus() throws Exception {
+		authenticateMember();
+
+		mockMvc(new StubService(MatchStatus.SEARCHING), new StubGuestSessionService())
 			.perform(post(JOIN_PATH)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(JOIN_BODY))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("MATCH_QUEUED"))
-			.andExpect(jsonPath("$.message").value("랜덤 매칭이 접수되었습니다."))
-			.andExpect(jsonPath("$.data.participantKey").value(REQUESTER_KEY))
-			.andExpect(jsonPath("$.data.gameType").value("EYEFIGHT"))
+			.andExpect(jsonPath("$.data.participantKey").value(MEMBER_KEY))
 			.andExpect(jsonPath("$.data.matchStatus").value("SEARCHING"))
-			.andExpect(jsonPath("$.data.queuedAt").value("2026-07-29T09:00:00Z"));
+			.andExpect(jsonPath("$.data.queuedAt").value("2026-07-29T09:00:00Z"))
+			.andExpect(jsonPath("$.data.guestSessionId").doesNotExist())
+			.andExpect(jsonPath("$.data.guestNickname").doesNotExist());
 	}
 
-	/**
-	 * 대기자가 있으면 신청 즉시 성사된다. 명세의 응답 필드 설명은 SEARCHING만 적혀 있으나
-	 * 실제 상태를 그대로 반환한다. WebSocket 도입 전까지 클라이언트가 결과를 알 수 있는 유일한 경로다.
-	 */
 	@Test
-	void joinReturnsEnteringRoomWhenMatchedImmediately() throws Exception {
-		mockMvc(new StubService(MatchStatus.ENTERING_ROOM))
+	void memberJoinReturnsEnteringRoomWhenMatchedImmediately() throws Exception {
+		authenticateMember();
+
+		mockMvc(new StubService(MatchStatus.ENTERING_ROOM), new StubGuestSessionService())
 			.perform(post(JOIN_PATH)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(JOIN_BODY))
 			.andExpect(status().isOk())
@@ -63,19 +84,11 @@ class MatchmakingControllerTest {
 	}
 
 	@Test
-	void joinRequiresParticipantKeyHeader() throws Exception {
-		mockMvc(new StubService(MatchStatus.SEARCHING))
-			.perform(post(JOIN_PATH)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(JOIN_BODY))
-			.andExpect(status().isBadRequest());
-	}
-
-	@Test
 	void joinRejectsMissingGameType() throws Exception {
-		mockMvc(new StubService(MatchStatus.SEARCHING))
+		authenticateMember();
+
+		mockMvc(new StubService(MatchStatus.SEARCHING), new StubGuestSessionService())
 			.perform(post(JOIN_PATH)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{}"))
 			.andExpect(status().isBadRequest())
@@ -84,57 +97,95 @@ class MatchmakingControllerTest {
 
 	@Test
 	void joinReturnsBadRequestForUnsupportedGameType() throws Exception {
-		mockMvc(new ThrowingService(MatchmakingErrorCode.INVALID_GAME_TYPE))
+		authenticateMember();
+
+		mockMvc(new ThrowingService(MatchmakingErrorCode.INVALID_GAME_TYPE), new StubGuestSessionService())
 			.perform(post(JOIN_PATH)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"gameType\":\"CHESS\"}"))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("MATCHMAKING-002"))
-			.andExpect(jsonPath("$.message").value("지원하지 않는 게임입니다."));
+			.andExpect(jsonPath("$.code").value("MATCHMAKING-002"));
 	}
 
 	@Test
 	void joinReturnsConflictWhenAlreadyInQueue() throws Exception {
-		mockMvc(new ThrowingService(MatchmakingErrorCode.ALREADY_IN_QUEUE))
+		authenticateMember();
+
+		mockMvc(new ThrowingService(MatchmakingErrorCode.ALREADY_IN_QUEUE), new StubGuestSessionService())
 			.perform(post(JOIN_PATH)
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(JOIN_BODY))
 			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("MATCHMAKING-001"))
-			.andExpect(jsonPath("$.message").value("이미 매칭 대기 중입니다."));
+			.andExpect(jsonPath("$.code").value("MATCHMAKING-001"));
 	}
 
 	@Test
-	void cancelReturnsCancelledStatus() throws Exception {
-		mockMvc(new StubService(MatchStatus.CANCELLED))
-			.perform(delete(CANCEL_PATH).header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
+	void memberCancelReturnsCancelledStatus() throws Exception {
+		authenticateMember();
+
+		mockMvc(new StubService(MatchStatus.CANCELLED), new StubGuestSessionService())
+			.perform(delete(CANCEL_PATH))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("MATCH_CANCELLED"))
-			.andExpect(jsonPath("$.message").value("랜덤 매칭이 취소되었습니다."))
 			.andExpect(jsonPath("$.data.matchStatus").value("CANCELLED"));
 	}
 
+	// --- 게스트 ---
+
 	@Test
-	void cancelReturnsNotFoundWhenNoRequest() throws Exception {
-		mockMvc(new ThrowingService(MatchmakingErrorCode.REQUEST_NOT_FOUND))
-			.perform(delete(CANCEL_PATH).header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
-			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.code").value("MATCHMAKING-003"));
+	void guestJoinWithoutSessionIssuesOneAndReturnsIt() throws Exception {
+		StubGuestSessionService guest = new StubGuestSessionService();
+		guest.willIssue(new GuestSession(GUEST_ID, GUEST_NICKNAME, NOW, NOW.plus(Duration.ofHours(24))));
+
+		mockMvc(new StubService(MatchStatus.SEARCHING), guest)
+			.perform(post(JOIN_PATH)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(JOIN_BODY))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.participantKey").value("GUEST:" + GUEST_ID))
+			.andExpect(jsonPath("$.data.guestSessionId").value(GUEST_ID.toString()))
+			.andExpect(jsonPath("$.data.guestNickname").value(GUEST_NICKNAME));
 	}
 
 	@Test
-	void cancelReturnsConflictWhenAlreadyMatched() throws Exception {
-		mockMvc(new ThrowingService(MatchmakingErrorCode.CANCEL_NOT_ALLOWED))
-			.perform(delete(CANCEL_PATH).header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("MATCHMAKING-004"));
+	void guestJoinWithValidSessionReusesIt() throws Exception {
+		StubGuestSessionService guest = new StubGuestSessionService();
+		guest.hasExisting(new GuestSession(GUEST_ID, GUEST_NICKNAME, NOW, NOW.plus(Duration.ofHours(24))));
+
+		mockMvc(new StubService(MatchStatus.SEARCHING), guest)
+			.perform(post(JOIN_PATH)
+				.header(GUEST_SESSION_HEADER, GUEST_ID.toString())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(JOIN_BODY))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.participantKey").value("GUEST:" + GUEST_ID))
+			.andExpect(jsonPath("$.data.guestSessionId").value(GUEST_ID.toString()));
 	}
 
-	private MockMvc mockMvc(MatchmakingService matchmakingService) {
+	@Test
+	void guestCancelWithoutSessionIdIsRejected() throws Exception {
+		mockMvc(new StubService(MatchStatus.CANCELLED), new StubGuestSessionService())
+			.perform(delete(CANCEL_PATH))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("MATCHMAKING-005"));
+	}
+
+	// --- helpers ---
+
+	private static void authenticateMember() {
+		SecurityContextHolder.getContext().setAuthentication(
+			new UsernamePasswordAuthenticationToken(
+				new AuthenticatedUser(MEMBER_USER_ID),
+				null,
+				List.of()
+			)
+		);
+	}
+
+	private MockMvc mockMvc(MatchmakingService service, GuestSessionService guestSessionService) {
 		return MockMvcBuilders
-			.standaloneSetup(new MatchmakingController(matchmakingService))
+			.standaloneSetup(new MatchmakingController(service, new MatchParticipantResolver(guestSessionService)))
+			.setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
 			.setValidator(validator())
 			.setControllerAdvice(new GlobalExceptionHandler())
 			.build();
@@ -163,7 +214,9 @@ class MatchmakingControllerTest {
 				GameName.EYEFIGHT,
 				matchStatus,
 				matchStatus == MatchStatus.SEARCHING ? null : ROOM_ID,
-				QUEUED_AT
+				QUEUED_AT,
+				null,
+				null
 			);
 		}
 
@@ -174,7 +227,9 @@ class MatchmakingControllerTest {
 				GameName.EYEFIGHT,
 				MatchStatus.CANCELLED,
 				null,
-				QUEUED_AT
+				QUEUED_AT,
+				null,
+				null
 			);
 		}
 	}
@@ -196,6 +251,34 @@ class MatchmakingControllerTest {
 		@Override
 		public MatchStatusResponse cancel(String participantKey) {
 			throw new BusinessException(errorCode);
+		}
+	}
+
+	private static final class StubGuestSessionService extends GuestSessionService {
+
+		private GuestSession existing;
+		private GuestSession toIssue;
+
+		private StubGuestSessionService() {
+			super(null, null, new GuestSessionProperties(Duration.ofHours(24)));
+		}
+
+		void hasExisting(GuestSession session) {
+			this.existing = session;
+		}
+
+		void willIssue(GuestSession session) {
+			this.toIssue = session;
+		}
+
+		@Override
+		public Optional<GuestSession> findById(UUID guestSessionId) {
+			return Optional.ofNullable(existing);
+		}
+
+		@Override
+		public GuestSession issue() {
+			return toIssue;
 		}
 	}
 }
