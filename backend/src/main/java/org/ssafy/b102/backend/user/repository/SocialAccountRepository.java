@@ -26,6 +26,15 @@ public interface SocialAccountRepository
         String providerUserId
     );
 
+    @Query("""
+        select socialAccount.provider
+        from SocialAccount socialAccount
+        where socialAccount.user.id = :userId
+        """)
+    Optional<SocialProvider> findProviderByUserId(
+        @Param("userId") Long userId
+    );
+
     @Modifying
     @Query("""
         delete from SocialAccount socialAccount
