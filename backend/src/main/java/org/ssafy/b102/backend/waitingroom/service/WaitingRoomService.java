@@ -13,7 +13,9 @@ import org.ssafy.b102.backend.global.error.CommonErrorCode;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.waitingroom.config.WaitingRoomProperties;
 import org.ssafy.b102.backend.waitingroom.dto.request.WaitingRoomCreateRequest;
+import org.ssafy.b102.backend.waitingroom.dto.request.WaitingRoomJoinRequest;
 import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomCreateResponse;
+import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomJoinResponse;
 import org.ssafy.b102.backend.waitingroom.entity.CalibrationStatus;
 import org.ssafy.b102.backend.waitingroom.entity.RoomRole;
 import org.ssafy.b102.backend.waitingroom.entity.RoomStatus;
@@ -23,6 +25,8 @@ import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.CreateInviteRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.CreateInviteRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomCommand;
+import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomStore;
 import org.ssafy.b102.backend.waitingroom.support.InviteCodeGenerator;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
@@ -124,6 +128,54 @@ public class WaitingRoomService {
 		}
 
 		throw new BusinessException(WaitingRoomErrorCode.INVITE_CODE_GENERATION_FAILED);
+	}
+
+	public WaitingRoomJoinResponse joinInviteRoom(
+		AuthenticatedUser member,
+		UUID guestSessionId,
+		WaitingRoomJoinRequest request
+	) {
+		if (request.hasUnknownFields()) {
+			throw new BusinessException(CommonErrorCode.MALFORMED_JSON);
+		}
+
+		UUID roomId = waitingRoomStore.findRoomIdByInviteCode(request.getRoomCode())
+			.orElseThrow(() ->
+				new BusinessException(WaitingRoomErrorCode.INVALID_INVITE_CODE));
+		ResolvedWaitingRoomParticipant identity =
+			participantResolver.resolve(member, guestSessionId);
+		JoinInviteRoomResult result = waitingRoomStore.joinInviteRoomAtomically(
+			new JoinInviteRoomCommand(
+				roomId,
+				request.getRoomCode(),
+				identity.participantKey(),
+				identity.displayName(),
+				clock.instant(),
+				properties.maxParticipants(),
+				properties.activeTtl()
+			)
+		);
+
+		return switch (result.status()) {
+			case JOINED -> {
+				if (result.snapshot() == null) {
+					throw new BusinessException(
+						WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+					);
+				}
+				yield WaitingRoomJoinResponse.of(result.snapshot(), identity);
+			}
+			case INVALID_INVITE_CODE ->
+				throw new BusinessException(WaitingRoomErrorCode.INVALID_INVITE_CODE);
+			case NOT_JOINABLE ->
+				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE);
+			case ALREADY_JOINED ->
+				throw new BusinessException(WaitingRoomErrorCode.PARTICIPANT_ALREADY_JOINED);
+			case FULL ->
+				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_FULL);
+			case CORRUPTED ->
+				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
+		};
 	}
 
 	private GameName parseGameName(String rawGameName) {

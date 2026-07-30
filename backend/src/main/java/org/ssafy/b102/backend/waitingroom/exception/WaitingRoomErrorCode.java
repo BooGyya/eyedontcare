@@ -15,6 +15,26 @@ public enum WaitingRoomErrorCode implements ErrorCode {
 		HttpStatus.SERVICE_UNAVAILABLE,
 		"WAITING-003",
 		"대기방을 생성할 수 없습니다."
+	),
+	INVALID_INVITE_CODE(
+		HttpStatus.NOT_FOUND,
+		"WAITING-004",
+		"유효하지 않은 초대 코드입니다."
+	),
+	WAITING_ROOM_FULL(
+		HttpStatus.CONFLICT,
+		"WAITING-005",
+		"대기방 정원이 가득 찼습니다."
+	),
+	PARTICIPANT_ALREADY_JOINED(
+		HttpStatus.CONFLICT,
+		"WAITING-006",
+		"이미 참여 중인 대기방입니다."
+	),
+	WAITING_ROOM_NOT_JOINABLE(
+		HttpStatus.CONFLICT,
+		"WAITING-007",
+		"현재 입장할 수 없는 대기방입니다."
 	);
 
 	private final HttpStatus status;

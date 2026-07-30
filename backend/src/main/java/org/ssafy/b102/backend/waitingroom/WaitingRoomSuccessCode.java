@@ -7,6 +7,10 @@ public enum WaitingRoomSuccessCode implements SuccessCode {
 	WAITING_ROOM_CREATE_SUCCESS(
 		"WAITING_ROOM_CREATE_SUCCESS",
 		"초대방 생성이 완료되었습니다."
+	),
+	WAITING_ROOM_JOIN_SUCCESS(
+		"WAITING_ROOM_JOIN_SUCCESS",
+		"초대방 입장이 완료되었습니다."
 	);
 
 	private final String code;

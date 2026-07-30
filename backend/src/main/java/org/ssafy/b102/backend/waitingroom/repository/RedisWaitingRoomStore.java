@@ -1,6 +1,8 @@
 package org.ssafy.b102.backend.waitingroom.repository;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -8,9 +10,14 @@ import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Repository;
 import org.ssafy.b102.backend.global.common.redis.RedisKeyBuilder;
 import org.ssafy.b102.backend.global.error.BusinessException;
+import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.waitingroom.entity.RoomStatus;
+import org.ssafy.b102.backend.waitingroom.entity.RoomType;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoom;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
+import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomResult.Status;
+import org.ssafy.b102.backend.waitingroom.repository.model.StoredParticipant;
 import tools.jackson.databind.json.JsonMapper;
 
 @Repository
@@ -24,6 +31,9 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	);
 	private static final DefaultRedisScript<Long> CLEANUP_SCRIPT = script(
 		"redis/waiting-room/cleanup-failed-create.lua"
+	);
+	private static final DefaultRedisScript<String> JOIN_SCRIPT = stringScript(
+		"redis/waiting-room/join-invite-room.lua"
 	);
 
 	private final StringRedisTemplate redisTemplate;
@@ -79,13 +89,96 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		}
 	}
 
-	private List<String> keys(WaitingRoom room) {
-		String roomId = room.roomId().toString();
-		return List.of(
-			redisKeyBuilder.build(DOMAIN, "room", roomId),
-			redisKeyBuilder.build(DOMAIN, "participants", roomId),
-			redisKeyBuilder.build(DOMAIN, "invite-code", room.roomCode())
+	@Override
+	public Optional<UUID> findRoomIdByInviteCode(String roomCode) {
+		try {
+			String roomId = redisTemplate.opsForValue().get(inviteCodeKey(roomCode));
+			if (roomId == null) {
+				return Optional.empty();
+			}
+			return Optional.of(UUID.fromString(roomId));
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public JoinInviteRoomResult joinInviteRoomAtomically(JoinInviteRoomCommand command) {
+		List<String> keys = List.of(
+			inviteCodeKey(command.roomCode()),
+			roomKey(command.roomId()),
+			participantsKey(command.roomId())
 		);
+
+		try {
+			String participantJson = jsonMapper.writeValueAsString(
+				StoredParticipant.joining(command.displayName(), command.joinedAt())
+			);
+			String rawResult = redisTemplate.execute(
+				JOIN_SCRIPT,
+				keys,
+				command.roomId().toString(),
+				command.participantKey(),
+				participantJson,
+				command.roomCode(),
+				Integer.toString(command.maxParticipants()),
+				Long.toString(command.ttl().toMillis())
+			);
+			if (rawResult == null) {
+				throw storeUnavailable();
+			}
+
+			return toJoinResult(jsonMapper.readValue(rawResult, JoinScriptResponse.class));
+		} catch (BusinessException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	private List<String> keys(WaitingRoom room) {
+		return List.of(
+			roomKey(room.roomId()),
+			participantsKey(room.roomId()),
+			inviteCodeKey(room.roomCode())
+		);
+	}
+
+	private JoinInviteRoomResult toJoinResult(JoinScriptResponse response) {
+		Status status = Status.valueOf(response.status());
+		if (status != Status.JOINED) {
+			return JoinInviteRoomResult.of(status);
+		}
+		if (response.room() == null || response.participants() == null) {
+			throw storeUnavailable();
+		}
+
+		StoredRoom storedRoom = response.room();
+		WaitingRoom room = new WaitingRoom(
+			UUID.fromString(storedRoom.roomId()),
+			RoomType.valueOf(storedRoom.roomType()),
+			GameName.valueOf(storedRoom.gameName()),
+			storedRoom.roomCode(),
+			RoomStatus.valueOf(storedRoom.roomStatus()),
+			storedRoom.createdAt()
+		);
+		List<WaitingRoomParticipant> participants = response.participants().stream()
+			.map(stored -> stored.participant().toParticipant(stored.participantKey()))
+			.toList();
+
+		return JoinInviteRoomResult.joined(new WaitingRoomSnapshot(room, participants));
+	}
+
+	private String roomKey(UUID roomId) {
+		return redisKeyBuilder.build(DOMAIN, "room", roomId.toString());
+	}
+
+	private String participantsKey(UUID roomId) {
+		return redisKeyBuilder.build(DOMAIN, "participants", roomId.toString());
+	}
+
+	private String inviteCodeKey(String roomCode) {
+		return redisKeyBuilder.build(DOMAIN, "invite-code", roomCode);
 	}
 
 	private void cleanup(List<String> keys, String roomId) {
@@ -103,28 +196,37 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		return script;
 	}
 
+	private static DefaultRedisScript<String> stringScript(String path) {
+		DefaultRedisScript<String> script = new DefaultRedisScript<>();
+		script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
+		script.setResultType(String.class);
+		return script;
+	}
+
 	private static BusinessException storeUnavailable() {
 		return new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
 	}
 
-	record StoredParticipant(
-		String displayName,
-		String roomRole,
-		int slotNo,
-		boolean isReady,
-		String calibrationStatus,
-		java.time.Instant joinedAt
+	record JoinScriptResponse(
+		String status,
+		StoredRoom room,
+		List<StoredParticipantEntry> participants
 	) {
+	}
 
-		static StoredParticipant from(WaitingRoomParticipant participant) {
-			return new StoredParticipant(
-				participant.displayName(),
-				participant.roomRole().name(),
-				participant.slotNo(),
-				participant.isReady(),
-				participant.calibrationStatus().name(),
-				participant.joinedAt()
-			);
-		}
+	record StoredRoom(
+		String roomId,
+		String roomType,
+		String gameName,
+		String roomCode,
+		String roomStatus,
+		java.time.Instant createdAt
+	) {
+	}
+
+	record StoredParticipantEntry(
+		String participantKey,
+		StoredParticipant participant
+	) {
 	}
 }
