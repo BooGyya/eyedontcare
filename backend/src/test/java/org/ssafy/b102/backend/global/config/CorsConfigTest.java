@@ -60,6 +60,20 @@ class CorsConfigTest {
 			.andExpect(header().string("Access-Control-Allow-Methods", containsString("GET")));
 	}
 
+	/**
+	 * 게스트는 회원 JWT 대신 {@code X-Guest-Session-Id} 헤더로 신원을 밝힌다.
+	 * 이 헤더가 preflight에서 허용되지 않으면 브라우저 게스트 요청이 막힌다.
+	 */
+	@Test
+	void preflightAllowsGuestSessionHeader() throws Exception {
+		mockMvc.perform(options("/api/ping")
+				.header("Origin", ALLOWED_ORIGIN)
+				.header("Access-Control-Request-Method", "POST")
+				.header("Access-Control-Request-Headers", "X-Guest-Session-Id"))
+			.andExpect(status().isOk())
+			.andExpect(header().string("Access-Control-Allow-Headers", containsString("X-Guest-Session-Id")));
+	}
+
 	@Test
 	void preflightFromDisallowedOriginIsRejected() throws Exception {
 		mockMvc.perform(options("/api/ping")

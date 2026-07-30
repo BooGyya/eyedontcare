@@ -22,7 +22,7 @@ public class CorsConfig {
 	private static final String[] ALLOWED_HEADERS = {
 		"Authorization",
 		"Content-Type",
-		"X-Participant-Key"
+		"X-Guest-Session-Id"
 	};
 
 	private final String[] allowedOrigins;
