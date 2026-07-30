@@ -2,6 +2,8 @@ package org.ssafy.b102.backend.waitingroom.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomMetadata;
+import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomStore;
 import org.ssafy.b102.backend.waitingroom.support.InviteCodeGenerator;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
@@ -193,8 +196,53 @@ public class WaitingRoomService {
 		leaveByParticipantKey(roomId, identity.participantKey(), metadata);
 	}
 
-	public void leaveByParticipantKey(UUID roomId, String participantKey) {
-		leaveByParticipantKey(roomId, participantKey, findRoomMetadata(roomId));
+	public LeaveWaitingRoomResult leaveByParticipantKey(
+		UUID roomId,
+		String participantKey
+	) {
+		return leaveByParticipantKey(
+			roomId,
+			participantKey,
+			findRoomMetadata(roomId)
+		);
+	}
+
+	public WaitingRoomSnapshot findSnapshot(UUID roomId) {
+		WaitingRoomSnapshot snapshot = waitingRoomStore.findSnapshot(roomId)
+			.orElseThrow(() ->
+				new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND));
+		validateSnapshot(snapshot);
+		return snapshot;
+	}
+
+	private void validateSnapshot(WaitingRoomSnapshot snapshot) {
+		if (
+			snapshot.room().roomType() != RoomType.INVITE ||
+			snapshot.room().roomCode().length() != 4 ||
+			!snapshot.room().roomCode().chars().allMatch(Character::isDigit) ||
+			snapshot.participants().isEmpty()
+		) {
+			throw new BusinessException(
+				WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+			);
+		}
+
+		Set<String> participantKeys = new HashSet<>();
+		Set<Integer> slots = new HashSet<>();
+		for (WaitingRoomParticipant participant : snapshot.participants()) {
+			if (
+				participant.participantKey().isBlank() ||
+				participant.displayName().isBlank() ||
+				participant.slotNo() < 1 ||
+				participant.slotNo() > properties.maxParticipants() ||
+				!participantKeys.add(participant.participantKey()) ||
+				!slots.add(participant.slotNo())
+			) {
+				throw new BusinessException(
+					WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+				);
+			}
+		}
 	}
 
 	private WaitingRoomMetadata findRoomMetadata(UUID roomId) {
@@ -203,7 +251,7 @@ public class WaitingRoomService {
 				new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND));
 	}
 
-	private void leaveByParticipantKey(
+	private LeaveWaitingRoomResult leaveByParticipantKey(
 		UUID roomId,
 		String participantKey,
 		WaitingRoomMetadata metadata
@@ -221,7 +269,7 @@ public class WaitingRoomService {
 
 		switch (result) {
 			case LEFT, ROOM_CLOSED, ALREADY_CLOSED -> {
-				return;
+				return result;
 			}
 			case ROOM_NOT_FOUND ->
 				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND);
@@ -230,6 +278,7 @@ public class WaitingRoomService {
 			case CORRUPTED ->
 				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
 		}
+		throw new IllegalStateException("Unreachable leave result");
 	}
 
 	private GameName parseGameName(String rawGameName) {

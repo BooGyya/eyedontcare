@@ -39,6 +39,9 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	private static final DefaultRedisScript<String> LEAVE_SCRIPT = stringScript(
 		"redis/waiting-room/leave-waiting-room.lua"
 	);
+	private static final DefaultRedisScript<String> READ_SCRIPT = stringScript(
+		"redis/waiting-room/read-waiting-room.lua"
+	);
 
 	private final StringRedisTemplate redisTemplate;
 	private final RedisKeyBuilder redisKeyBuilder;
@@ -171,6 +174,36 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	}
 
 	@Override
+	public Optional<WaitingRoomSnapshot> findSnapshot(UUID roomId) {
+		try {
+			String rawResult = redisTemplate.execute(
+				READ_SCRIPT,
+				List.of(roomKey(roomId), participantsKey(roomId)),
+				roomId.toString()
+			);
+			if (rawResult == null) {
+				throw storeUnavailable();
+			}
+
+			SnapshotScriptResponse response =
+				jsonMapper.readValue(rawResult, SnapshotScriptResponse.class);
+			if (response == null || response.status() == null) {
+				throw storeUnavailable();
+			}
+			return switch (response.status()) {
+				case "ROOM_NOT_FOUND" -> Optional.empty();
+				case "CORRUPTED" -> throw storeUnavailable();
+				case "FOUND" -> Optional.of(toSnapshot(response));
+				default -> throw storeUnavailable();
+			};
+		} catch (BusinessException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
 	public LeaveWaitingRoomResult leaveAtomically(LeaveWaitingRoomCommand command) {
 		List<String> keys = List.of(
 			roomKey(command.roomId()),
@@ -217,7 +250,22 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 			throw storeUnavailable();
 		}
 
-		StoredRoom storedRoom = response.room();
+		return JoinInviteRoomResult.joined(
+			toSnapshot(response.room(), response.participants())
+		);
+	}
+
+	private WaitingRoomSnapshot toSnapshot(SnapshotScriptResponse response) {
+		if (response.room() == null || response.participants() == null) {
+			throw storeUnavailable();
+		}
+		return toSnapshot(response.room(), response.participants());
+	}
+
+	private WaitingRoomSnapshot toSnapshot(
+		StoredRoom storedRoom,
+		List<StoredParticipantEntry> storedParticipants
+	) {
 		WaitingRoom room = new WaitingRoom(
 			UUID.fromString(storedRoom.roomId()),
 			RoomType.valueOf(storedRoom.roomType()),
@@ -226,11 +274,11 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 			RoomStatus.valueOf(storedRoom.roomStatus()),
 			storedRoom.createdAt()
 		);
-		List<WaitingRoomParticipant> participants = response.participants().stream()
+		List<WaitingRoomParticipant> participants = storedParticipants.stream()
 			.map(stored -> stored.participant().toParticipant(stored.participantKey()))
 			.toList();
 
-		return JoinInviteRoomResult.joined(new WaitingRoomSnapshot(room, participants));
+		return new WaitingRoomSnapshot(room, participants);
 	}
 
 	private String roomKey(UUID roomId) {
@@ -280,6 +328,13 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	}
 
 	record JoinScriptResponse(
+		String status,
+		StoredRoom room,
+		List<StoredParticipantEntry> participants
+	) {
+	}
+
+	record SnapshotScriptResponse(
 		String status,
 		StoredRoom room,
 		List<StoredParticipantEntry> participants

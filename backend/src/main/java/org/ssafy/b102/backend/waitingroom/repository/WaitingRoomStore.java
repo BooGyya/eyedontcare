@@ -13,5 +13,7 @@ public interface WaitingRoomStore {
 
 	Optional<WaitingRoomMetadata> findRoomMetadata(UUID roomId);
 
+	Optional<WaitingRoomSnapshot> findSnapshot(UUID roomId);
+
 	LeaveWaitingRoomResult leaveAtomically(LeaveWaitingRoomCommand command);
 }

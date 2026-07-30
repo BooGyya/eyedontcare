@@ -10,6 +10,10 @@ app:
     closed-ttl: PT30S
     max-participants: 2
     invite-code-max-attempts: 20
+    websocket:
+      auth-timeout: PT5S
+      send-time-limit: PT5S
+      buffer-size-limit: 65536
 
 spring:
   application:

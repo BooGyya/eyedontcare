@@ -139,6 +139,59 @@ class RedisWaitingRoomStoreIntegrationTest {
 	}
 
 	@Test
+	void readsCompleteSnapshotWithoutRenewingTtl() {
+		setupFullRoom();
+		redisTemplate.expire(ROOM_KEY, Duration.ofMinutes(5));
+		redisTemplate.expire(PARTICIPANTS_KEY, Duration.ofMinutes(5));
+		Long roomTtlBefore = redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS);
+		Long participantsTtlBefore =
+			redisTemplate.getExpire(PARTICIPANTS_KEY, TimeUnit.SECONDS);
+
+		WaitingRoomSnapshot snapshot = store.findSnapshot(ROOM_ID).orElseThrow();
+
+		assertThat(snapshot.room().roomId()).isEqualTo(ROOM_ID);
+		assertThat(snapshot.room().roomStatus()).isEqualTo(RoomStatus.WAITING);
+		assertThat(snapshot.participants())
+			.extracting(WaitingRoomParticipant::participantKey)
+			.containsExactlyInAnyOrder("USER:1", "GUEST:one");
+		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS))
+			.isBetween(roomTtlBefore - 1, roomTtlBefore);
+		assertThat(redisTemplate.getExpire(PARTICIPANTS_KEY, TimeUnit.SECONDS))
+			.isBetween(participantsTtlBefore - 1, participantsTtlBefore);
+	}
+
+	@Test
+	void missingSnapshotReturnsEmptyAndCorruptedSnapshotFails() {
+		assertThat(store.findSnapshot(ROOM_ID)).isEmpty();
+
+		store.createInviteRoomAtomically(command());
+		redisTemplate.delete(PARTICIPANTS_KEY);
+
+		assertThatThrownBy(() -> store.findSnapshot(ROOM_ID))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(
+						WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+					));
+	}
+
+	@Test
+	void malformedSnapshotParticipantFailsWithoutChangingTtl() {
+		store.createInviteRoomAtomically(command());
+		redisTemplate.opsForHash().put(
+			PARTICIPANTS_KEY,
+			"USER:1",
+			"not-json"
+		);
+		Long roomTtlBefore = redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS);
+
+		assertThatThrownBy(() -> store.findSnapshot(ROOM_ID))
+			.isInstanceOf(BusinessException.class);
+		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS))
+			.isBetween(roomTtlBefore - 1, roomTtlBefore);
+	}
+
+	@Test
 	void duplicateAndFullFailuresDoNotChangeParticipantsOrRenewTtl() {
 		store.createInviteRoomAtomically(command());
 		store.joinInviteRoomAtomically(joinCommand("GUEST:one"));
