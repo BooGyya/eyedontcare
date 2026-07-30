@@ -67,4 +67,18 @@ class InMemoryMatchSessionRegistryTest {
 
 		assertThat(registry.find(PARTICIPANT_KEY)).hasValue(newSession);
 	}
+
+	/**
+	 * 옛 세션 종료는 키를 돌려주지 않는다. 그래야 옛 세션의 close가 새 세션의 매칭을 취소하지 않는다.
+	 */
+	@Test
+	void oldSessionUnregisterReturnsEmptyAfterReconnect() {
+		StubWebSocketSession oldSession = new StubWebSocketSession("old");
+		StubWebSocketSession newSession = new StubWebSocketSession("new");
+		registry.register(PARTICIPANT_KEY, oldSession);
+		registry.register(PARTICIPANT_KEY, newSession);
+
+		assertThat(registry.unregister(oldSession)).isEmpty();
+		assertThat(registry.unregister(newSession)).hasValue(PARTICIPANT_KEY);
+	}
 }

@@ -15,6 +15,9 @@ import org.ssafy.b102.backend.global.config.RedisConfig;
 import org.ssafy.b102.backend.matchmaking.dto.response.MatchStatusResponse;
 import org.ssafy.b102.backend.matchmaking.entity.MatchStatus;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.ssafy.b102.backend.guest.service.GuestSessionService;
+import org.ssafy.b102.backend.user.repository.UserRepository;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
 import org.ssafy.b102.testfixture.websocket.RecordingMatchNotifier;
 
@@ -50,6 +53,12 @@ class MatchmakingWithoutRoomCreatorTest {
 
 	@Autowired
 	private RedisKeyBuilder redisKeyBuilder;
+
+	@MockitoBean
+	private UserRepository userRepository;
+
+	@MockitoBean
+	private GuestSessionService guestSessionService;
 
 	@BeforeEach
 	void setUp() {

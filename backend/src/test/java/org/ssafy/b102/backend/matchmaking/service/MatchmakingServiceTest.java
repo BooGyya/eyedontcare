@@ -2,6 +2,9 @@ package org.ssafy.b102.backend.matchmaking.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
@@ -23,6 +26,9 @@ import org.ssafy.b102.backend.matchmaking.dto.response.MatchStatusResponse;
 import org.ssafy.b102.backend.matchmaking.entity.MatchStatus;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.ssafy.b102.backend.guest.service.GuestSessionService;
+import org.ssafy.b102.backend.user.repository.UserRepository;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
 import org.ssafy.b102.testfixture.websocket.RecordingMatchNotifier;
 
@@ -60,10 +66,18 @@ class MatchmakingServiceTest {
 	@Autowired
 	private RedisKeyBuilder redisKeyBuilder;
 
+	@MockitoBean
+	private UserRepository userRepository;
+
+	@MockitoBean
+	private GuestSessionService guestSessionService;
+
 	@BeforeEach
 	void setUp() {
 		roomCreator.succeedAlways();
 		matchNotifier.clear();
+		when(userRepository.existsByIdAndDeletedAtIsNull(anyLong())).thenReturn(true);
+		when(guestSessionService.exists(any())).thenReturn(true);
 		List.of(REQUESTER_KEY, OPPONENT_KEY, THIRD_KEY)
 			.forEach(matchmakingEntryRepository::delete);
 		stringRedisTemplate.delete(queueKey(GAME_TYPE));
@@ -177,12 +191,12 @@ class MatchmakingServiceTest {
 	}
 
 	/**
-	 * 기능 정의서: 방 생성에 실패하면 선점을 해제하고 두 참가자의 기존 queued_at을 유지한다.
+	 * 협업 계약: 방 생성에 실패하면 예약을 풀고 유효한 참가자를 현재 시각 기준으로 다시 등록한다.
+	 * 기존 대기 순서는 승계하지 않는다(예약 흔적 {@code matchAttemptId}가 지워진다).
 	 */
 	@Test
 	void joinRestoresQueueWhenRoomCreationFails() {
 		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
-		Instant firstQueuedAt = matchmakingEntryRepository.find(REQUESTER_KEY).orElseThrow().queuedAt();
 		roomCreator.failAlways();
 
 		MatchStatusResponse response = matchmakingService.join(OPPONENT_KEY, GAME_TYPE);
@@ -193,33 +207,46 @@ class MatchmakingServiceTest {
 			.get()
 			.satisfies(entry -> {
 				assertThat(entry.matchStatus()).isEqualTo(MatchStatus.SEARCHING);
-				assertThat(entry.queuedAt()).isEqualTo(firstQueuedAt);
+				assertThat(entry.matchAttemptId()).isNull();
 			});
-		assertThat(stringRedisTemplate.opsForZSet().score(queueKey(GAME_TYPE), REQUESTER_KEY))
-			.isEqualTo((double) firstQueuedAt.toEpochMilli());
 	}
 
 	/**
-	 * 큐에서 두 명을 꺼낸 뒤 대기방 생성이 예외로 실패해도 선점을 해제해야 한다.
-	 *
-	 * <p>큐를 조작한 것은 matchmaking이므로 되돌릴 책임도 matchmaking에 있다.
-	 * 되돌리지 못하면 두 참가자는 큐에서 사라진 채 SEARCHING으로 남아 TTL까지 매칭되지 않는다.
+	 * 대기방 생성이 예외로 실패해도 동일하게 보상한다(현재 시각 재등록).
 	 */
 	@Test
 	void joinRestoresQueueWhenRoomCreationThrows() {
 		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
-		Instant firstQueuedAt = matchmakingEntryRepository.find(REQUESTER_KEY).orElseThrow().queuedAt();
 		roomCreator.throwAlways();
 
 		MatchStatusResponse response = matchmakingService.join(OPPONENT_KEY, GAME_TYPE);
 
 		assertThat(response.matchStatus()).isEqualTo(MatchStatus.SEARCHING);
 		assertThat(stringRedisTemplate.opsForZSet().size(queueKey(GAME_TYPE))).isEqualTo(2L);
-		assertThat(stringRedisTemplate.opsForZSet().score(queueKey(GAME_TYPE), REQUESTER_KEY))
-			.isEqualTo((double) firstQueuedAt.toEpochMilli());
+		assertThat(matchmakingEntryRepository.find(REQUESTER_KEY))
+			.get()
+			.satisfies(entry -> {
+				assertThat(entry.matchStatus()).isEqualTo(MatchStatus.SEARCHING);
+				assertThat(entry.matchAttemptId()).isNull();
+			});
+	}
+
+	/**
+	 * 보상 시 무효한 참가자(탈퇴 회원 등)는 재등록하지 않고 정리한다.
+	 */
+	@Test
+	void joinDropsInvalidParticipantOnRoomFailure() {
+		when(userRepository.existsByIdAndDeletedAtIsNull(2L)).thenReturn(false);
+		matchmakingService.join(REQUESTER_KEY, GAME_TYPE);
+		roomCreator.failAlways();
+
+		matchmakingService.join(OPPONENT_KEY, GAME_TYPE);
+
 		assertThat(matchmakingEntryRepository.find(REQUESTER_KEY))
 			.get()
 			.satisfies(entry -> assertThat(entry.matchStatus()).isEqualTo(MatchStatus.SEARCHING));
+		assertThat(matchmakingEntryRepository.find(OPPONENT_KEY)).isEmpty();
+		assertThat(stringRedisTemplate.opsForZSet().size(queueKey(GAME_TYPE))).isEqualTo(1L);
 	}
 
 	/**

@@ -11,7 +11,8 @@ import org.springframework.web.socket.WebSocketSession;
  *
  * <p>참가자 키를 세션 속성에 심어두어, 연결 종료 시 세션만으로 키를 역추적한다.
  * 재연결로 같은 키가 새 세션에 매핑되면 옛 세션이 뒤늦게 닫혀도 새 세션을 지우지 않도록,
- * 값이 일치할 때만 제거한다.
+ * 값이 일치할 때만 제거한다. 실제로 제거한 경우에만 키를 돌려줘, 옛 세션의 종료가 새 세션의
+ * 매칭을 취소시키는 경쟁을 막는다.
  */
 @Component
 public class InMemoryMatchSessionRegistry implements MatchSessionRegistry {
@@ -38,8 +39,8 @@ public class InMemoryMatchSessionRegistry implements MatchSessionRegistry {
 			return Optional.empty();
 		}
 
-		sessionsByKey.remove(key, session);
+		boolean removed = sessionsByKey.remove(key, session);
 
-		return Optional.of(key);
+		return removed ? Optional.of(key) : Optional.empty();
 	}
 }

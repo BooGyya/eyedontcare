@@ -8,6 +8,14 @@ public enum MatchStatus {
 	SEARCHING,
 
 	/**
+	 * 두 참가자가 매칭 대상으로 예약된 상태. 같은 {@code matchAttemptId}로 묶여 방 생성을 기다린다.
+	 *
+	 * <p>취소·중복 매칭 경쟁을 막기 위한 중간 상태다. 방 생성이 성공하면 {@code ENTERING_ROOM},
+	 * 실패하면 현재 시각 기준으로 다시 {@code SEARCHING}으로 되돌린다.
+	 */
+	MATCHING,
+
+	/**
 	 * 매칭이 성사되어 대기방으로 이동하는 중.
 	 */
 	ENTERING_ROOM,

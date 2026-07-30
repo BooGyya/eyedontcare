@@ -44,6 +44,7 @@ public class MatchmakingEntryRepository {
 	private static final String FIELD_WAITING_ROOM_ID = "waitingRoomId";
 	private static final String FIELD_QUEUED_AT = "queuedAt";
 	private static final String FIELD_STATUS_CHANGED_AT = "statusChangedAt";
+	private static final String FIELD_MATCH_ATTEMPT_ID = "matchAttemptId";
 
 	private static final Set<String> REQUIRED_FIELDS = Set.of(
 		FIELD_PARTICIPANT_KEY,
@@ -176,6 +177,135 @@ public class MatchmakingEntryRepository {
 			.add(queueKey(entry.gameType()), entry.participantKey(), entry.queueScore());
 	}
 
+	/**
+	 * 대기 순서가 빠른 참가자 {@code count}명을 하나의 {@code matchAttemptId}로 예약한다({@code MATCHING}).
+	 *
+	 * <p>{@code count}명을 채우지 못하면 꺼낸 참가자를 원래 순서로 되돌리고 빈 목록을 반환한다.
+	 * 채우면 각 entry를 {@code MATCHING}으로 저장하고 예약된 목록을 반환한다. 예약된 참가자는
+	 * 큐에서 빠져 있어 다른 매칭 시도가 다시 선점할 수 없다.
+	 *
+	 * @return 정확히 {@code count}명을 예약하면 그 목록, 아니면 빈 목록
+	 */
+	public List<MatchmakingEntry> reserveCandidates(GameName gameType, UUID matchAttemptId, int count) {
+		List<MatchmakingEntry> candidates = popCandidates(gameType, count);
+		if (candidates.size() < count) {
+			candidates.forEach(this::requeue);
+			return List.of();
+		}
+
+		Instant now = Instant.now();
+		List<MatchmakingEntry> reserved = candidates.stream()
+			.map(candidate -> candidate.reserve(matchAttemptId, now))
+			.toList();
+		reserved.forEach(this::save);
+
+		return reserved;
+	}
+
+	/**
+	 * 예약된 참가자를 {@code ENTERING_ROOM}으로 확정한다.
+	 *
+	 * <p>먼저 모든 참가자가 여전히 같은 {@code matchAttemptId}로 예약돼 있는지 재확인한다.
+	 * 한 명이라도 취소·변경됐으면 아무것도 바꾸지 않고 {@code false}를 반환한다(부분 확정 방지).
+	 *
+	 * @return 모두 확정하면 {@code true}, 아니면 {@code false}
+	 */
+	public boolean finalizeToRoom(
+		List<MatchmakingEntry> reserved,
+		UUID matchAttemptId,
+		UUID waitingRoomId
+	) {
+		List<MatchmakingEntry> current = new ArrayList<>(reserved.size());
+		for (MatchmakingEntry entry : reserved) {
+			Optional<MatchmakingEntry> found = find(entry.participantKey());
+			if (found.isEmpty() || !found.get().isReservedBy(matchAttemptId)) {
+				return false;
+			}
+			current.add(found.get());
+		}
+
+		Instant now = Instant.now();
+		current.forEach(entry -> save(entry.enterRoom(waitingRoomId, now)));
+
+		return true;
+	}
+
+	/**
+	 * 방 생성 실패 등의 보상. 예약된 참가자를 현재 시각 기준으로 다시 {@code SEARCHING} 등록한다.
+	 *
+	 * <p>기존 대기 순서를 승계하지 않는다({@code queuedAt}·score 모두 현재 시각). stale 콜백이
+	 * 새 매칭 entry를 건드리지 못하도록, 여전히 같은 {@code matchAttemptId}로 예약된 경우에만 되돌린다.
+	 * 참가자(USER·GUEST) 유효성 재검증은 서비스 계층 책임이다.
+	 *
+	 * @return 되돌렸으면 {@code true}, stale이라 건드리지 않았으면 {@code false}
+	 */
+	public boolean reregisterAtCurrentTime(MatchmakingEntry reserved, UUID matchAttemptId) {
+		Optional<MatchmakingEntry> found = find(reserved.participantKey());
+		if (found.isEmpty() || !found.get().isReservedBy(matchAttemptId)) {
+			return false;
+		}
+
+		MatchmakingEntry current = found.get();
+		MatchmakingEntry requeued =
+			MatchmakingEntry.searching(current.participantKey(), current.gameType(), Instant.now());
+		redisTemplate.opsForZSet()
+			.add(queueKey(requeued.gameType()), requeued.participantKey(), requeued.queueScore());
+		save(requeued);
+
+		return true;
+	}
+
+	/**
+	 * 대기방 입장 확인. {@code ENTERING_ROOM} 참가자를 {@code IN_WAITING_ROOM}으로 전환한다.
+	 *
+	 * <p>{@code roomId}가 일치할 때만 전환한다. 이미 {@code IN_WAITING_ROOM}이면 멱등 성공,
+	 * 다른 {@code roomId}이거나 다른 상태면 건드리지 않는다(stale 콜백 보호).
+	 *
+	 * @return 전환했거나 이미 입장 상태면 {@code true}, 대상이 아니면 {@code false}
+	 */
+	public boolean markEntered(String participantKey, UUID roomId) {
+		Optional<MatchmakingEntry> found = find(participantKey);
+		if (found.isEmpty()) {
+			return false;
+		}
+
+		MatchmakingEntry entry = found.get();
+		if (!roomId.equals(entry.waitingRoomId())) {
+			return false;
+		}
+		if (entry.matchStatus() == MatchStatus.IN_WAITING_ROOM) {
+			return true;
+		}
+		if (entry.matchStatus() == MatchStatus.ENTERING_ROOM) {
+			save(entry.enterWaitingRoom(Instant.now()));
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * 대기방 IN_GAME 완료 후 entry를 삭제한다(compare-delete).
+	 *
+	 * <p>반드시 {@code roomId}를 비교한다. participantKey만 비교해 삭제하면 과거 콜백이 새 매칭
+	 * entry를 지울 수 있다. 이미 삭제됐으면 멱등 성공, 다른 {@code roomId}면 건드리지 않는다.
+	 *
+	 * @return 삭제했거나 이미 없으면 {@code true}, 다른 {@code roomId}라 보호했으면 {@code false}
+	 */
+	public boolean completeAndDelete(String participantKey, UUID roomId) {
+		Optional<MatchmakingEntry> found = find(participantKey);
+		if (found.isEmpty()) {
+			return true;
+		}
+		if (!roomId.equals(found.get().waitingRoomId())) {
+			return false;
+		}
+
+		delete(participantKey);
+
+		return true;
+	}
+
 	private Map<String, String> toFields(MatchmakingEntry entry) {
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put(FIELD_PARTICIPANT_KEY, entry.participantKey());
@@ -184,6 +314,7 @@ public class MatchmakingEntryRepository {
 		fields.put(FIELD_WAITING_ROOM_ID, toStoredValue(entry.waitingRoomId()));
 		fields.put(FIELD_QUEUED_AT, String.valueOf(entry.queuedAt().toEpochMilli()));
 		fields.put(FIELD_STATUS_CHANGED_AT, String.valueOf(entry.statusChangedAt().toEpochMilli()));
+		fields.put(FIELD_MATCH_ATTEMPT_ID, toStoredValue(entry.matchAttemptId()));
 
 		return fields;
 	}
@@ -193,17 +324,18 @@ public class MatchmakingEntryRepository {
 			fields.get(FIELD_PARTICIPANT_KEY),
 			GameName.valueOf(fields.get(FIELD_GAME_TYPE)),
 			MatchStatus.valueOf(fields.get(FIELD_MATCH_STATUS)),
-			toRoomId(fields.get(FIELD_WAITING_ROOM_ID)),
+			toUuid(fields.get(FIELD_WAITING_ROOM_ID)),
 			toInstant(fields.get(FIELD_QUEUED_AT)),
-			toInstant(fields.get(FIELD_STATUS_CHANGED_AT))
+			toInstant(fields.get(FIELD_STATUS_CHANGED_AT)),
+			toUuid(fields.get(FIELD_MATCH_ATTEMPT_ID))
 		);
 	}
 
-	private static String toStoredValue(UUID waitingRoomId) {
-		return waitingRoomId == null ? ABSENT : waitingRoomId.toString();
+	private static String toStoredValue(UUID value) {
+		return value == null ? ABSENT : value.toString();
 	}
 
-	private static UUID toRoomId(String stored) {
+	private static UUID toUuid(String stored) {
 		return stored == null || stored.isEmpty() ? null : UUID.fromString(stored);
 	}
 
