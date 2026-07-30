@@ -39,6 +39,24 @@ public enum UserErrorCode implements ErrorCode {
         HttpStatus.BAD_REQUEST,
         "USER-006",
         "수정할 정보가 없습니다."
+    ),
+
+    CURRENT_PASSWORD_MISMATCH(
+        HttpStatus.BAD_REQUEST,
+        "USER-007",
+        "현재 비밀번호가 일치하지 않습니다."
+    ),
+
+    PASSWORD_SAME_AS_CURRENT(
+        HttpStatus.BAD_REQUEST,
+        "USER-008",
+        "새 비밀번호는 현재 비밀번호와 달라야 합니다."
+    ),
+
+    PASSWORD_CHANGE_NOT_SUPPORTED(
+        HttpStatus.BAD_REQUEST,
+        "USER-009",
+        "소셜 로그인 회원은 비밀번호를 변경할 수 없습니다."
     );
 
     private final HttpStatus status;

@@ -143,6 +143,13 @@ public class User extends BaseTimeEntity {
         );
     }
 
+    public void changePassword(String encodedPassword) {
+        this.passwordHash = Objects.requireNonNull(
+            encodedPassword,
+            "encodedPassword는 null일 수 없습니다."
+        );
+    }
+
     public void withdraw(Instant withdrawnAt) {
         Objects.requireNonNull(
             withdrawnAt,
