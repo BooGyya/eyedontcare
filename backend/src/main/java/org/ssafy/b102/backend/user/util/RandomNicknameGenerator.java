@@ -16,7 +16,7 @@ public class RandomNicknameGenerator {
         "다정한",
         "재빠른",
         "엉뚱한",
-        "반짝이는",
+        "빛나는",
         "씩씩한"
     };
 
