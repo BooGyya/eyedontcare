@@ -13,6 +13,7 @@ import org.ssafy.b102.backend.waitingroom.repository.CompleteCountdownCommand;
 import org.ssafy.b102.backend.waitingroom.repository.CompleteCountdownResult;
 import org.ssafy.b102.backend.waitingroom.repository.RollbackCountdownCommand;
 import org.ssafy.b102.backend.waitingroom.repository.RollbackCountdownResult;
+import org.ssafy.b102.backend.waitingroom.repository.RandomReadyResult;
 import org.ssafy.b102.backend.waitingroom.repository.StartInviteGameCommand;
 import org.ssafy.b102.backend.waitingroom.repository.StartInviteGameResult;
 import org.ssafy.b102.backend.waitingroom.repository.UpdateCalibrationCommand;
@@ -119,11 +120,70 @@ public class WaitingRoomCommandService {
 		};
 	}
 
+	public ReadyCommandResult updateReadyAndStartRandom(
+		UUID roomId,
+		String participantKey,
+		boolean ready
+	) {
+		WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(roomId);
+		if (snapshot.room().roomType() != org.ssafy.b102.backend.waitingroom.entity.RoomType.RANDOM) {
+			return new ReadyCommandResult(
+				updateReady(roomId, participantKey, ready),
+				false,
+				null,
+				null,
+				snapshot.room().roomCode()
+			);
+		}
+		UUID countdownId = UUID.randomUUID();
+		Instant countdownEndsAt =
+			clock.instant().plus(properties.countdownDuration());
+		RandomReadyResult result = waitingRoomStore.updateRandomReadyAtomically(
+			new UpdateReadyCommand(
+				roomId,
+				null,
+				participantKey,
+				ready,
+				properties.maxParticipants(),
+				properties.activeTtl()
+			),
+			countdownId,
+			countdownEndsAt
+		);
+		return switch (result.status()) {
+			case UPDATED ->
+				new ReadyCommandResult(true, false, null, null, null);
+			case UNCHANGED ->
+				new ReadyCommandResult(false, false, null, null, null);
+			case COUNTDOWN_STARTED, ALREADY_COUNTDOWN ->
+				new ReadyCommandResult(
+					result.status() == RandomReadyResult.Status.COUNTDOWN_STARTED,
+					true,
+					result.countdownId(),
+					result.countdownEndsAt(),
+					null
+				);
+			case ROOM_NOT_FOUND ->
+				throw error(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND);
+			case PARTICIPANT_NOT_FOUND ->
+				throw error(WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND);
+			case CALIBRATION_REQUIRED ->
+				throw error(WaitingRoomErrorCode.CALIBRATION_REQUIRED);
+			case STATE_CHANGE_NOT_ALLOWED ->
+				throw error(WaitingRoomErrorCode.STATE_CHANGE_NOT_ALLOWED);
+			case CORRUPTED ->
+				throw error(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
+		};
+	}
+
 	public StartCommandResult startGame(
 		UUID roomId,
 		String participantKey
 	) {
 		WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(roomId);
+		if (snapshot.room().roomType() == org.ssafy.b102.backend.waitingroom.entity.RoomType.RANDOM) {
+			throw error(WaitingRoomErrorCode.STATE_CHANGE_NOT_ALLOWED);
+		}
 		UUID countdownId = UUID.randomUUID();
 		Instant countdownEndsAt =
 			clock.instant().plus(properties.countdownDuration());
@@ -221,6 +281,15 @@ public class WaitingRoomCommandService {
 		String roomCode,
 		UUID countdownId,
 		Instant countdownEndsAt
+	) {
+	}
+
+	public record ReadyCommandResult(
+		boolean changed,
+		boolean countdown,
+		UUID countdownId,
+		Instant countdownEndsAt,
+		String roomCode
 	) {
 	}
 }

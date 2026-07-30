@@ -95,6 +95,78 @@ class RedisWaitingRoomStoreIntegrationTest {
 	}
 
 	@Test
+	void randomRoomStartsCountdownWhenSecondPlayerBecomesReady() {
+		Instant createdAt = Instant.parse("2026-07-30T04:00:00Z");
+		WaitingRoom room = new WaitingRoom(
+			ROOM_ID,
+			RoomType.RANDOM,
+			GameName.EYEFIGHT,
+			null,
+			RoomStatus.WAITING,
+			createdAt
+		);
+		List<WaitingRoomParticipant> participants = List.of(
+			randomParticipant("USER:1", 1, createdAt),
+			randomParticipant("GUEST:00000000-0000-0000-0000-000000000002", 2, createdAt)
+		);
+
+		assertThat(
+			store.createRandomRoomAtomically(
+				new CreateRandomRoomCommand(room, participants, TTL)
+			)
+		).isTrue();
+		assertThat(redisTemplate.opsForHash().get(ROOM_KEY, "roomCode")).isNull();
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+
+		for (WaitingRoomParticipant participant : participants) {
+			completeRandomCalibration(participant.participantKey());
+		}
+		UUID firstCandidate = UUID.randomUUID();
+		assertThat(
+			store.updateRandomReadyAtomically(
+				new UpdateReadyCommand(ROOM_ID, null, "USER:1", true, 2, TTL),
+				firstCandidate,
+				createdAt.plusSeconds(3)
+			).status()
+		).isEqualTo(RandomReadyResult.Status.UPDATED);
+
+		UUID countdownId = UUID.randomUUID();
+		Instant countdownEndsAt = createdAt.plusSeconds(4);
+		RandomReadyResult second = store.updateRandomReadyAtomically(
+			new UpdateReadyCommand(
+				ROOM_ID,
+				null,
+				"GUEST:00000000-0000-0000-0000-000000000002",
+				true,
+				2,
+				TTL
+			),
+			countdownId,
+			countdownEndsAt
+		);
+
+		assertThat(second.status())
+			.isEqualTo(RandomReadyResult.Status.COUNTDOWN_STARTED);
+		assertThat(second.countdownId()).isEqualTo(countdownId);
+		assertThat(store.findSnapshot(ROOM_ID).orElseThrow().room().roomStatus())
+			.isEqualTo(RoomStatus.COUNTDOWN);
+		assertThat(
+			store.completeCountdownAtomically(
+				new CompleteCountdownCommand(
+					ROOM_ID,
+					null,
+					countdownId,
+					countdownEndsAt,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(CompleteCountdownResult.STARTED);
+		assertThat(store.findSnapshot(ROOM_ID).orElseThrow().room().roomStatus())
+			.isEqualTo(RoomStatus.IN_GAME);
+	}
+
+	@Test
 	void inviteCodeConflictDoesNotCreateRoomOrParticipant() {
 		redisTemplate.opsForValue().set(INVITE_CODE_KEY, "other-room", TTL);
 
@@ -821,6 +893,49 @@ class RedisWaitingRoomStoreIntegrationTest {
 		assertThat(ttls.stream().mapToLong(Long::longValue).max().orElseThrow()
 			- ttls.stream().mapToLong(Long::longValue).min().orElseThrow())
 			.isLessThanOrEqualTo(1L);
+	}
+
+	private WaitingRoomParticipant randomParticipant(
+		String participantKey,
+		int slotNo,
+		Instant joinedAt
+	) {
+		return new WaitingRoomParticipant(
+			participantKey,
+			"참가자" + slotNo,
+			RoomRole.PLAYER,
+			slotNo,
+			false,
+			CalibrationStatus.PENDING,
+			joinedAt
+		);
+	}
+
+	private void completeRandomCalibration(String participantKey) {
+		assertThat(
+			store.updateCalibrationAtomically(
+				new UpdateCalibrationCommand(
+					ROOM_ID,
+					null,
+					participantKey,
+					CalibrationStatus.IN_PROGRESS,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateCalibrationResult.UPDATED);
+		assertThat(
+			store.updateCalibrationAtomically(
+				new UpdateCalibrationCommand(
+					ROOM_ID,
+					null,
+					participantKey,
+					CalibrationStatus.COMPLETED,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateCalibrationResult.UPDATED);
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)

@@ -216,12 +216,18 @@ public class WaitingRoomService {
 	}
 
 	private void validateSnapshot(WaitingRoomSnapshot snapshot) {
-		if (
-			snapshot.room().roomType() != RoomType.INVITE ||
-			snapshot.room().roomCode().length() != 4 ||
-			!snapshot.room().roomCode().chars().allMatch(Character::isDigit) ||
-			snapshot.participants().isEmpty()
-		) {
+		boolean invalidInvite =
+			snapshot.room().roomType() == RoomType.INVITE &&
+			(snapshot.room().roomCode() == null ||
+				snapshot.room().roomCode().length() != 4 ||
+				!snapshot.room().roomCode().chars().allMatch(Character::isDigit));
+		boolean invalidRandom =
+			snapshot.room().roomType() == RoomType.RANDOM &&
+			(snapshot.room().roomCode() != null ||
+				snapshot.participants().size() != 2 ||
+				snapshot.participants().stream().anyMatch(participant ->
+					participant.roomRole() != RoomRole.PLAYER));
+		if (invalidInvite || invalidRandom || snapshot.participants().isEmpty()) {
 			throw new BusinessException(
 				WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
 			);
@@ -256,6 +262,11 @@ public class WaitingRoomService {
 		String participantKey,
 		WaitingRoomMetadata metadata
 	) {
+		if (metadata.roomType() == RoomType.RANDOM) {
+			throw new BusinessException(
+				WaitingRoomErrorCode.STATE_CHANGE_NOT_ALLOWED
+			);
+		}
 		LeaveWaitingRoomResult result = waitingRoomStore.leaveAtomically(
 			new LeaveWaitingRoomCommand(
 				roomId,

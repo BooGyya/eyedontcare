@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.CloseStatus;
@@ -25,12 +26,15 @@ import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.global.security.SecurityErrorCode;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.waitingroom.entity.RoomStatus;
+import org.ssafy.b102.backend.waitingroom.entity.RoomType;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.StartCommandResult;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.ReadyCommandResult;
+import org.ssafy.b102.backend.waitingroom.service.RandomRoomLifecyclePort;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.support.WaitingRoomParticipantResolver;
@@ -53,6 +57,7 @@ public class WaitingRoomWebSocketService {
 	private final WaitingRoomWebSocketProperties properties;
 	private final TaskScheduler taskScheduler;
 	private final Clock clock;
+	private final ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider;
 	private final ConcurrentMap<String, PendingAuthentication> pending =
 		new ConcurrentHashMap<>();
 
@@ -67,7 +72,8 @@ public class WaitingRoomWebSocketService {
 		JsonMapper jsonMapper,
 		WaitingRoomWebSocketProperties properties,
 		@Qualifier("waitingRoomWebSocketTaskScheduler")
-		TaskScheduler taskScheduler
+		TaskScheduler taskScheduler,
+		ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider
 	) {
 		this(
 			waitingRoomService,
@@ -79,7 +85,8 @@ public class WaitingRoomWebSocketService {
 			jsonMapper,
 			properties,
 			taskScheduler,
-			Clock.systemUTC()
+			Clock.systemUTC(),
+			lifecyclePortProvider
 		);
 	}
 
@@ -95,6 +102,34 @@ public class WaitingRoomWebSocketService {
 		TaskScheduler taskScheduler,
 		Clock clock
 	) {
+		this(
+			waitingRoomService,
+			commandService,
+			participantResolver,
+			registry,
+			countdownCoordinator,
+			jwtTokenProvider,
+			jsonMapper,
+			properties,
+			taskScheduler,
+			clock,
+			null
+		);
+	}
+
+	WaitingRoomWebSocketService(
+		WaitingRoomService waitingRoomService,
+		WaitingRoomCommandService commandService,
+		WaitingRoomParticipantResolver participantResolver,
+		WaitingRoomWebSocketSessionRegistry registry,
+		WaitingRoomCountdownCoordinator countdownCoordinator,
+		JwtTokenProvider jwtTokenProvider,
+		JsonMapper jsonMapper,
+		WaitingRoomWebSocketProperties properties,
+		TaskScheduler taskScheduler,
+		Clock clock,
+		ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider
+	) {
 		this.waitingRoomService = waitingRoomService;
 		this.commandService = commandService;
 		this.participantResolver = participantResolver;
@@ -105,6 +140,7 @@ public class WaitingRoomWebSocketService {
 		this.properties = properties;
 		this.taskScheduler = taskScheduler;
 		this.clock = clock;
+		this.lifecyclePortProvider = lifecyclePortProvider;
 	}
 
 	public void connectionEstablished(
@@ -216,6 +252,12 @@ public class WaitingRoomWebSocketService {
 				waitingRoomService.findSnapshot(authentication.roomId());
 			validateParticipant(verified, identity.participantKey());
 			sendRoomState(context.session(), verified);
+			if (verified.room().roomType() == RoomType.RANDOM) {
+				markParticipantEntered(
+					verified.room().roomId(),
+					identity.participantKey()
+				);
+			}
 		} catch (BusinessException exception) {
 			registry.unregister(context.sessionId());
 			throw exception;
@@ -462,12 +504,47 @@ public class WaitingRoomWebSocketService {
 		) {
 			throw invalidMessage();
 		}
-		boolean changed = commandService.updateReady(
-			context.roomId(),
-			context.participantKey(),
-			frame.getIsReady()
-		);
-		if (changed) {
+		WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(context.roomId());
+		if (snapshot.room().roomType() == RoomType.INVITE) {
+			if (
+				commandService.updateReady(
+					context.roomId(),
+					context.participantKey(),
+					frame.getIsReady()
+				)
+			) {
+				broadcastLatestState(context.roomId());
+			}
+			return;
+		}
+		ReadyCommandResult readyResult =
+			commandService.updateReadyAndStartRandom(
+				context.roomId(),
+				context.participantKey(),
+				frame.getIsReady()
+			);
+		if (readyResult.countdown()) {
+			StartCommandResult startResult = new StartCommandResult(
+				readyResult.changed(),
+				readyResult.roomCode(),
+				readyResult.countdownId(),
+				readyResult.countdownEndsAt()
+			);
+			boolean scheduled;
+			try {
+				scheduled = countdownCoordinator.scheduleIfAbsent(
+					context.roomId(),
+					startResult.countdownEndsAt(),
+					() -> completeCountdown(context.roomId(), startResult)
+				);
+			} catch (RuntimeException exception) {
+				handleScheduleFailure(context, startResult, exception);
+				return;
+			}
+			if (readyResult.changed() && scheduled) {
+				broadcastLatestState(context.roomId());
+			}
+		} else if (readyResult.changed()) {
 			broadcastLatestState(context.roomId());
 		}
 	}
@@ -554,6 +631,9 @@ public class WaitingRoomWebSocketService {
 				return;
 			}
 			WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(roomId);
+			if (snapshot.room().roomType() == RoomType.RANDOM) {
+				completeRandomRoom(snapshot);
+			}
 			sendGameStartAndClose(snapshot);
 		} catch (RuntimeException exception) {
 			log.error(
@@ -563,6 +643,52 @@ public class WaitingRoomWebSocketService {
 			);
 			closeRoomWithInternalError(roomId);
 		}
+	}
+
+	private void markParticipantEntered(UUID roomId, String participantKey) {
+		RandomRoomLifecyclePort port = lifecyclePort();
+		if (port == null) {
+			log.warn("랜덤 대기방 lifecycle adapter가 없습니다. roomId={}, action=enter", roomId);
+			return;
+		}
+		try {
+			port.markParticipantEntered(roomId, participantKey);
+		} catch (RuntimeException exception) {
+			log.warn("랜덤 대기방 입장 lifecycle 반영에 실패했습니다. roomId={}", roomId);
+		}
+	}
+
+	private void completeRandomRoom(WaitingRoomSnapshot snapshot) {
+		RandomRoomLifecyclePort port = lifecyclePort();
+		if (port == null) {
+			log.warn(
+				"랜덤 대기방 lifecycle adapter가 없습니다. roomId={}, action=complete",
+				snapshot.room().roomId()
+			);
+			return;
+		}
+		try {
+			port.completeRandomRoom(
+				snapshot.room().roomId(),
+				snapshot.participants().stream()
+					.sorted(java.util.Comparator.comparingInt(
+						participant -> participant.slotNo()
+					))
+					.map(participant -> participant.participantKey())
+					.toList()
+			);
+		} catch (RuntimeException exception) {
+			log.warn(
+				"랜덤 대기방 완료 lifecycle 반영에 실패했습니다. roomId={}",
+				snapshot.room().roomId()
+			);
+		}
+	}
+
+	private RandomRoomLifecyclePort lifecyclePort() {
+		return lifecyclePortProvider == null
+			? null
+			: lifecyclePortProvider.getIfAvailable();
 	}
 
 	private void sendGameStartAndClose(WaitingRoomSnapshot snapshot) {

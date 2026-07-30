@@ -7,6 +7,8 @@ public interface WaitingRoomStore {
 
 	CreateInviteRoomResult createInviteRoomAtomically(CreateInviteRoomCommand command);
 
+	boolean createRandomRoomAtomically(CreateRandomRoomCommand command);
+
 	Optional<UUID> findRoomIdByInviteCode(String roomCode);
 
 	JoinInviteRoomResult joinInviteRoomAtomically(JoinInviteRoomCommand command);
@@ -22,6 +24,12 @@ public interface WaitingRoomStore {
 	);
 
 	UpdateReadyResult updateReadyAtomically(UpdateReadyCommand command);
+
+	RandomReadyResult updateRandomReadyAtomically(
+		UpdateReadyCommand command,
+		UUID countdownId,
+		java.time.Instant countdownEndsAt
+	);
 
 	StartInviteGameResult startInviteGameAtomically(
 		StartInviteGameCommand command

@@ -63,6 +63,22 @@ public class WaitingRoomParticipantResolver {
 		);
 	}
 
+	public ResolvedWaitingRoomParticipant resolveExisting(String participantKey) {
+		if (participantKey != null && participantKey.startsWith(MEMBER_KEY_PREFIX)) {
+			try {
+				return resolveMember(
+					new AuthenticatedUser(
+						Long.parseLong(participantKey.substring(MEMBER_KEY_PREFIX.length()))
+					)
+				);
+			} catch (NumberFormatException exception) {
+				throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+			}
+		}
+		GuestParticipantKey guestKey = GuestParticipantKey.parse(participantKey);
+		return resolveExisting(null, guestKey.guestSessionId());
+	}
+
 	private ResolvedWaitingRoomParticipant resolveMember(AuthenticatedUser member) {
 		User user = userRepository.findByIdAndDeletedAtIsNull(member.userId())
 			.orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));

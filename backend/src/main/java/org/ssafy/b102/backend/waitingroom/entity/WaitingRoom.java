@@ -40,9 +40,14 @@ public record WaitingRoom(
 		Objects.requireNonNull(roomId);
 		Objects.requireNonNull(roomType);
 		Objects.requireNonNull(gameName);
-		Objects.requireNonNull(roomCode);
 		Objects.requireNonNull(roomStatus);
 		Objects.requireNonNull(createdAt);
+		if (
+			(roomType == RoomType.INVITE && roomCode == null) ||
+			(roomType == RoomType.RANDOM && roomCode != null)
+		) {
+			throw new IllegalArgumentException("Invalid room code for room type");
+		}
 		if (
 			roomStatus == RoomStatus.COUNTDOWN &&
 			(countdownId == null || countdownEndsAt == null)
