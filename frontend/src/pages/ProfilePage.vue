@@ -2,13 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useToast } from '../composables/useToast'
 import { gameResultRecords } from '../mocks/gameResults'
-import { profileData, profileState } from '../mocks/profile'
+import { profileData } from '../mocks/profile'
+import { useAuthStore } from '../stores/auth'
 import type { GameOutcome, GameResultDetail } from '../types/gameResult'
 
 const { showToast } = useToast()
+const auth = useAuthStore()
 const isEditing = ref(false)
-const nickname = ref(profileState.nickname)
-const draftNickname = ref(profileState.nickname)
+const nickname = ref(auth.user.nickname)
+const draftNickname = ref(auth.user.nickname)
 const selectedAvatarId = ref(profileData.avatars[0]?.id ?? '')
 const draftAvatarId = ref(selectedAvatarId.value)
 const isNicknameChecked = ref(false)
@@ -150,8 +152,8 @@ function handleSaveProfile() {
 
   nickname.value = draftNickname.value.trim()
   selectedAvatarId.value = draftAvatarId.value
-  profileState.nickname = nickname.value
-  profileState.avatar = selectedAvatar.value?.image ?? profileData.avatar
+  auth.user.nickname = nickname.value
+  auth.user.avatar = selectedAvatar.value?.image ?? profileData.avatar
   isEditing.value = false
   showToast('프로필 정보가 저장되었어요.')
 }
@@ -642,7 +644,7 @@ function handleConfirmWithdraw() {
   margin: 7px 0;
   color: var(--color-ink);
   font-size: clamp(31px, 4vw, 44px);
-  letter-spacing: -0.06em;
+  letter-spacing: -0.02em;
   word-break: keep-all;
 }
 .profile-page__identity p,
@@ -687,7 +689,7 @@ function handleConfirmWithdraw() {
 .profile-page__account h2 {
   margin: 5px 0 0;
   font-size: 23px;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
 }
 .profile-page__form-grid {
   display: grid;

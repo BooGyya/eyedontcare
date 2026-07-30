@@ -1,30 +1,46 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import GameCard from '../components/games/GameCard.vue'
+import GameComingSoonCard from '../components/games/GameComingSoonCard.vue'
 import PageHeader from '../components/common/PageHeader.vue'
-import { useToast } from '../composables/useToast'
+import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import { gameCatalog } from '../mocks/pages'
 import type { GameCatalogItem } from '../types/pages'
 
-const { showToast } = useToast()
+const router = useRouter()
+
+const games = computed(() =>
+  gameCatalog.reduce<GameCatalogItem[]>((details, game) => {
+    const gameId = game.id
+    if (!isGameDetailId(gameId)) return details
+
+    const detail = gameDetails[gameId]
+    details.push({ ...game, title: detail.title, description: detail.subtitle })
+    return details
+  }, []),
+)
 
 function handleEnterGame(game: GameCatalogItem) {
-  showToast(`${game.title} 게임은 다음 구현 단계에서 입장할 수 있어요.`)
+  if (!isGameDetailId(game.id)) return
+  router.push({ name: 'game-detail', params: { gameId: game.id } })
 }
 </script>
 
 <template>
   <section class="games-page">
     <PageHeader
-      title="게임 놀이터"
+      title="오락실"
       description="눈으로 즐길 수 있는 게임을 골라 가볍게 쉬어가세요."
     />
     <div class="games-page__grid">
       <GameCard
-        v-for="game in gameCatalog"
+        v-for="game in games"
         :key="game.id"
         :game="game"
         @enter="handleEnterGame"
       />
+      <GameComingSoonCard />
     </div>
   </section>
 </template>
