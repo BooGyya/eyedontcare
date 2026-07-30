@@ -6,9 +6,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.ssafy.b102.backend.auth.dto.request.KakaoLoginRequest;
 import org.ssafy.b102.backend.auth.kakao.KakaoOAuthClient;
@@ -16,9 +18,12 @@ import org.ssafy.b102.backend.auth.kakao.KakaoUserIdentity;
 import org.ssafy.b102.backend.auth.repository.RefreshTokenStore;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
 import org.ssafy.b102.backend.global.security.jwt.TokenPair;
+import org.ssafy.b102.backend.user.dto.request.PasswordUpdateRequest;
+import org.ssafy.b102.backend.user.entity.User;
 import org.ssafy.b102.backend.user.enums.SocialProvider;
 import org.ssafy.b102.backend.user.repository.SocialAccountRepository;
 import org.ssafy.b102.backend.user.repository.UserRepository;
+import org.ssafy.b102.backend.user.service.UserService;
 import org.ssafy.b102.backend.user.util.RandomNicknameGenerator;
 
 @SpringBootTest
@@ -37,6 +42,12 @@ class KakaoLoginRollbackIntegrationTest {
 
     @Autowired
     private SocialAccountRepository socialAccountRepository;
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @MockitoBean
     private KakaoOAuthClient kakaoOAuthClient;
@@ -88,5 +99,48 @@ class KakaoLoginRollbackIntegrationTest {
                     NICKNAME.equals(user.getNickname())
                 )
         ).isTrue();
+    }
+
+    @Test
+    void Redis_삭제_실패시_비밀번호_변경이_rollback된다() {
+        String currentPassword = "password123";
+        String suffix = UUID.randomUUID().toString();
+        String oldHash = passwordEncoder.encode(
+            currentPassword
+        );
+        User user = userRepository.saveAndFlush(
+            User.createLocal(
+                "rollback-" + suffix + "@example.com",
+                oldHash,
+                "R" + suffix.replace("-", "").substring(0, 8)
+            )
+        );
+        RuntimeException redisFailure =
+            new RuntimeException("redis unavailable");
+        doThrow(redisFailure)
+            .when(refreshTokenStore)
+            .deleteByUserId(user.getId());
+        PasswordUpdateRequest request =
+            new PasswordUpdateRequest();
+        request.setCurrentPassword(currentPassword);
+        request.setNewPassword("newPassword456");
+
+        try {
+            assertThatThrownBy(() ->
+                userService.updatePassword(
+                    user.getId(),
+                    user.getId(),
+                    request
+                )
+            ).isSameAs(redisFailure);
+
+            User reloaded = userRepository
+                .findById(user.getId())
+                .orElseThrow();
+            assertThat(reloaded.getPasswordHash())
+                .isEqualTo(oldHash);
+        } finally {
+            userRepository.deleteById(user.getId());
+        }
     }
 }

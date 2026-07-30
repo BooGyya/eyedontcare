@@ -287,7 +287,7 @@ class UserControllerTest {
         private Long authenticatedUserId;
 
         private StubUserService(UserResponse response) {
-            super(null, null);
+            super(null, null, null, null);
             this.response = response;
         }
 
@@ -334,7 +334,7 @@ class UserControllerTest {
         private NicknameCheckUserService(
             NicknameCheckResponse response
         ) {
-            super(null, null);
+            super(null, null, null, null);
             this.response = response;
         }
 

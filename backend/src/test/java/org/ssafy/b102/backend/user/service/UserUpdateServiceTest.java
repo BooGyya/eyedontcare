@@ -47,7 +47,9 @@ class UserUpdateServiceTest {
     void setUp() {
         userService = new UserService(
             userRepository,
-            socialAccountRepository
+            socialAccountRepository,
+            null,
+            null
         );
         user = activeUser();
     }

@@ -49,7 +49,9 @@ class UserServiceTest {
     void setUp() {
         userService = new UserService(
             userRepository,
-            socialAccountRepository
+            socialAccountRepository,
+            null,
+            null
         );
     }
 

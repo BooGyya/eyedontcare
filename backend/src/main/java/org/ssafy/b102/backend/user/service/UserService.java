@@ -4,13 +4,16 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.ssafy.b102.backend.auth.repository.RefreshTokenStore;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.CommonErrorCode;
+import org.ssafy.b102.backend.user.dto.request.PasswordUpdateRequest;
 import org.ssafy.b102.backend.user.dto.request.UserUpdateRequest;
-import org.ssafy.b102.backend.user.dto.response.UserResponse;
 import org.ssafy.b102.backend.user.dto.response.NicknameCheckResponse;
+import org.ssafy.b102.backend.user.dto.response.UserResponse;
 import org.ssafy.b102.backend.user.entity.User;
 import org.ssafy.b102.backend.user.enums.ProfileImageCode;
 import org.ssafy.b102.backend.user.enums.SocialProvider;
@@ -29,13 +32,19 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final SocialAccountRepository socialAccountRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenStore refreshTokenStore;
 
     public UserService(
         UserRepository userRepository,
-        SocialAccountRepository socialAccountRepository
+        SocialAccountRepository socialAccountRepository,
+        PasswordEncoder passwordEncoder,
+        RefreshTokenStore refreshTokenStore
     ) {
         this.userRepository = userRepository;
         this.socialAccountRepository = socialAccountRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.refreshTokenStore = refreshTokenStore;
     }
 
     @Transactional(readOnly = true)
@@ -99,6 +108,63 @@ public class UserService {
         return createUserResponse(user);
     }
 
+    @Transactional
+    public void updatePassword(
+        Long requestedUserId,
+        Long authenticatedUserId,
+        PasswordUpdateRequest request
+    ) {
+        validateSelf(requestedUserId, authenticatedUserId);
+
+        User user = userRepository
+            .findByIdAndDeletedAtIsNull(requestedUserId)
+            .orElseThrow(() ->
+                new BusinessException(
+                    UserErrorCode.USER_NOT_FOUND
+                ));
+
+        validatePasswordUpdateRequest(request);
+
+        SocialProvider provider = socialAccountRepository
+            .findProviderByUserId(user.getId())
+            .orElse(null);
+        String passwordHash = user.getPasswordHash();
+
+        if (provider != null || passwordHash == null) {
+            throw new BusinessException(
+                UserErrorCode.PASSWORD_CHANGE_NOT_SUPPORTED
+            );
+        }
+
+        if (
+            !passwordEncoder.matches(
+                request.getCurrentPassword(),
+                passwordHash
+            )
+        ) {
+            throw new BusinessException(
+                UserErrorCode.CURRENT_PASSWORD_MISMATCH
+            );
+        }
+
+        if (
+            passwordEncoder.matches(
+                request.getNewPassword(),
+                passwordHash
+            )
+        ) {
+            throw new BusinessException(
+                UserErrorCode.PASSWORD_SAME_AS_CURRENT
+            );
+        }
+
+        String encodedPassword = passwordEncoder.encode(
+            request.getNewPassword()
+        );
+        user.changePassword(encodedPassword);
+        refreshTokenStore.deleteByUserId(user.getId());
+    }
+
     @Transactional(readOnly = true)
     public NicknameCheckResponse checkNicknameAvailability(
         Long authenticatedUserId,
@@ -154,6 +220,16 @@ public class UserService {
         ) {
             throw new BusinessException(
                 UserErrorCode.EMPTY_UPDATE_REQUEST
+            );
+        }
+    }
+
+    private void validatePasswordUpdateRequest(
+        PasswordUpdateRequest request
+    ) {
+        if (request == null || request.hasUnknownFields()) {
+            throw new BusinessException(
+                CommonErrorCode.MALFORMED_JSON
             );
         }
     }

@@ -17,6 +17,11 @@ public enum UserSuccessCode implements SuccessCode {
     USER_UPDATE_SUCCESS(
         "USER_UPDATE_SUCCESS",
         "내 정보 수정이 완료되었습니다."
+    ),
+
+    PASSWORD_UPDATE_SUCCESS(
+        "PASSWORD_UPDATE_SUCCESS",
+        "비밀번호 변경이 완료되었습니다."
     );
 
     private final String code;

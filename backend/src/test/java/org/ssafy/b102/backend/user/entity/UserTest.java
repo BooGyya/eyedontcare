@@ -35,6 +35,37 @@ class UserTest {
     }
 
     @Test
+    void 비밀번호는_인코딩된_값으로만_변경하고_다른_필드를_유지한다() {
+        User user = User.createLocal(
+            "user@example.com",
+            "old-hash",
+            "Nickname1"
+        );
+
+        user.changePassword("new-hash");
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        assertThat(user.getEmail())
+            .isEqualTo("user@example.com");
+        assertThat(user.getNickname()).isEqualTo("Nickname1");
+        assertThat(user.getProfileImageCode())
+            .isEqualTo(ProfileImageCode.PROFILE_1);
+    }
+
+    @Test
+    void null_비밀번호_해시는_거부한다() {
+        User user = User.createLocal(
+            "user@example.com",
+            "old-hash",
+            "Nickname1"
+        );
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> user.changePassword(null)
+        ).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void 탈퇴하면_개인정보를_익명화하고_식별자와_생성시각을_유지한다() {
         Instant createdAt =
             Instant.parse("2026-07-01T00:00:00Z");

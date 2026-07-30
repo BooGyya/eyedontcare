@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.ssafy.b102.backend.global.validation.PasswordPolicy;
 
 public record SignupRequest(
 
@@ -12,15 +13,15 @@ public record SignupRequest(
     @Size(max = 255, message = "이메일은 255자 이하여야 합니다.")
     String email,
 
-    @NotBlank(message = "비밀번호는 필수입니다.")
+    @NotBlank(message = PasswordPolicy.REQUIRED_MESSAGE)
     @Size(
-        min = 8,
-        max = 16,
-        message = "비밀번호는 8자 이상 16자 이하여야 합니다."
+        min = PasswordPolicy.MIN_LENGTH,
+        max = PasswordPolicy.MAX_LENGTH,
+        message = PasswordPolicy.SIZE_MESSAGE
     )
     @Pattern(
-        regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$",
-        message = "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 합니다."
+        regexp = PasswordPolicy.PATTERN,
+        message = PasswordPolicy.PATTERN_MESSAGE
     )
     String password
 
