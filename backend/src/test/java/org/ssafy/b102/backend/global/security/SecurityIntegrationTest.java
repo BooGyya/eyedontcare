@@ -75,6 +75,10 @@ import org.ssafy.b102.backend.user.enums.UserLoginType;
 import org.ssafy.b102.backend.user.exception.UserErrorCode;
 import org.ssafy.b102.backend.user.repository.UserRepository;
 import org.ssafy.b102.backend.user.service.UserService;
+import org.ssafy.b102.backend.waitingroom.controller.WaitingRoomController;
+import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomCreateResponse;
+import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomParticipantResponse;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
 
 @WebMvcTest(controllers = {
     AuthController.class,
@@ -82,7 +86,8 @@ import org.ssafy.b102.backend.user.service.UserService;
     GameResultController.class,
     GameResultQueryController.class,
     MatchmakingController.class,
-    UserController.class
+    UserController.class,
+    WaitingRoomController.class
 })
 @Import({
     SecurityConfig.class,
@@ -158,6 +163,9 @@ class SecurityIntegrationTest {
 
     @MockitoBean
     private UserService userService;
+
+    @MockitoBean
+    private WaitingRoomService waitingRoomService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -1296,12 +1304,150 @@ class SecurityIntegrationTest {
             );
     }
 
+    @Test
+    void waitingRoomCreateAllowsAnonymousGuest() throws Exception {
+        when(waitingRoomService.createInviteRoom(any(), any(), any()))
+            .thenReturn(waitingRoomResponse());
+
+        mockMvc.perform(
+                post("/api/v1/waiting-rooms")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"gameName\":\"EYEFIGHT\"}")
+            )
+            .andExpect(status().isCreated())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("WAITING_ROOM_CREATE_SUCCESS")
+            );
+    }
+
+    @Test
+    void waitingRoomCreateRejectsInvalidAuthorizationInsteadOfGuestFallback()
+        throws Exception {
+
+        mockMvc.perform(
+                post("/api/v1/waiting-rooms")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        "Bearer invalid-token"
+                    )
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"gameName\":\"EYEFIGHT\"}")
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"));
+
+        verify(waitingRoomService, times(0))
+            .createInviteRoom(any(), any(), any());
+    }
+
+    @Test
+    void waitingRoomCreateUsesAuthenticatedMemberEvenWithGuestHeader()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+        when(waitingRoomService.createInviteRoom(any(), any(), any()))
+            .thenReturn(waitingRoomResponse());
+
+        mockMvc.perform(
+                post("/api/v1/waiting-rooms")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+                    .header(
+                        "X-Guest-Session-Id",
+                        "7e329e72-e8da-4c62-8282-754e7b5c0864"
+                    )
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"gameName\":\"EYEFIGHT\"}")
+            )
+            .andExpect(status().isCreated());
+
+        verify(waitingRoomService).createInviteRoom(
+            eq(new AuthenticatedUser(1L)),
+            eq(java.util.UUID.fromString(
+                "7e329e72-e8da-4c62-8282-754e7b5c0864"
+            )),
+            any()
+        );
+    }
+
+    @Test
+    void waitingRoomCreateRejectsExpiredTamperedAndRefreshTokens()
+        throws Exception {
+
+        SecretKey key = secretKey();
+        String expiredToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().minusSeconds(1L),
+            key
+        );
+        String tamperedToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().plusSeconds(300L),
+            Keys.hmacShaKeyFor(
+                Decoders.BASE64.decode(
+                    "YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk="
+                )
+            )
+        );
+        String refreshToken = signedToken(
+            1L,
+            TokenType.REFRESH,
+            Instant.now().plusSeconds(300L),
+            key
+        );
+
+        expectInvalidWaitingRoomToken(expiredToken);
+        expectInvalidWaitingRoomToken(tamperedToken);
+        expectInvalidWaitingRoomToken(refreshToken);
+    }
+
+    @Test
+    void waitingRoomCreateRejectsWithdrawnMemberToken() throws Exception {
+        String token = jwtTokenProvider.issueAccessToken(1L);
+        when(userRepository.existsByIdAndDeletedAtIsNull(1L))
+            .thenReturn(false);
+
+        expectInvalidWaitingRoomToken(token);
+    }
+
     private String activeUserToken(Long userId) {
         when(
             userRepository.existsByIdAndDeletedAtIsNull(userId)
         ).thenReturn(true);
 
         return jwtTokenProvider.issueAccessToken(userId);
+    }
+
+    private WaitingRoomCreateResponse waitingRoomResponse() {
+        Instant now = Instant.parse("2026-07-30T04:00:00Z");
+        return new WaitingRoomCreateResponse(
+            java.util.UUID.fromString(
+                "c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+            ),
+            "INVITE",
+            "EYEFIGHT",
+            "0123",
+            "WAITING",
+            new WaitingRoomParticipantResponse(
+                "GUEST:test",
+                "guest",
+                "HOST",
+                1,
+                false,
+                "PENDING",
+                now
+            ),
+            now,
+            java.util.UUID.fromString(
+                "7e329e72-e8da-4c62-8282-754e7b5c0864"
+            ),
+            "guest"
+        );
     }
 
     private void expectInvalidToken(String token)
@@ -1321,6 +1467,22 @@ class SecurityIntegrationTest {
                     .value("유효하지 않은 액세스 토큰입니다.")
             )
             .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    private void expectInvalidWaitingRoomToken(String token)
+        throws Exception {
+
+        mockMvc.perform(
+                post("/api/v1/waiting-rooms")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"gameName\":\"EYEFIGHT\"}")
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("SECURITY-002"));
     }
 
     private void expectInvalidLogoutToken(String token)
