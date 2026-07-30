@@ -27,6 +27,9 @@ import org.ssafy.b102.backend.waitingroom.repository.CreateInviteRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.CreateInviteRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomCommand;
+import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomMetadata;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomStore;
 import org.ssafy.b102.backend.waitingroom.support.InviteCodeGenerator;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
@@ -176,6 +179,57 @@ public class WaitingRoomService {
 			case CORRUPTED ->
 				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
 		};
+	}
+
+	public void leave(
+		UUID roomId,
+		AuthenticatedUser member,
+		UUID guestSessionId
+	) {
+		WaitingRoomMetadata metadata = findRoomMetadata(roomId);
+		ResolvedWaitingRoomParticipant identity =
+			participantResolver.resolveExisting(member, guestSessionId);
+
+		leaveByParticipantKey(roomId, identity.participantKey(), metadata);
+	}
+
+	public void leaveByParticipantKey(UUID roomId, String participantKey) {
+		leaveByParticipantKey(roomId, participantKey, findRoomMetadata(roomId));
+	}
+
+	private WaitingRoomMetadata findRoomMetadata(UUID roomId) {
+		return waitingRoomStore.findRoomMetadata(roomId)
+			.orElseThrow(() ->
+				new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND));
+	}
+
+	private void leaveByParticipantKey(
+		UUID roomId,
+		String participantKey,
+		WaitingRoomMetadata metadata
+	) {
+		LeaveWaitingRoomResult result = waitingRoomStore.leaveAtomically(
+			new LeaveWaitingRoomCommand(
+				roomId,
+				metadata.roomCode(),
+				participantKey,
+				properties.maxParticipants(),
+				properties.activeTtl(),
+				properties.closedTtl()
+			)
+		);
+
+		switch (result) {
+			case LEFT, ROOM_CLOSED, ALREADY_CLOSED -> {
+				return;
+			}
+			case ROOM_NOT_FOUND ->
+				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND);
+			case PARTICIPANT_NOT_FOUND ->
+				throw new BusinessException(WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND);
+			case CORRUPTED ->
+				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
+		}
 	}
 
 	private GameName parseGameName(String rawGameName) {

@@ -10,4 +10,8 @@ public interface WaitingRoomStore {
 	Optional<UUID> findRoomIdByInviteCode(String roomCode);
 
 	JoinInviteRoomResult joinInviteRoomAtomically(JoinInviteRoomCommand command);
+
+	Optional<WaitingRoomMetadata> findRoomMetadata(UUID roomId);
+
+	LeaveWaitingRoomResult leaveAtomically(LeaveWaitingRoomCommand command);
 }

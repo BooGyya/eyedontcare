@@ -32,13 +32,7 @@ public class WaitingRoomParticipantResolver {
 		UUID guestSessionId
 	) {
 		if (member != null) {
-			User user = userRepository.findByIdAndDeletedAtIsNull(member.userId())
-				.orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-			return ResolvedWaitingRoomParticipant.member(
-				MEMBER_KEY_PREFIX + user.getId(),
-				user.getNickname()
-			);
+			return resolveMember(member);
 		}
 
 		GuestSession guestSession = guestSessionId == null
@@ -50,6 +44,32 @@ public class WaitingRoomParticipantResolver {
 			new GuestParticipantKey(guestSession.guestSessionId()).value(),
 			guestSession.nickname(),
 			guestSession.guestSessionId()
+		);
+	}
+
+	public ResolvedWaitingRoomParticipant resolveExisting(
+		AuthenticatedUser member,
+		UUID guestSessionId
+	) {
+		if (member != null) {
+			return resolveMember(member);
+		}
+
+		GuestSession guestSession = guestSessionService.validate(guestSessionId);
+		return ResolvedWaitingRoomParticipant.guest(
+			new GuestParticipantKey(guestSession.guestSessionId()).value(),
+			guestSession.nickname(),
+			guestSession.guestSessionId()
+		);
+	}
+
+	private ResolvedWaitingRoomParticipant resolveMember(AuthenticatedUser member) {
+		User user = userRepository.findByIdAndDeletedAtIsNull(member.userId())
+			.orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+		return ResolvedWaitingRoomParticipant.member(
+			MEMBER_KEY_PREFIX + user.getId(),
+			user.getNickname()
 		);
 	}
 }

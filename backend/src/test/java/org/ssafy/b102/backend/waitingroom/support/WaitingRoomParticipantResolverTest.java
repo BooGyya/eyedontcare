@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.guest.entity.GuestSession;
+import org.ssafy.b102.backend.guest.exception.GuestSessionErrorCode;
 import org.ssafy.b102.backend.guest.service.GuestSessionService;
 import org.ssafy.b102.backend.user.entity.User;
 import org.ssafy.b102.backend.user.exception.UserErrorCode;
@@ -86,6 +87,48 @@ class WaitingRoomParticipantResolverTest {
 
 		assertThat(result.participantKey()).isEqualTo("GUEST:" + issuedId);
 		assertThat(result.guestSessionId()).isEqualTo(issuedId);
+	}
+
+	@Test
+	void existingMemberTakesPriorityWithoutGuestCalls() {
+		User user = mock(User.class);
+		UUID guestSessionId = UUID.randomUUID();
+		when(user.getId()).thenReturn(7L);
+		when(user.getNickname()).thenReturn("회원닉네임");
+		when(userRepository.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
+
+		ResolvedWaitingRoomParticipant result =
+			resolver.resolveExisting(new AuthenticatedUser(7L), guestSessionId);
+
+		assertThat(result.participantKey()).isEqualTo("USER:7");
+		verify(guestSessionService, never()).validate(guestSessionId);
+		verify(guestSessionService, never()).issue();
+	}
+
+	@Test
+	void existingGuestIsValidatedWithoutIssuingSession() {
+		UUID guestSessionId = UUID.randomUUID();
+		when(guestSessionService.validate(guestSessionId))
+			.thenReturn(guestSession(guestSessionId));
+
+		ResolvedWaitingRoomParticipant result =
+			resolver.resolveExisting(null, guestSessionId);
+
+		assertThat(result.participantKey()).isEqualTo("GUEST:" + guestSessionId);
+		verify(guestSessionService).validate(guestSessionId);
+		verify(guestSessionService, never()).issue();
+	}
+
+	@Test
+	void invalidExistingGuestDoesNotIssueSession() {
+		when(guestSessionService.validate(null))
+			.thenThrow(new BusinessException(GuestSessionErrorCode.INVALID_GUEST_SESSION));
+
+		assertThatThrownBy(() -> resolver.resolveExisting(null, null))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(GuestSessionErrorCode.INVALID_GUEST_SESSION));
+		verify(guestSessionService, never()).issue();
 	}
 
 	private GuestSession guestSession(UUID id) {

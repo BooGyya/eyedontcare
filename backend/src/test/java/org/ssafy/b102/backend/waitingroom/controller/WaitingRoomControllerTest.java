@@ -186,6 +186,54 @@ class WaitingRoomControllerTest {
 		);
 	}
 
+	@Test
+	void leaveReturnsSuccessWithoutData() throws Exception {
+		mockMvc.perform(post(
+				PATH + "/{roomId}/leave",
+				"c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+			))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.code").value("WAITING_ROOM_LEAVE_SUCCESS"))
+			.andExpect(jsonPath("$.message").value("대기방 퇴장이 완료되었습니다."))
+			.andExpect(jsonPath("$.data").doesNotExist());
+	}
+
+	@Test
+	void invalidLeaveRoomIdReturnsCommon004() throws Exception {
+		mockMvc.perform(post(PATH + "/not-a-uuid/leave"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("COMMON-004"));
+	}
+
+	@Test
+	void leaveMapsDomainErrors() throws Exception {
+		assertLeaveError(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND, 404, "WAITING-008");
+		assertLeaveError(WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND, 404, "WAITING-009");
+		assertLeaveError(
+			WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE,
+			503,
+			"WAITING-003"
+		);
+	}
+
+	private void assertLeaveError(
+		org.ssafy.b102.backend.global.error.ErrorCode errorCode,
+		int httpStatus,
+		String code
+	) throws Exception {
+		reset(waitingRoomService);
+		org.mockito.Mockito.doThrow(new BusinessException(errorCode))
+			.when(waitingRoomService)
+			.leave(any(), any(), any());
+
+		mockMvc.perform(post(
+				PATH + "/{roomId}/leave",
+				"c93c76b2-7f78-4275-b8af-7cdd921bbb4f"
+			))
+			.andExpect(status().is(httpStatus))
+			.andExpect(jsonPath("$.code").value(code));
+	}
+
 	private void assertJoinError(
 		org.ssafy.b102.backend.global.error.ErrorCode errorCode,
 		int httpStatus,

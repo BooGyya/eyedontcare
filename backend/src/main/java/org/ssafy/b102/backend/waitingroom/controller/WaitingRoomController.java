@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -61,6 +62,22 @@ public class WaitingRoomController {
 			ApiResponse.success(
 				WaitingRoomSuccessCode.WAITING_ROOM_JOIN_SUCCESS,
 				response
+			)
+		);
+	}
+
+	@PostMapping("/{roomId}/leave")
+	public ResponseEntity<ApiResponse<Void>> leave(
+		@PathVariable UUID roomId,
+		@AuthenticationPrincipal AuthenticatedUser member,
+		@RequestHeader(value = GUEST_SESSION_HEADER, required = false) UUID guestSessionId
+	) {
+		waitingRoomService.leave(roomId, member, guestSessionId);
+
+		return ResponseEntity.ok(
+			ApiResponse.success(
+				WaitingRoomSuccessCode.WAITING_ROOM_LEAVE_SUCCESS,
+				null
 			)
 		);
 	}
