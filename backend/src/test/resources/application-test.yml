@@ -16,6 +16,11 @@ kakao:
 app:
   cors:
     allowed-origins: http://localhost:5173
+  waiting-room:
+    websocket:
+      auth-timeout: PT0.2S
+      send-time-limit: PT5S
+      buffer-size-limit: 65536
 
 spring:
   data:

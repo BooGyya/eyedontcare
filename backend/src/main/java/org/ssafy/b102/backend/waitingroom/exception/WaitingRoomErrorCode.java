@@ -45,6 +45,21 @@ public enum WaitingRoomErrorCode implements ErrorCode {
 		HttpStatus.NOT_FOUND,
 		"WAITING-009",
 		"대기방 참가자를 찾을 수 없습니다."
+	),
+	WEBSOCKET_ALREADY_CONNECTED(
+		HttpStatus.CONFLICT,
+		"WAITING-010",
+		"이미 연결된 대기방 세션이 있습니다."
+	),
+	INVALID_WEBSOCKET_MESSAGE(
+		HttpStatus.BAD_REQUEST,
+		"WAITING-011",
+		"유효하지 않은 WebSocket 메시지입니다."
+	),
+	WEBSOCKET_AUTH_TIMEOUT(
+		HttpStatus.UNAUTHORIZED,
+		"WAITING-012",
+		"WebSocket 인증 시간이 초과되었습니다."
 	);
 
 	private final HttpStatus status;

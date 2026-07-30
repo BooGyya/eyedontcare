@@ -82,6 +82,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/ping/**").permitAll()
                 // WebSocket handshake만 공개하며, 실제 JWT 인증은 별도 작업에서 구현한다.
                 .requestMatchers("/ws/match").permitAll()
+                // handshake만 공개하며, 실제 인증은 첫 AUTH frame에서 수행한다.
+                .requestMatchers("/ws/waiting-rooms/{roomId}").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(
