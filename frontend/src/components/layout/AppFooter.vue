@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import logoImage from '../../assets/images/brand/logo.png'
+import footerLogoImage from '../../assets/images/brand/footer-logo.png'
 import { useToast } from '../../composables/useToast'
 import PolicyDialog from '../common/PolicyDialog.vue'
 import FeedbackDialog from '../common/FeedbackDialog.vue'
@@ -26,7 +26,7 @@ function handleFeedbackSubmit() {
 <template>
   <footer class="app-footer">
     <RouterLink class="app-footer__brand" to="/" aria-label="eye dont care 홈">
-      <img :src="logoImage" alt="eye dont care" />
+      <img :src="footerLogoImage" alt="eye dont care" />
     </RouterLink>
     <small>© 2026 eye dont care. All rights reserved.</small>
     <div class="app-footer__links">
@@ -71,7 +71,7 @@ function handleFeedbackSubmit() {
 }
 
 .app-footer__brand img {
-  width: 105px;
+  width: 72px;
   height: 72px;
   object-fit: contain;
 }
@@ -117,7 +117,7 @@ function handleFeedbackSubmit() {
   }
 
   .app-footer__brand img {
-    width: 87px;
+    width: 58px;
     height: 58px;
   }
 

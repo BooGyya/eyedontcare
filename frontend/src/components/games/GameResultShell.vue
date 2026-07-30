@@ -48,14 +48,14 @@ defineProps<{
 .result-shell h1 {
   margin: 6px 0 14px;
   color: var(--color-muted);
-  font-family: inherit;
+  font-family: var(--font-display);
   font-size: 16px;
 }
 .result-shell h2 {
   margin: 0;
   color: var(--color-ink);
   font-size: clamp(28px, 4vw, 42px);
-  font-family: inherit;
+  font-family: var(--font-display);
   letter-spacing: -0.06em;
   transform: none;
 }

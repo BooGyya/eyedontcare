@@ -110,7 +110,7 @@ defineEmits<{ leave: [] }>()
 .play-shell__header h1 {
   margin: 0;
   color: var(--color-ink);
-  font-family: inherit;
+  font-family: var(--font-display);
   font-size: 34px;
   letter-spacing: -0.04em;
   transform: none;

@@ -54,7 +54,7 @@ const auth = useAuthStore()
 }
 .app-header__inner {
   display: flex;
-  width: min(1200px, calc(100% - 120px));
+  width: min(var(--content-width), calc(100% - 120px));
   height: 100%;
   align-items: center;
   gap: 105px;

@@ -435,8 +435,9 @@ function handleQuickAction(action: QuickAction) {
 .hero-banner {
   position: relative;
   display: block;
+  width: min(1320px, 100%);
   min-height: 326px;
-  margin-top: 0;
+  margin: 0 auto;
   overflow: hidden;
   border: 1px solid #e5e2fa;
   border-radius: 24px;
@@ -826,9 +827,10 @@ function handleQuickAction(action: QuickAction) {
 
 .quick-action-strip {
   display: grid;
+  width: min(1320px, 100%);
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
-  margin-top: 25px;
+  margin: 25px auto 0;
   padding: 18px 13px;
   border: 1px solid var(--color-line);
   border-radius: 19px;
