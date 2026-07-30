@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketMessage;
@@ -35,7 +36,12 @@ import org.ssafy.b102.backend.waitingroom.entity.WaitingRoom;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.RandomRoomLeaveResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
+import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequester;
+import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequestResult;
+import org.ssafy.b102.backend.waitingroom.service.RandomRoomLifecyclePort;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomLeaveOutcome;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.StartCommandResult;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
@@ -316,6 +322,79 @@ class WaitingRoomWebSocketServiceTest {
 	}
 
 	@Test
+	void randomRestLeaveRequeuesOnlyRemainingLiveParticipantAndClosesRoom() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRematchRequester> rematchProvider =
+			mock(ObjectProvider.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRoomLifecyclePort> lifecycleProvider =
+			mock(ObjectProvider.class);
+		when(rematchProvider.getIfAvailable()).thenReturn(requester);
+		when(
+			requester.requeueRemaining(ROOM_ID, GameName.EYEFIGHT, "USER:2")
+		).thenReturn(RandomRematchRequestResult.REQUEUED);
+		RandomRoomLeaveResult leaveResult = new RandomRoomLeaveResult(
+			RandomRoomLeaveResult.Status.CLOSED_NOW,
+			ROOM_ID,
+			GameName.EYEFIGHT,
+			"USER:1",
+			"USER:2",
+			RoomStatus.WAITING
+		);
+		when(waitingRoomService.leave(ROOM_ID, new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L), null))
+			.thenReturn(WaitingRoomLeaveOutcome.random(leaveResult));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.CLOSED));
+		StubWebSocketSession quitter = new StubWebSocketSession("s1");
+		StubWebSocketSession remaining = new StubWebSocketSession("s2");
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"s1", ROOM_ID, "USER:1", RoomRole.PLAYER, NOW, quitter
+			)
+		);
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"s2", ROOM_ID, "USER:2", RoomRole.PLAYER, NOW, remaining
+			)
+		);
+		service = new WaitingRoomWebSocketService(
+			waitingRoomService,
+			commandService,
+			participantResolver,
+			registry,
+			countdownCoordinator,
+			jwtTokenProvider,
+			JsonMapper.builder().findAndAddModules().build(),
+			new WaitingRoomWebSocketProperties(
+				Duration.ofSeconds(5),
+				Duration.ofSeconds(5),
+				65536
+			),
+			taskScheduler,
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			lifecycleProvider,
+			rematchProvider
+		);
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester).requeueRemaining(
+			ROOM_ID,
+			GameName.EYEFIGHT,
+			"USER:2"
+		);
+		assertThat(remaining.lastSentPayload()).contains("\"roomStatus\":\"CLOSED\"");
+		assertThat(quitter.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(remaining.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(registry.findByRoomId(ROOM_ID)).isEmpty();
+	}
+
+	@Test
 	void malformedCommandAfterAuthenticationClosesWithPolicyViolation() {
 		when(jwtTokenProvider.parseAccessTokenUserId("token"))
 			.thenReturn(Optional.of(1L));
@@ -452,6 +531,39 @@ class WaitingRoomWebSocketServiceTest {
 				new WaitingRoomParticipant(
 					"USER:2",
 					"PLAYER",
+					RoomRole.PLAYER,
+					2,
+					false,
+					CalibrationStatus.PENDING,
+					NOW
+				)
+			)
+		);
+	}
+
+	private WaitingRoomSnapshot randomSnapshot(RoomStatus status) {
+		return new WaitingRoomSnapshot(
+			new WaitingRoom(
+				ROOM_ID,
+				RoomType.RANDOM,
+				GameName.EYEFIGHT,
+				null,
+				status,
+				NOW
+			),
+			List.of(
+				new WaitingRoomParticipant(
+					"USER:1",
+					"PLAYER1",
+					RoomRole.PLAYER,
+					1,
+					false,
+					CalibrationStatus.PENDING,
+					NOW
+				),
+				new WaitingRoomParticipant(
+					"USER:2",
+					"PLAYER2",
 					RoomRole.PLAYER,
 					2,
 					false,

@@ -19,6 +19,10 @@ public interface WaitingRoomStore {
 
 	LeaveWaitingRoomResult leaveAtomically(LeaveWaitingRoomCommand command);
 
+	RandomRoomLeaveResult leaveRandomRoomAtomically(
+		LeaveRandomRoomCommand command
+	);
+
 	UpdateCalibrationResult updateCalibrationAtomically(
 		UpdateCalibrationCommand command
 	);
