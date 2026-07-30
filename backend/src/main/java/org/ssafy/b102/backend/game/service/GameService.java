@@ -6,6 +6,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.ssafy.b102.backend.game.dto.response.GameDetailResponse;
 import org.ssafy.b102.backend.game.dto.response.GameListResponse;
 import org.ssafy.b102.backend.game.entity.Game;
+import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.game.entity.PlayMode;
 import org.ssafy.b102.backend.game.exception.GameErrorCode;
 import org.ssafy.b102.backend.game.repository.GameRepository;
 import org.ssafy.b102.backend.global.error.BusinessException;
@@ -41,5 +43,10 @@ public class GameService {
 	@Transactional(readOnly = true)
 	public Optional<Game> findGame(Long gameId) {
 		return gameRepository.findById(gameId);
+	}
+
+	@Transactional(readOnly = true)
+	public boolean supportsPlayMode(GameName gameName, PlayMode playMode) {
+		return gameRepository.existsByGameNameAndPlayMode(gameName, playMode);
 	}
 }

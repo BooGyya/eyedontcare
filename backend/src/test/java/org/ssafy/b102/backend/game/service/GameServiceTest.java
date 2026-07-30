@@ -103,4 +103,18 @@ class GameServiceTest {
 			.satisfies(thrown -> assertThat(((BusinessException) thrown).getErrorCode())
 				.isEqualTo(GameErrorCode.GAME_NOT_FOUND));
 	}
+
+	@Test
+	void supportsPlayModeReturnsTrueForRegisteredMode() {
+		gameRepository.saveAndFlush(Game.of(GameName.EYEFIGHT, PlayMode.INVITE, null));
+
+		assertThat(gameService.supportsPlayMode(GameName.EYEFIGHT, PlayMode.INVITE)).isTrue();
+	}
+
+	@Test
+	void supportsPlayModeReturnsFalseForUnregisteredMode() {
+		gameRepository.saveAndFlush(Game.of(GameName.BLINK, PlayMode.RANDOM, null));
+
+		assertThat(gameService.supportsPlayMode(GameName.BLINK, PlayMode.INVITE)).isFalse();
+	}
 }

@@ -65,7 +65,8 @@ public class SecurityConfig {
                     "/api/v1/auth/login/kakao",
                     "/api/v1/auth/reissue",
                     "/api/v1/match/join",
-                    "/api/v1/game-results"
+                    "/api/v1/game-results",
+                    "/api/v1/waiting-rooms"
                 ).permitAll()
                 .requestMatchers(
                     HttpMethod.DELETE,
