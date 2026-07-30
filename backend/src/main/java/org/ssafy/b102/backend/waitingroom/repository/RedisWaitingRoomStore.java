@@ -30,6 +30,9 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	private static final DefaultRedisScript<Long> CREATE_SCRIPT = script(
 		"redis/waiting-room/create-invite-room.lua"
 	);
+	private static final DefaultRedisScript<Long> CREATE_RANDOM_SCRIPT = script(
+		"redis/waiting-room/create-random-room.lua"
+	);
 	private static final DefaultRedisScript<Long> CLEANUP_SCRIPT = script(
 		"redis/waiting-room/cleanup-failed-create.lua"
 	);
@@ -107,6 +110,37 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	}
 
 	@Override
+	public boolean createRandomRoomAtomically(CreateRandomRoomCommand command) {
+		WaitingRoom room = command.room();
+		List<WaitingRoomParticipant> participants = command.participants();
+		try {
+			Long result = redisTemplate.execute(
+				CREATE_RANDOM_SCRIPT,
+				List.of(roomKey(room.roomId()), participantsKey(room.roomId())),
+				room.roomId().toString(),
+				room.gameName().name(),
+				room.createdAt().toString(),
+				participants.get(0).participantKey(),
+				jsonMapper.writeValueAsString(StoredParticipant.from(participants.get(0))),
+				participants.get(1).participantKey(),
+				jsonMapper.writeValueAsString(StoredParticipant.from(participants.get(1))),
+				Long.toString(command.ttl().toMillis())
+			);
+			if (CREATED_RESULT.equals(result)) {
+				return true;
+			}
+			if (CONFLICT_RESULT.equals(result)) {
+				return false;
+			}
+			throw storeUnavailable();
+		} catch (BusinessException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
 	public Optional<UUID> findRoomIdByInviteCode(String roomCode) {
 		try {
 			String roomId = redisTemplate.opsForValue().get(inviteCodeKey(roomCode));
@@ -164,10 +198,11 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 			RoomType roomType = RoomType.valueOf(requiredField(fields, "roomType"));
 			RoomStatus roomStatus = RoomStatus.valueOf(requiredField(fields, "roomStatus"));
 			String roomCode = (String) fields.get("roomCode");
-			if (roomType != RoomType.INVITE) {
-				throw storeUnavailable();
-			}
-			if (roomCode == null || !roomCode.matches("[0-9]{4}")) {
+			if (
+				(roomType == RoomType.INVITE &&
+					(roomCode == null || !roomCode.matches("[0-9]{4}"))) ||
+				(roomType == RoomType.RANDOM && roomCode != null)
+			) {
 				throw storeUnavailable();
 			}
 			requiredField(fields, "gameName");
@@ -279,6 +314,37 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		try {
 			return UpdateReadyResult.valueOf(result);
 		} catch (IllegalArgumentException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public RandomReadyResult updateRandomReadyAtomically(
+		UpdateReadyCommand command,
+		UUID countdownId,
+		java.time.Instant countdownEndsAt
+	) {
+		String result = executeString(
+			UPDATE_READY_SCRIPT,
+			stateKeys(command.roomId(), command.roomCode()),
+			command.roomId().toString(),
+			"",
+			command.participantKey(),
+			Boolean.toString(command.ready()),
+			Long.toString(command.activeTtl().toMillis()),
+			Integer.toString(command.maxParticipants()),
+			countdownId.toString(),
+			countdownEndsAt.toString()
+		);
+		try {
+			StartScriptResponse response =
+				jsonMapper.readValue(result, StartScriptResponse.class);
+			return new RandomReadyResult(
+				RandomReadyResult.Status.valueOf(response.status()),
+				response.countdownId(),
+				response.countdownEndsAt()
+			);
+		} catch (RuntimeException exception) {
 			throw storeUnavailable();
 		}
 	}
@@ -416,6 +482,9 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	}
 
 	private List<String> stateKeys(UUID roomId, String roomCode) {
+		if (roomCode == null) {
+			return List.of(roomKey(roomId), participantsKey(roomId), "");
+		}
 		return List.of(
 			roomKey(roomId),
 			participantsKey(roomId),

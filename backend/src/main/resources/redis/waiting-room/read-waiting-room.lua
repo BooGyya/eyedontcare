@@ -16,10 +16,14 @@ local room_values = redis.call(
     'countdownId',
     'countdownEndsAt'
 )
-for index = 1, 5 do
+for _, index in ipairs({1, 2, 4, 5}) do
     if room_values[index] == false then
         return cjson.encode({ status = 'CORRUPTED' })
     end
+end
+if (room_values[1] == 'INVITE' and room_values[3] == false)
+    or (room_values[1] == 'RANDOM' and room_values[3] ~= false) then
+    return cjson.encode({ status = 'CORRUPTED' })
 end
 if room_values[4] == 'COUNTDOWN'
     and (room_values[6] == false or room_values[7] == false) then
@@ -49,7 +53,7 @@ return cjson.encode({
         roomId = ARGV[1],
         roomType = room_values[1],
         gameName = room_values[2],
-        roomCode = room_values[3],
+        roomCode = room_values[3] == false and cjson.null or room_values[3],
         roomStatus = room_values[4],
         createdAt = room_values[5],
         countdownId = room_values[6] == false and cjson.null or room_values[6],
