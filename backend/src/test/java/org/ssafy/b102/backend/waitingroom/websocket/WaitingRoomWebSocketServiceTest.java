@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -25,14 +26,18 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketMessage;
 import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
+import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.waitingroom.entity.CalibrationStatus;
 import org.ssafy.b102.backend.waitingroom.entity.RoomRole;
 import org.ssafy.b102.backend.waitingroom.entity.RoomStatus;
 import org.ssafy.b102.backend.waitingroom.entity.RoomType;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoom;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
+import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.StartCommandResult;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.support.WaitingRoomParticipantResolver;
@@ -47,25 +52,32 @@ class WaitingRoomWebSocketServiceTest {
 		Instant.parse("2026-07-30T04:00:00Z");
 
 	private WaitingRoomService waitingRoomService;
+	private WaitingRoomCommandService commandService;
 	private WaitingRoomParticipantResolver participantResolver;
 	private InMemoryWaitingRoomWebSocketSessionRegistry registry;
 	private JwtTokenProvider jwtTokenProvider;
 	private TaskScheduler taskScheduler;
+	private WaitingRoomCountdownCoordinator countdownCoordinator;
 	private WaitingRoomWebSocketService service;
 
 	@BeforeEach
 	void setUp() {
 		waitingRoomService = mock(WaitingRoomService.class);
+		commandService = mock(WaitingRoomCommandService.class);
 		participantResolver = mock(WaitingRoomParticipantResolver.class);
 		registry = new InMemoryWaitingRoomWebSocketSessionRegistry();
 		jwtTokenProvider = mock(JwtTokenProvider.class);
 		taskScheduler = mock(TaskScheduler.class);
 		when(taskScheduler.schedule(any(Runnable.class), any(Instant.class)))
 			.thenReturn(mock(ScheduledFuture.class));
+		countdownCoordinator =
+			new WaitingRoomCountdownCoordinator(taskScheduler);
 		service = new WaitingRoomWebSocketService(
 			waitingRoomService,
+			commandService,
 			participantResolver,
 			registry,
+			countdownCoordinator,
 			jwtTokenProvider,
 			JsonMapper.builder().findAndAddModules().build(),
 			new WaitingRoomWebSocketProperties(
@@ -246,6 +258,130 @@ class WaitingRoomWebSocketServiceTest {
 			.leaveByParticipantKey(ROOM_ID, "USER:2");
 	}
 
+	@Test
+	void authenticatedCalibrationCommandUpdatesOwnParticipantAndBroadcasts() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "회원"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(snapshot(RoomStatus.WAITING));
+		when(
+			commandService.updateCalibration(
+				ROOM_ID,
+				"USER:1",
+				CalibrationStatus.IN_PROGRESS
+			)
+		).thenReturn(true);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+		authenticate(session);
+
+		service.handleMessage(
+			session,
+			"{\"type\":\"CALIBRATION_STATUS\","
+				+ "\"calibrationStatus\":\"IN_PROGRESS\"}"
+		);
+
+		verify(commandService).updateCalibration(
+			ROOM_ID,
+			"USER:1",
+			CalibrationStatus.IN_PROGRESS
+		);
+		assertThat(session.lastSentPayload()).contains("\"type\":\"ROOM_STATE\"");
+		assertThat(session.closeStatus()).isNull();
+	}
+
+	@Test
+	void businessValidationErrorKeepsSocketOpen() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "회원"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(snapshot(RoomStatus.WAITING));
+		doThrow(new BusinessException(WaitingRoomErrorCode.CALIBRATION_REQUIRED))
+			.when(commandService)
+			.updateReady(ROOM_ID, "USER:1", true);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+		authenticate(session);
+
+		service.handleMessage(
+			session,
+			"{\"type\":\"READY_STATUS\",\"isReady\":true}"
+		);
+
+		assertThat(session.lastSentPayload()).contains("WAITING-013");
+		assertThat(session.closeStatus()).isNull();
+		assertThat(registry.findBySessionId("s1")).isPresent();
+	}
+
+	@Test
+	void malformedCommandAfterAuthenticationClosesWithPolicyViolation() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "회원"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(snapshot(RoomStatus.WAITING));
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+		authenticate(session);
+
+		service.handleMessage(
+			session,
+			"{\"type\":\"START_GAME\",\"participantKey\":\"USER:2\"}"
+		);
+
+		assertThat(session.lastSentPayload()).contains("WAITING-011");
+		assertThat(session.closeStatus())
+			.isEqualTo(CloseStatus.POLICY_VIOLATION);
+	}
+
+	@Test
+	void countdownCompletionSendsGameStartAndClosesWithoutLeave() {
+		Instant endsAt = NOW.plusSeconds(3);
+		UUID countdownId =
+			UUID.fromString("d93c76b2-7f78-4275-b8af-7cdd921bbb4f");
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "회원"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(
+				snapshot(RoomStatus.WAITING),
+				snapshot(RoomStatus.WAITING),
+				snapshot(RoomStatus.COUNTDOWN),
+				snapshot(RoomStatus.IN_GAME)
+			);
+		when(commandService.startGame(ROOM_ID, "USER:1"))
+			.thenReturn(
+				new StartCommandResult(true, "0123", countdownId, endsAt)
+			);
+		when(
+			commandService.completeCountdown(
+				ROOM_ID,
+				"0123",
+				countdownId,
+				endsAt
+			)
+		).thenReturn(true);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+		authenticate(session);
+		ArgumentCaptor<Runnable> completion =
+			ArgumentCaptor.forClass(Runnable.class);
+		when(taskScheduler.schedule(completion.capture(), eq(endsAt)))
+			.thenReturn(mock(ScheduledFuture.class));
+
+		service.handleMessage(session, "{\"type\":\"START_GAME\"}");
+		completion.getValue().run();
+
+		assertThat(session.sentPayloads())
+			.anySatisfy(payload -> assertThat(payload).contains("\"type\":\"GAME_START\""));
+		assertThat(session.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(registry.findBySessionId("s1")).isEmpty();
+		verify(waitingRoomService, never())
+			.leaveByParticipantKey(ROOM_ID, "USER:1");
+	}
+
 	private void authenticate(StubWebSocketSession session) {
 		authenticate(session, "token");
 	}
@@ -262,6 +398,12 @@ class WaitingRoomWebSocketServiceTest {
 	}
 
 	private WaitingRoomSnapshot snapshot(RoomStatus status) {
+		UUID countdownId = status == RoomStatus.COUNTDOWN
+			? UUID.fromString("d93c76b2-7f78-4275-b8af-7cdd921bbb4f")
+			: null;
+		Instant countdownEndsAt = status == RoomStatus.COUNTDOWN
+			? NOW.plusSeconds(3)
+			: null;
 		return new WaitingRoomSnapshot(
 			new WaitingRoom(
 				ROOM_ID,
@@ -269,7 +411,9 @@ class WaitingRoomWebSocketServiceTest {
 				GameName.EYEFIGHT,
 				"0123",
 				status,
-				NOW
+				NOW,
+				countdownId,
+				countdownEndsAt
 			),
 			List.of(
 				new WaitingRoomParticipant(

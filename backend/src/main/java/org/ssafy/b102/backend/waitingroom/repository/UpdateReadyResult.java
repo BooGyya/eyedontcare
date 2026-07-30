@@ -1,12 +1,12 @@
 package org.ssafy.b102.backend.waitingroom.repository;
 
-public enum LeaveWaitingRoomResult {
+public enum UpdateReadyResult {
 
-	LEFT,
-	ROOM_CLOSED,
-	ALREADY_CLOSED,
-	NOT_JOINABLE,
+	UPDATED,
+	UNCHANGED,
 	ROOM_NOT_FOUND,
 	PARTICIPANT_NOT_FOUND,
+	CALIBRATION_REQUIRED,
+	STATE_CHANGE_NOT_ALLOWED,
 	CORRUPTED
 }

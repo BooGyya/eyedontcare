@@ -4,5 +4,6 @@ public enum RoomStatus {
 
 	WAITING,
 	COUNTDOWN,
+	IN_GAME,
 	CLOSED
 }

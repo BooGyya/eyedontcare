@@ -13,6 +13,7 @@ public record WaitingRoomRoomState(
 	String gameName,
 	String roomCode,
 	String roomStatus,
+	Instant countdownEndsAt,
 	List<WaitingRoomParticipantResponse> participants,
 	Instant createdAt
 ) {
@@ -24,6 +25,10 @@ public record WaitingRoomRoomState(
 			snapshot.room().gameName().name(),
 			snapshot.room().roomCode(),
 			snapshot.room().roomStatus().name(),
+			snapshot.room().roomStatus() ==
+				org.ssafy.b102.backend.waitingroom.entity.RoomStatus.COUNTDOWN
+				? snapshot.room().countdownEndsAt()
+				: null,
 			snapshot.participants().stream()
 				.sorted(Comparator.comparingInt(participant -> participant.slotNo()))
 				.map(WaitingRoomParticipantResponse::from)

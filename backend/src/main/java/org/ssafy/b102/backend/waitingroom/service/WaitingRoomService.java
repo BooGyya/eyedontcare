@@ -271,6 +271,10 @@ public class WaitingRoomService {
 			case LEFT, ROOM_CLOSED, ALREADY_CLOSED -> {
 				return result;
 			}
+			case NOT_JOINABLE ->
+				throw new BusinessException(
+					WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE
+				);
 			case ROOM_NOT_FOUND ->
 				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND);
 			case PARTICIPANT_NOT_FOUND ->

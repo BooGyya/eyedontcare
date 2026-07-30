@@ -550,6 +550,164 @@ class RedisWaitingRoomStoreIntegrationTest {
 		}
 	}
 
+	@Test
+	void stateCommandsAtomicallyReachCountdownAndInGame() {
+		setupFullRoom();
+		completeCalibration("USER:1");
+		completeCalibration("GUEST:one");
+		assertThat(
+			store.updateReadyAtomically(
+				new UpdateReadyCommand(
+					ROOM_ID,
+					"0123",
+					"GUEST:one",
+					true,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateReadyResult.UPDATED);
+
+		UUID countdownId =
+			UUID.fromString("9e3c76b2-7f78-4275-b8af-7cdd921bbb4f");
+		Instant countdownEndsAt =
+			Instant.parse("2026-07-30T04:02:03Z");
+		StartInviteGameCommand start = new StartInviteGameCommand(
+			ROOM_ID,
+			"0123",
+			"USER:1",
+			countdownId,
+			countdownEndsAt,
+			2,
+			TTL
+		);
+
+		StartInviteGameResult started = store.startInviteGameAtomically(start);
+		StartInviteGameResult duplicate = store.startInviteGameAtomically(start);
+
+		assertThat(started.status())
+			.isEqualTo(StartInviteGameResult.Status.STARTED);
+		assertThat(duplicate.status())
+			.isEqualTo(StartInviteGameResult.Status.ALREADY_COUNTDOWN);
+		assertThat(duplicate.countdownId()).isEqualTo(countdownId);
+		assertThat(store.findSnapshot(ROOM_ID).orElseThrow().room())
+			.satisfies(room -> {
+				assertThat(room.roomStatus()).isEqualTo(RoomStatus.COUNTDOWN);
+				assertThat(room.countdownEndsAt()).isEqualTo(countdownEndsAt);
+			});
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isTrue();
+
+		assertThat(
+			store.completeCountdownAtomically(
+				new CompleteCountdownCommand(
+					ROOM_ID,
+					"0123",
+					countdownId,
+					countdownEndsAt,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(CompleteCountdownResult.STARTED);
+		assertThat(store.findSnapshot(ROOM_ID).orElseThrow().room())
+			.satisfies(room -> {
+				assertThat(room.roomStatus()).isEqualTo(RoomStatus.IN_GAME);
+				assertThat(room.countdownId()).isNull();
+				assertThat(room.countdownEndsAt()).isNull();
+			});
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+		assertThat(store.leaveAtomically(leaveCommand("USER:1")))
+			.isEqualTo(LeaveWaitingRoomResult.NOT_JOINABLE);
+	}
+
+	@Test
+	void recalibrationClearsReadyAndRollbackRestoresWaiting() {
+		setupFullRoom();
+		completeCalibration("USER:1");
+		completeCalibration("GUEST:one");
+		store.updateReadyAtomically(
+			new UpdateReadyCommand(
+				ROOM_ID,
+				"0123",
+				"GUEST:one",
+				true,
+				2,
+				TTL
+			)
+		);
+
+		assertThat(
+			store.updateCalibrationAtomically(
+				new UpdateCalibrationCommand(
+					ROOM_ID,
+					"0123",
+					"GUEST:one",
+					CalibrationStatus.IN_PROGRESS,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateCalibrationResult.UPDATED);
+		assertThat(
+			store.findSnapshot(ROOM_ID).orElseThrow().participants().stream()
+				.filter(participant ->
+					participant.participantKey().equals("GUEST:one"))
+				.findFirst()
+				.orElseThrow()
+				.isReady()
+		).isFalse();
+
+		assertThat(
+			store.updateCalibrationAtomically(
+				new UpdateCalibrationCommand(
+					ROOM_ID,
+					"0123",
+					"GUEST:one",
+					CalibrationStatus.COMPLETED,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateCalibrationResult.UPDATED);
+		store.updateReadyAtomically(
+			new UpdateReadyCommand(
+				ROOM_ID,
+				"0123",
+				"GUEST:one",
+				true,
+				2,
+				TTL
+			)
+		);
+		UUID countdownId = UUID.randomUUID();
+		Instant endsAt = Instant.parse("2026-07-30T04:03:03Z");
+		store.startInviteGameAtomically(
+			new StartInviteGameCommand(
+				ROOM_ID,
+				"0123",
+				"USER:1",
+				countdownId,
+				endsAt,
+				2,
+				TTL
+			)
+		);
+
+		assertThat(
+			store.rollbackCountdownAtomically(
+				new RollbackCountdownCommand(
+					ROOM_ID,
+					"0123",
+					countdownId,
+					TTL
+				)
+			)
+		).isEqualTo(RollbackCountdownResult.ROLLED_BACK);
+		assertThat(store.findSnapshot(ROOM_ID).orElseThrow().room().roomStatus())
+			.isEqualTo(RoomStatus.WAITING);
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isTrue();
+	}
+
 	CreateInviteRoomCommand command() {
 		Instant now = Instant.parse("2026-07-30T04:00:00Z");
 		return new CreateInviteRoomCommand(
@@ -593,6 +751,33 @@ class RedisWaitingRoomStoreIntegrationTest {
 		store.createInviteRoomAtomically(command());
 		assertThat(store.joinInviteRoomAtomically(joinCommand("GUEST:one")).status())
 			.isEqualTo(JoinInviteRoomResult.Status.JOINED);
+	}
+
+	private void completeCalibration(String participantKey) {
+		assertThat(
+			store.updateCalibrationAtomically(
+				new UpdateCalibrationCommand(
+					ROOM_ID,
+					"0123",
+					participantKey,
+					CalibrationStatus.IN_PROGRESS,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateCalibrationResult.UPDATED);
+		assertThat(
+			store.updateCalibrationAtomically(
+				new UpdateCalibrationCommand(
+					ROOM_ID,
+					"0123",
+					participantKey,
+					CalibrationStatus.COMPLETED,
+					2,
+					TTL
+				)
+			)
+		).isEqualTo(UpdateCalibrationResult.UPDATED);
 	}
 
 	private JoinInviteRoomCommand joinCommandWithCapacity(

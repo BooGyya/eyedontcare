@@ -60,6 +60,26 @@ public enum WaitingRoomErrorCode implements ErrorCode {
 		HttpStatus.UNAUTHORIZED,
 		"WAITING-012",
 		"WebSocket 인증 시간이 초과되었습니다."
+	),
+	CALIBRATION_REQUIRED(
+		HttpStatus.BAD_REQUEST,
+		"WAITING-013",
+		"캘리브레이션을 먼저 진행하세요."
+	),
+	STATE_CHANGE_NOT_ALLOWED(
+		HttpStatus.CONFLICT,
+		"WAITING-014",
+		"현재 상태에서는 요청한 상태로 변경할 수 없습니다."
+	),
+	GAME_START_FORBIDDEN(
+		HttpStatus.FORBIDDEN,
+		"WAITING-015",
+		"방장만 게임을 시작할 수 있습니다."
+	),
+	PARTICIPANTS_NOT_READY(
+		HttpStatus.CONFLICT,
+		"WAITING-016",
+		"다른 참가자가 아직 준비되지 않았어요."
 	);
 
 	private final HttpStatus status;

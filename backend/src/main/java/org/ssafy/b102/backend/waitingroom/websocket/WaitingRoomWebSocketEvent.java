@@ -13,4 +13,10 @@ public record WaitingRoomWebSocketEvent<T>(String type, T data) {
 	) {
 		return new WaitingRoomWebSocketEvent<>("ERROR", data);
 	}
+
+	public static WaitingRoomWebSocketEvent<WaitingRoomGameStart> gameStart(
+		WaitingRoomGameStart data
+	) {
+		return new WaitingRoomWebSocketEvent<>("GAME_START", data);
+	}
 }

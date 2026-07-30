@@ -29,6 +29,8 @@ import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.StartCommandResult;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.support.WaitingRoomParticipantResolver;
@@ -42,8 +44,10 @@ public class WaitingRoomWebSocketService {
 	private static final String AUTH_TYPE = "AUTH";
 
 	private final WaitingRoomService waitingRoomService;
+	private final WaitingRoomCommandService commandService;
 	private final WaitingRoomParticipantResolver participantResolver;
 	private final WaitingRoomWebSocketSessionRegistry registry;
+	private final WaitingRoomCountdownCoordinator countdownCoordinator;
 	private final JwtTokenProvider jwtTokenProvider;
 	private final JsonMapper jsonMapper;
 	private final WaitingRoomWebSocketProperties properties;
@@ -55,8 +59,10 @@ public class WaitingRoomWebSocketService {
 	@Autowired
 	public WaitingRoomWebSocketService(
 		WaitingRoomService waitingRoomService,
+		WaitingRoomCommandService commandService,
 		WaitingRoomParticipantResolver participantResolver,
 		WaitingRoomWebSocketSessionRegistry registry,
+		WaitingRoomCountdownCoordinator countdownCoordinator,
 		JwtTokenProvider jwtTokenProvider,
 		JsonMapper jsonMapper,
 		WaitingRoomWebSocketProperties properties,
@@ -65,8 +71,10 @@ public class WaitingRoomWebSocketService {
 	) {
 		this(
 			waitingRoomService,
+			commandService,
 			participantResolver,
 			registry,
+			countdownCoordinator,
 			jwtTokenProvider,
 			jsonMapper,
 			properties,
@@ -77,8 +85,10 @@ public class WaitingRoomWebSocketService {
 
 	WaitingRoomWebSocketService(
 		WaitingRoomService waitingRoomService,
+		WaitingRoomCommandService commandService,
 		WaitingRoomParticipantResolver participantResolver,
 		WaitingRoomWebSocketSessionRegistry registry,
+		WaitingRoomCountdownCoordinator countdownCoordinator,
 		JwtTokenProvider jwtTokenProvider,
 		JsonMapper jsonMapper,
 		WaitingRoomWebSocketProperties properties,
@@ -86,8 +96,10 @@ public class WaitingRoomWebSocketService {
 		Clock clock
 	) {
 		this.waitingRoomService = waitingRoomService;
+		this.commandService = commandService;
 		this.participantResolver = participantResolver;
 		this.registry = registry;
+		this.countdownCoordinator = countdownCoordinator;
 		this.jwtTokenProvider = jwtTokenProvider;
 		this.jsonMapper = jsonMapper;
 		this.properties = properties;
@@ -118,27 +130,43 @@ public class WaitingRoomWebSocketService {
 
 	public void handleMessage(WebSocketSession session, String payload) {
 		PendingAuthentication authentication = pending.get(session.getId());
-		if (authentication == null) {
+		if (authentication != null) {
+			handleAuthentication(authentication, payload);
+			return;
+		}
+		Optional<WaitingRoomConnectionContext> context =
+			registry.findBySessionId(session.getId());
+		if (context.isEmpty()) {
 			reject(session, WaitingRoomErrorCode.INVALID_WEBSOCKET_MESSAGE);
 			return;
 		}
+		handleCommand(context.get(), payload);
+	}
+
+	private void handleAuthentication(
+		PendingAuthentication authentication,
+		String payload
+	) {
 		if (!authentication.claim()) {
 			return;
 		}
-		pending.remove(session.getId(), authentication);
+		pending.remove(authentication.session().getId(), authentication);
 		authentication.cancelTimeout();
 
 		try {
 			authenticateAndRegister(authentication, payload);
 		} catch (BusinessException exception) {
-			reject(session, exception.getErrorCode());
+			reject(authentication.session(), exception.getErrorCode());
 		} catch (RuntimeException exception) {
 			log.error(
 				"대기방 WebSocket 인증 처리에 실패했습니다. roomId={}",
 				authentication.roomId(),
 				exception
 			);
-			reject(session, WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE);
+			reject(
+				authentication.session(),
+				WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+			);
 		}
 	}
 
@@ -256,6 +284,11 @@ public class WaitingRoomWebSocketService {
 				WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE
 			);
 		}
+		if (snapshot.room().roomStatus() == RoomStatus.IN_GAME) {
+			throw new BusinessException(
+				WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE
+			);
+		}
 		if (
 			snapshot.room().roomStatus() != RoomStatus.WAITING &&
 			snapshot.room().roomStatus() != RoomStatus.COUNTDOWN
@@ -301,6 +334,9 @@ public class WaitingRoomWebSocketService {
 					context.roomId(),
 					context.participantKey()
 				);
+			if (result == LeaveWaitingRoomResult.ROOM_CLOSED) {
+				countdownCoordinator.cancel(context.roomId());
+			}
 			if (result != LeaveWaitingRoomResult.ALREADY_CLOSED) {
 				broadcastLatestState(context.roomId());
 			}
@@ -351,6 +387,243 @@ public class WaitingRoomWebSocketService {
 		if (snapshot.room().roomStatus() == RoomStatus.CLOSED) {
 			closeRoomSessions(roomId);
 		}
+	}
+
+	private void handleCommand(
+		WaitingRoomConnectionContext context,
+		String payload
+	) {
+		try {
+			WaitingRoomCommandTypeFrame typeFrame =
+				jsonMapper.readValue(payload, WaitingRoomCommandTypeFrame.class);
+			if (typeFrame == null || !hasText(typeFrame.getType())) {
+				throw invalidMessage();
+			}
+			switch (typeFrame.getType()) {
+				case "CALIBRATION_STATUS" ->
+					handleCalibration(context, payload);
+				case "READY_STATUS" -> handleReady(context, payload);
+				case "START_GAME" -> handleStartGame(context, payload);
+				default -> throw invalidMessage();
+			}
+		} catch (BusinessException exception) {
+			if (
+				exception.getErrorCode() ==
+				WaitingRoomErrorCode.INVALID_WEBSOCKET_MESSAGE
+			) {
+				reject(context.session(), exception.getErrorCode());
+			} else if (exception.getErrorCode().status().is5xxServerError()) {
+				reject(context.session(), exception.getErrorCode());
+			} else {
+				sendError(context.session(), exception.getErrorCode());
+			}
+		} catch (RuntimeException exception) {
+			reject(
+				context.session(),
+				WaitingRoomErrorCode.INVALID_WEBSOCKET_MESSAGE
+			);
+		}
+	}
+
+	private void handleCalibration(
+		WaitingRoomConnectionContext context,
+		String payload
+	) {
+		CalibrationStatusFrame frame = readFrame(
+			payload,
+			CalibrationStatusFrame.class
+		);
+		if (
+			frame.hasUnknownFields() ||
+			!"CALIBRATION_STATUS".equals(frame.getType()) ||
+			frame.getCalibrationStatus() == null
+		) {
+			throw invalidMessage();
+		}
+		boolean changed = commandService.updateCalibration(
+			context.roomId(),
+			context.participantKey(),
+			frame.getCalibrationStatus()
+		);
+		if (changed) {
+			broadcastLatestState(context.roomId());
+		}
+	}
+
+	private void handleReady(
+		WaitingRoomConnectionContext context,
+		String payload
+	) {
+		ReadyStatusFrame frame = readFrame(payload, ReadyStatusFrame.class);
+		if (
+			frame.hasUnknownFields() ||
+			!"READY_STATUS".equals(frame.getType()) ||
+			frame.getIsReady() == null
+		) {
+			throw invalidMessage();
+		}
+		boolean changed = commandService.updateReady(
+			context.roomId(),
+			context.participantKey(),
+			frame.getIsReady()
+		);
+		if (changed) {
+			broadcastLatestState(context.roomId());
+		}
+	}
+
+	private void handleStartGame(
+		WaitingRoomConnectionContext context,
+		String payload
+	) {
+		StartGameFrame frame = readFrame(payload, StartGameFrame.class);
+		if (
+			frame.hasUnknownFields() ||
+			!"START_GAME".equals(frame.getType())
+		) {
+			throw invalidMessage();
+		}
+		StartCommandResult result = commandService.startGame(
+			context.roomId(),
+			context.participantKey()
+		);
+		boolean scheduled;
+		try {
+			scheduled = countdownCoordinator.scheduleIfAbsent(
+				context.roomId(),
+				result.countdownEndsAt(),
+				() -> completeCountdown(context.roomId(), result)
+			);
+		} catch (RuntimeException exception) {
+			handleScheduleFailure(context, result, exception);
+			return;
+		}
+		if (result.started() && scheduled) {
+			broadcastLatestState(context.roomId());
+		}
+	}
+
+	private void handleScheduleFailure(
+		WaitingRoomConnectionContext context,
+		StartCommandResult result,
+		RuntimeException cause
+	) {
+		log.error(
+			"대기방 countdown task 등록에 실패했습니다. roomId={}",
+			context.roomId(),
+			cause
+		);
+		try {
+			if (
+				commandService.rollbackCountdown(
+					context.roomId(),
+					result.roomCode(),
+					result.countdownId()
+				)
+			) {
+				sendError(
+					context.session(),
+					WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+				);
+				broadcastLatestState(context.roomId());
+				return;
+			}
+		} catch (RuntimeException exception) {
+			log.error(
+				"대기방 countdown rollback에 실패했습니다. roomId={}",
+				context.roomId(),
+				exception
+			);
+		}
+		closeRoomWithInternalError(context.roomId());
+	}
+
+	private void completeCountdown(
+		UUID roomId,
+		StartCommandResult result
+	) {
+		try {
+			if (
+				!commandService.completeCountdown(
+					roomId,
+					result.roomCode(),
+					result.countdownId(),
+					result.countdownEndsAt()
+				)
+			) {
+				return;
+			}
+			WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(roomId);
+			sendGameStartAndClose(snapshot);
+		} catch (RuntimeException exception) {
+			log.error(
+				"대기방 countdown 완료 처리에 실패했습니다. roomId={}",
+				roomId,
+				exception
+			);
+			closeRoomWithInternalError(roomId);
+		}
+	}
+
+	private void sendGameStartAndClose(WaitingRoomSnapshot snapshot) {
+		WaitingRoomWebSocketEvent<WaitingRoomGameStart> event =
+			WaitingRoomWebSocketEvent.gameStart(
+				new WaitingRoomGameStart(
+					snapshot.room().roomId(),
+					snapshot.room().gameName(),
+					clock.instant()
+				)
+			);
+		for (
+			WaitingRoomConnectionContext context :
+				registry.findByRoomId(snapshot.room().roomId())
+		) {
+			try {
+				send(context.session(), event);
+			} catch (RuntimeException exception) {
+				log.warn(
+					"대기방 GAME_START 전송에 실패했습니다. roomId={}",
+					snapshot.room().roomId()
+				);
+			} finally {
+				registry.markSuppressLeave(context.sessionId());
+				registry.unregister(context.sessionId());
+				close(context.session(), CloseStatus.NORMAL);
+			}
+		}
+	}
+
+	private void closeRoomWithInternalError(UUID roomId) {
+		for (WaitingRoomConnectionContext context : registry.findByRoomId(roomId)) {
+			try {
+				sendError(
+					context.session(),
+					WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+				);
+			} catch (RuntimeException ignored) {
+				// 전체 room 정리를 계속한다.
+			}
+			registry.markSuppressLeave(context.sessionId());
+			registry.unregister(context.sessionId());
+			close(context.session(), CloseStatus.SERVER_ERROR);
+		}
+	}
+
+	private <T> T readFrame(String payload, Class<T> type) {
+		try {
+			return jsonMapper.readValue(payload, type);
+		} catch (RuntimeException exception) {
+			throw invalidMessage();
+		}
+	}
+
+	private void sendError(WebSocketSession session, ErrorCode errorCode) {
+		send(
+			session,
+			WaitingRoomWebSocketEvent.error(
+				WaitingRoomWebSocketError.from(errorCode)
+			)
+		);
 	}
 
 	private void closeRoomSessions(UUID roomId) {
