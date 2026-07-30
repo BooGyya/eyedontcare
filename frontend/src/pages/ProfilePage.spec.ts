@@ -44,18 +44,17 @@ describe('ProfilePage', () => {
     expect(wrapper.findAll('[role="radio"]')).toHaveLength(0)
   })
 
-  it('shows password confirmation feedback in the profile editor', async () => {
+  it('no longer shows a password confirmation field in the profile editor', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
     const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
 
     await wrapper.get('.profile-page__edit-button').trigger('click')
-    const passwordInputs = wrapper.findAll('input[type="password"]')
-    await passwordInputs[0].setValue('new-password')
-    await passwordInputs[1].setValue('different-password')
 
-    expect(wrapper.text()).toContain('비밀번호가 일치하지 않아요.')
+    const editor = wrapper.find('.profile-page__editor')
+    expect(editor.findAll('input[type="password"]')).toHaveLength(0)
+    expect(editor.text()).not.toContain('새 비밀번호')
   })
 
   it('updates the navigation nickname after the profile nickname is saved', async () => {
@@ -89,6 +88,73 @@ describe('ProfilePage', () => {
     confirmButton?.click()
     await flushPromises()
     expect(document.body.querySelector('.game-result-modal')).toBeNull()
+  })
+
+  it('changes password through the account dialog', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+
+    await wrapper.get('.profile-page__account-actions button').trigger('click')
+
+    const dialog = document.body.querySelector('.profile-dialog')
+    expect(dialog?.textContent).toContain('비밀번호 변경')
+    const passwordInputs = document.body.querySelectorAll<HTMLInputElement>(
+      '.profile-dialog input[type="password"]',
+    )
+    expect(passwordInputs).toHaveLength(3)
+
+    const confirmButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '.profile-dialog__actions button',
+      ),
+    ).find((button) => button.textContent?.includes('변경하기'))
+
+    confirmButton?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.profile-dialog')).not.toBeNull()
+
+    passwordInputs[0].value = 'current-pw'
+    passwordInputs[0].dispatchEvent(new Event('input'))
+    passwordInputs[1].value = 'new-pw'
+    passwordInputs[1].dispatchEvent(new Event('input'))
+    passwordInputs[2].value = 'new-pw'
+    passwordInputs[2].dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    confirmButton?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.profile-dialog')).toBeNull()
+  })
+
+  it('confirms before withdrawing', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+
+    await wrapper.get('.profile-page__withdraw-button').trigger('click')
+
+    const dialog = document.body.querySelector('.profile-dialog')
+    expect(dialog?.textContent).toContain('정말 탈퇴하시겠어요?')
+
+    const cancelButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '.profile-dialog__actions button',
+      ),
+    ).find((button) => button.textContent?.includes('취소'))
+    cancelButton?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.profile-dialog')).toBeNull()
+
+    await wrapper.get('.profile-page__withdraw-button').trigger('click')
+    const dangerButton = document.body.querySelector<HTMLButtonElement>(
+      '.profile-dialog__danger-button',
+    )
+    dangerButton?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.profile-dialog')).toBeNull()
   })
 
   it('keeps the header profile menu route to the profile page', async () => {
