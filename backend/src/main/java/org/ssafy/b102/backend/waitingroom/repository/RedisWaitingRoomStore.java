@@ -42,6 +42,8 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	private static final DefaultRedisScript<String> LEAVE_SCRIPT = stringScript(
 		"redis/waiting-room/leave-waiting-room.lua"
 	);
+	private static final DefaultRedisScript<String> LEAVE_RANDOM_SCRIPT =
+		stringScript("redis/waiting-room/leave-random-room.lua");
 	private static final DefaultRedisScript<String> READ_SCRIPT = stringScript(
 		"redis/waiting-room/read-waiting-room.lua"
 	);
@@ -273,6 +275,39 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 			return LeaveWaitingRoomResult.valueOf(result);
 		} catch (BusinessException exception) {
 			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public RandomRoomLeaveResult leaveRandomRoomAtomically(
+		LeaveRandomRoomCommand command
+	) {
+		String rawResult = executeString(
+			LEAVE_RANDOM_SCRIPT,
+			List.of(roomKey(command.roomId()), participantsKey(command.roomId())),
+			command.roomId().toString(),
+			command.participantKey(),
+			Long.toString(command.closedTtl().toMillis())
+		);
+		try {
+			RandomLeaveScriptResponse response =
+				jsonMapper.readValue(rawResult, RandomLeaveScriptResponse.class);
+			RandomRoomLeaveResult.Status status =
+				RandomRoomLeaveResult.Status.valueOf(response.status());
+			return new RandomRoomLeaveResult(
+				status,
+				response.roomId() == null ? null : UUID.fromString(response.roomId()),
+				response.gameName() == null
+					? null
+					: GameName.valueOf(response.gameName()),
+				response.quitterParticipantKey(),
+				response.remainingParticipantKey(),
+				response.previousRoomStatus() == null
+					? null
+					: RoomStatus.valueOf(response.previousRoomStatus())
+			);
 		} catch (RuntimeException exception) {
 			throw storeUnavailable();
 		}
@@ -578,6 +613,16 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		String status,
 		UUID countdownId,
 		java.time.Instant countdownEndsAt
+	) {
+	}
+
+	record RandomLeaveScriptResponse(
+		String status,
+		String roomId,
+		String gameName,
+		String quitterParticipantKey,
+		String remainingParticipantKey,
+		String previousRoomStatus
 	) {
 	}
 

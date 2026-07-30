@@ -167,6 +167,43 @@ class RedisWaitingRoomStoreIntegrationTest {
 	}
 
 	@Test
+	void randomLeaveClosesRoomAndPreservesBothParticipants() {
+		createRandomRoom();
+
+		RandomRoomLeaveResult result = store.leaveRandomRoomAtomically(
+			new LeaveRandomRoomCommand(ROOM_ID, "USER:1", Duration.ofSeconds(30))
+		);
+
+		assertThat(result.status())
+			.isEqualTo(RandomRoomLeaveResult.Status.CLOSED_NOW);
+		assertThat(result.quitterParticipantKey()).isEqualTo("USER:1");
+		assertThat(result.remainingParticipantKey())
+			.isEqualTo("GUEST:00000000-0000-0000-0000-000000000002");
+		assertThat(result.previousRoomStatus()).isEqualTo(RoomStatus.WAITING);
+		WaitingRoomSnapshot snapshot = store.findSnapshot(ROOM_ID).orElseThrow();
+		assertThat(snapshot.room().roomStatus()).isEqualTo(RoomStatus.CLOSED);
+		assertThat(snapshot.room().roomCode()).isNull();
+		assertThat(snapshot.participants()).hasSize(2);
+		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.SECONDS))
+			.isBetween(25L, 30L);
+		assertThat(redisTemplate.getExpire(PARTICIPANTS_KEY, TimeUnit.SECONDS))
+			.isBetween(25L, 30L);
+
+		Long ttlBefore = redisTemplate.getExpire(ROOM_KEY, TimeUnit.MILLISECONDS);
+		assertThat(
+			store.leaveRandomRoomAtomically(
+				new LeaveRandomRoomCommand(
+					ROOM_ID,
+					"USER:1",
+					Duration.ofSeconds(30)
+				)
+			).status()
+		).isEqualTo(RandomRoomLeaveResult.Status.ALREADY_CLOSED);
+		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.MILLISECONDS))
+			.isLessThanOrEqualTo(ttlBefore);
+	}
+
+	@Test
 	void inviteCodeConflictDoesNotCreateRoomOrParticipant() {
 		redisTemplate.opsForValue().set(INVITE_CODE_KEY, "other-room", TTL);
 
@@ -909,6 +946,34 @@ class RedisWaitingRoomStoreIntegrationTest {
 			CalibrationStatus.PENDING,
 			joinedAt
 		);
+	}
+
+	private void createRandomRoom() {
+		Instant createdAt = Instant.parse("2026-07-30T04:00:00Z");
+		WaitingRoom room = new WaitingRoom(
+			ROOM_ID,
+			RoomType.RANDOM,
+			GameName.EYEFIGHT,
+			null,
+			RoomStatus.WAITING,
+			createdAt
+		);
+		assertThat(
+			store.createRandomRoomAtomically(
+				new CreateRandomRoomCommand(
+					room,
+					List.of(
+						randomParticipant("USER:1", 1, createdAt),
+						randomParticipant(
+							"GUEST:00000000-0000-0000-0000-000000000002",
+							2,
+							createdAt
+						)
+					),
+					TTL
+				)
+			)
+		).isTrue();
 	}
 
 	private void completeRandomCalibration(String participantKey) {

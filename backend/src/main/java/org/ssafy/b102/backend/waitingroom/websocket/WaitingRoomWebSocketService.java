@@ -30,12 +30,16 @@ import org.ssafy.b102.backend.waitingroom.entity.RoomType;
 import org.ssafy.b102.backend.waitingroom.entity.WaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.RandomRoomLeaveResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
+import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequester;
+import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequestResult;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.StartCommandResult;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomCommandService.ReadyCommandResult;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomLifecyclePort;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomLeaveOutcome;
 import org.ssafy.b102.backend.waitingroom.support.ResolvedWaitingRoomParticipant;
 import org.ssafy.b102.backend.waitingroom.support.WaitingRoomParticipantResolver;
 import tools.jackson.databind.json.JsonMapper;
@@ -58,6 +62,7 @@ public class WaitingRoomWebSocketService {
 	private final TaskScheduler taskScheduler;
 	private final Clock clock;
 	private final ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider;
+	private final ObjectProvider<RandomRematchRequester> rematchRequesterProvider;
 	private final ConcurrentMap<String, PendingAuthentication> pending =
 		new ConcurrentHashMap<>();
 
@@ -73,7 +78,8 @@ public class WaitingRoomWebSocketService {
 		WaitingRoomWebSocketProperties properties,
 		@Qualifier("waitingRoomWebSocketTaskScheduler")
 		TaskScheduler taskScheduler,
-		ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider
+		ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider,
+		ObjectProvider<RandomRematchRequester> rematchRequesterProvider
 	) {
 		this(
 			waitingRoomService,
@@ -86,7 +92,8 @@ public class WaitingRoomWebSocketService {
 			properties,
 			taskScheduler,
 			Clock.systemUTC(),
-			lifecyclePortProvider
+			lifecyclePortProvider,
+			rematchRequesterProvider
 		);
 	}
 
@@ -113,6 +120,7 @@ public class WaitingRoomWebSocketService {
 			properties,
 			taskScheduler,
 			clock,
+			null,
 			null
 		);
 	}
@@ -128,7 +136,8 @@ public class WaitingRoomWebSocketService {
 		WaitingRoomWebSocketProperties properties,
 		TaskScheduler taskScheduler,
 		Clock clock,
-		ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider
+		ObjectProvider<RandomRoomLifecyclePort> lifecyclePortProvider,
+		ObjectProvider<RandomRematchRequester> rematchRequesterProvider
 	) {
 		this.waitingRoomService = waitingRoomService;
 		this.commandService = commandService;
@@ -141,6 +150,17 @@ public class WaitingRoomWebSocketService {
 		this.taskScheduler = taskScheduler;
 		this.clock = clock;
 		this.lifecyclePortProvider = lifecyclePortProvider;
+		this.rematchRequesterProvider = rematchRequesterProvider;
+	}
+
+	public void leaveFromRest(
+		UUID roomId,
+		AuthenticatedUser member,
+		UUID guestSessionId
+	) {
+		handleLeaveOutcome(
+			waitingRoomService.leave(roomId, member, guestSessionId)
+		);
 	}
 
 	public void connectionEstablished(
@@ -371,16 +391,25 @@ public class WaitingRoomWebSocketService {
 			return;
 		}
 		try {
-			LeaveWaitingRoomResult result =
-				waitingRoomService.leaveByParticipantKey(
+			WaitingRoomLeaveOutcome outcome =
+				waitingRoomService.leaveWithOutcomeByParticipantKey(
 					context.roomId(),
 					context.participantKey()
 				);
-			if (result == LeaveWaitingRoomResult.ROOM_CLOSED) {
-				countdownCoordinator.cancel(context.roomId());
+			if (outcome == null) {
+				handleLegacyInviteLeave(context);
+				return;
 			}
-			if (result != LeaveWaitingRoomResult.ALREADY_CLOSED) {
-				broadcastLatestState(context.roomId());
+			if (outcome.roomType() == RoomType.INVITE) {
+				LeaveWaitingRoomResult result = outcome.inviteResult();
+				if (result == LeaveWaitingRoomResult.ROOM_CLOSED) {
+					countdownCoordinator.cancel(context.roomId());
+				}
+				if (result != LeaveWaitingRoomResult.ALREADY_CLOSED) {
+					broadcastLatestState(context.roomId());
+				}
+			} else {
+				handleLeaveOutcome(outcome);
 			}
 		} catch (BusinessException exception) {
 			if (
@@ -402,6 +431,93 @@ public class WaitingRoomWebSocketService {
 				exception
 			);
 		}
+	}
+
+	private void handleLegacyInviteLeave(
+		WaitingRoomConnectionContext context
+	) {
+		LeaveWaitingRoomResult result =
+			waitingRoomService.leaveByParticipantKey(
+				context.roomId(),
+				context.participantKey()
+			);
+		if (result == LeaveWaitingRoomResult.ROOM_CLOSED) {
+			countdownCoordinator.cancel(context.roomId());
+		}
+		if (result != LeaveWaitingRoomResult.ALREADY_CLOSED) {
+			broadcastLatestState(context.roomId());
+		}
+	}
+
+	private void handleLeaveOutcome(WaitingRoomLeaveOutcome outcome) {
+		if (outcome.roomType() == RoomType.INVITE) {
+			return;
+		}
+		RandomRoomLeaveResult result = outcome.randomResult();
+		if (result.status() == RandomRoomLeaveResult.Status.ALREADY_CLOSED) {
+			return;
+		}
+		if (result.status() != RandomRoomLeaveResult.Status.CLOSED_NOW) {
+			return;
+		}
+		countdownCoordinator.cancel(result.roomId());
+		broadcastRandomClosed(result.roomId());
+		requestRematchIfRemainingSessionAlive(result);
+		closeRoomSessions(result.roomId());
+	}
+
+	private void broadcastRandomClosed(UUID roomId) {
+		WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(roomId);
+		for (WaitingRoomConnectionContext context : registry.findByRoomId(roomId)) {
+			try {
+				sendRoomState(context.session(), snapshot);
+			} catch (RuntimeException exception) {
+				log.warn("랜덤 대기방 CLOSED 상태 전송에 실패했습니다. roomId={}", roomId);
+			}
+		}
+	}
+
+	private void requestRematchIfRemainingSessionAlive(
+		RandomRoomLeaveResult leaveResult
+	) {
+		Optional<WaitingRoomConnectionContext> remaining =
+			registry.findByRoomAndParticipant(
+				leaveResult.roomId(),
+				leaveResult.remainingParticipantKey()
+			);
+		if (
+			remaining.isEmpty() ||
+			!remaining.get().session().isOpen() ||
+			remaining.get().isLeaveSuppressed()
+		) {
+			return;
+		}
+		RandomRematchRequester requester = rematchRequester();
+		if (requester == null) {
+			log.warn(
+				"랜덤 재매칭 adapter가 없습니다. roomId={}, action=requeue",
+				leaveResult.roomId()
+			);
+			return;
+		}
+		try {
+			RandomRematchRequestResult result = requester.requeueRemaining(
+				leaveResult.roomId(),
+				leaveResult.gameName(),
+				leaveResult.remainingParticipantKey()
+			);
+			if (result == RandomRematchRequestResult.FAILED) {
+				log.warn("랜덤 자동 재매칭 요청에 실패했습니다. roomId={}", leaveResult.roomId());
+			}
+		} catch (RuntimeException exception) {
+			log.warn("랜덤 자동 재매칭 adapter 호출에 실패했습니다. roomId={}", leaveResult.roomId());
+		}
+	}
+
+	private RandomRematchRequester rematchRequester() {
+		return rematchRequesterProvider == null
+			? null
+			: rematchRequesterProvider.getIfAvailable();
 	}
 
 	private void broadcastLatestState(UUID roomId) {

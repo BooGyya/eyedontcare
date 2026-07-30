@@ -2,6 +2,8 @@ package org.ssafy.b102.backend.waitingroom.controller;
 
 import jakarta.validation.Valid;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,6 +21,7 @@ import org.ssafy.b102.backend.waitingroom.dto.request.WaitingRoomJoinRequest;
 import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomCreateResponse;
 import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomJoinResponse;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
+import org.ssafy.b102.backend.waitingroom.websocket.WaitingRoomWebSocketService;
 
 @RestController
 @RequestMapping("/api/v1/waiting-rooms")
@@ -27,9 +30,21 @@ public class WaitingRoomController {
 	private static final String GUEST_SESSION_HEADER = "X-Guest-Session-Id";
 
 	private final WaitingRoomService waitingRoomService;
+	private final WaitingRoomWebSocketService waitingRoomWebSocketService;
 
-	public WaitingRoomController(WaitingRoomService waitingRoomService) {
+	@Autowired
+	public WaitingRoomController(
+		WaitingRoomService waitingRoomService,
+		ObjectProvider<WaitingRoomWebSocketService> waitingRoomWebSocketServiceProvider
+	) {
 		this.waitingRoomService = waitingRoomService;
+		this.waitingRoomWebSocketService =
+			waitingRoomWebSocketServiceProvider.getIfAvailable();
+	}
+
+	WaitingRoomController(WaitingRoomService waitingRoomService) {
+		this.waitingRoomService = waitingRoomService;
+		this.waitingRoomWebSocketService = null;
 	}
 
 	@PostMapping
@@ -72,7 +87,15 @@ public class WaitingRoomController {
 		@AuthenticationPrincipal AuthenticatedUser member,
 		@RequestHeader(value = GUEST_SESSION_HEADER, required = false) UUID guestSessionId
 	) {
-		waitingRoomService.leave(roomId, member, guestSessionId);
+		if (waitingRoomWebSocketService == null) {
+			waitingRoomService.leave(roomId, member, guestSessionId);
+		} else {
+			waitingRoomWebSocketService.leaveFromRest(
+				roomId,
+				member,
+				guestSessionId
+			);
+		}
 
 		return ResponseEntity.ok(
 			ApiResponse.success(

@@ -31,6 +31,8 @@ import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.JoinInviteRoomResult;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.LeaveRandomRoomCommand;
+import org.ssafy.b102.backend.waitingroom.repository.RandomRoomLeaveResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomMetadata;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomStore;
@@ -184,7 +186,7 @@ public class WaitingRoomService {
 		};
 	}
 
-	public void leave(
+	public WaitingRoomLeaveOutcome leave(
 		UUID roomId,
 		AuthenticatedUser member,
 		UUID guestSessionId
@@ -193,14 +195,27 @@ public class WaitingRoomService {
 		ResolvedWaitingRoomParticipant identity =
 			participantResolver.resolveExisting(member, guestSessionId);
 
-		leaveByParticipantKey(roomId, identity.participantKey(), metadata);
+		return leaveWithOutcome(roomId, identity.participantKey(), metadata);
 	}
 
 	public LeaveWaitingRoomResult leaveByParticipantKey(
 		UUID roomId,
 		String participantKey
 	) {
-		return leaveByParticipantKey(
+		WaitingRoomMetadata metadata = findRoomMetadata(roomId);
+		if (metadata.roomType() == RoomType.RANDOM) {
+			throw new BusinessException(
+				WaitingRoomErrorCode.STATE_CHANGE_NOT_ALLOWED
+			);
+		}
+		return leaveInviteByParticipantKey(roomId, participantKey, metadata);
+	}
+
+	public WaitingRoomLeaveOutcome leaveWithOutcomeByParticipantKey(
+		UUID roomId,
+		String participantKey
+	) {
+		return leaveWithOutcome(
 			roomId,
 			participantKey,
 			findRoomMetadata(roomId)
@@ -257,16 +272,54 @@ public class WaitingRoomService {
 				new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND));
 	}
 
-	private LeaveWaitingRoomResult leaveByParticipantKey(
+	private WaitingRoomLeaveOutcome leaveWithOutcome(
 		UUID roomId,
 		String participantKey,
 		WaitingRoomMetadata metadata
 	) {
 		if (metadata.roomType() == RoomType.RANDOM) {
-			throw new BusinessException(
-				WaitingRoomErrorCode.STATE_CHANGE_NOT_ALLOWED
+			return WaitingRoomLeaveOutcome.random(
+				leaveRandomByParticipantKey(roomId, participantKey)
 			);
 		}
+		return WaitingRoomLeaveOutcome.invite(
+			leaveInviteByParticipantKey(roomId, participantKey, metadata)
+		);
+	}
+
+	private RandomRoomLeaveResult leaveRandomByParticipantKey(
+		UUID roomId,
+		String participantKey
+	) {
+		RandomRoomLeaveResult result = waitingRoomStore.leaveRandomRoomAtomically(
+			new LeaveRandomRoomCommand(
+				roomId,
+				participantKey,
+				properties.closedTtl()
+			)
+		);
+		return switch (result.status()) {
+			case CLOSED_NOW, ALREADY_CLOSED -> result;
+			case NOT_JOINABLE ->
+				throw new BusinessException(
+					WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE
+				);
+			case ROOM_NOT_FOUND ->
+				throw new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND);
+			case PARTICIPANT_NOT_FOUND ->
+				throw new BusinessException(WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND);
+			case CORRUPTED ->
+				throw new BusinessException(
+					WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
+				);
+		};
+	}
+
+	private LeaveWaitingRoomResult leaveInviteByParticipantKey(
+		UUID roomId,
+		String participantKey,
+		WaitingRoomMetadata metadata
+	) {
 		LeaveWaitingRoomResult result = waitingRoomStore.leaveAtomically(
 			new LeaveWaitingRoomCommand(
 				roomId,

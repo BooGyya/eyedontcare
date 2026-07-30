@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.ssafy.b102.backend.game.service.GameService;
+import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.waitingroom.config.WaitingRoomProperties;
@@ -23,6 +24,8 @@ import org.ssafy.b102.backend.waitingroom.entity.RoomType;
 import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomCommand;
 import org.ssafy.b102.backend.waitingroom.repository.LeaveWaitingRoomResult;
+import org.ssafy.b102.backend.waitingroom.repository.LeaveRandomRoomCommand;
+import org.ssafy.b102.backend.waitingroom.repository.RandomRoomLeaveResult;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomMetadata;
 import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomStore;
 import org.ssafy.b102.backend.waitingroom.support.InviteCodeGenerator;
@@ -104,6 +107,43 @@ class WaitingRoomLeaveServiceTest {
 
 			service.leaveByParticipantKey(ROOM_ID, "USER:1");
 		}
+	}
+
+	@Test
+	void randomLeaveUsesDedicatedStoreAndReturnsStructuredOutcome() {
+		when(store.findRoomMetadata(ROOM_ID))
+			.thenReturn(
+				Optional.of(
+					new WaitingRoomMetadata(
+						ROOM_ID,
+						RoomType.RANDOM,
+						RoomStatus.WAITING,
+						null
+					)
+				)
+			);
+		RandomRoomLeaveResult result = new RandomRoomLeaveResult(
+			RandomRoomLeaveResult.Status.CLOSED_NOW,
+			ROOM_ID,
+			GameName.EYEFIGHT,
+			"USER:1",
+			"USER:2",
+			RoomStatus.WAITING
+		);
+		when(store.leaveRandomRoomAtomically(any())).thenReturn(result);
+
+		WaitingRoomLeaveOutcome outcome =
+			service.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1");
+
+		assertThat(outcome.roomType()).isEqualTo(RoomType.RANDOM);
+		assertThat(outcome.randomResult()).isEqualTo(result);
+		ArgumentCaptor<LeaveRandomRoomCommand> captor =
+			ArgumentCaptor.forClass(LeaveRandomRoomCommand.class);
+		verify(store).leaveRandomRoomAtomically(captor.capture());
+		assertThat(captor.getValue().participantKey()).isEqualTo("USER:1");
+		assertThat(captor.getValue().closedTtl())
+			.isEqualTo(Duration.ofSeconds(30));
+		verify(store, never()).leaveAtomically(any());
 	}
 
 	@Test
