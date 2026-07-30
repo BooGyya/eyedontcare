@@ -4,8 +4,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.ssafy.b102.backend.gameresult.dto.request.SubmitGameResultRequest;
@@ -14,12 +19,14 @@ import org.ssafy.b102.backend.gameresult.exception.GameResultErrorCode;
 import org.ssafy.b102.backend.gameresult.service.GameResultService;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.GlobalExceptionHandler;
+import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 
 class GameResultControllerTest {
 
 	private static final long CREATED_RESULT_ID = 5001L;
-	private static final String PARTICIPANT_KEY_HEADER = "X-Participant-Key";
-	private static final String REQUESTER_KEY = "USER:1";
+	private static final Long MEMBER_USER_ID = 1L;
+	private static final String GUEST_SESSION_HEADER = "X-Guest-Session-Id";
+	private static final String GUEST_ID = "019abcde-5678-4abc-8def-0123456789ab";
 
 	private static final String VALID_BODY = """
 		{
@@ -37,24 +44,54 @@ class GameResultControllerTest {
 		}
 		""";
 
+	@AfterEach
+	void clearSecurityContext() {
+		SecurityContextHolder.clearContext();
+	}
+
 	@Test
-	void submitReturnsCreatedWithResultId() throws Exception {
+	void memberSubmitReturnsCreatedWithResultId() throws Exception {
+		authenticateMember();
+
 		mockMvc(new StubGameResultService())
 			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(VALID_BODY))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.code").value("RESULT_SUBMITTED"))
-			.andExpect(jsonPath("$.message").value("게임 결과가 저장되었습니다."))
 			.andExpect(jsonPath("$.data.resultId").value(CREATED_RESULT_ID));
 	}
 
 	@Test
+	void guestSubmitWithSessionHeaderReturnsCreated() throws Exception {
+		mockMvc(new StubGameResultService())
+			.perform(post("/api/v1/game-results")
+				.header(GUEST_SESSION_HEADER, GUEST_ID)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(VALID_BODY))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.resultId").value(CREATED_RESULT_ID));
+	}
+
+	/**
+	 * 회원 토큰도 게스트 세션 헤더도 없으면 제출자를 식별할 수 없어 거절한다.
+	 */
+	@Test
+	void submitWithoutIdentityIsRejected() throws Exception {
+		mockMvc(new StubGameResultService())
+			.perform(post("/api/v1/game-results")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(VALID_BODY))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("GUEST-001"));
+	}
+
+	@Test
 	void submitReturnsConflictWhenPlayIdIsDuplicated() throws Exception {
+		authenticateMember();
+
 		mockMvc(new ThrowingGameResultService(GameResultErrorCode.DUPLICATE_RESULT))
 			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(VALID_BODY))
 			.andExpect(status().isConflict())
@@ -63,9 +100,10 @@ class GameResultControllerTest {
 
 	@Test
 	void submitReturnsNotFoundWhenGameDoesNotExist() throws Exception {
+		authenticateMember();
+
 		mockMvc(new ThrowingGameResultService(GameResultErrorCode.GAME_NOT_FOUND))
 			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(VALID_BODY))
 			.andExpect(status().isNotFound())
@@ -73,16 +111,8 @@ class GameResultControllerTest {
 	}
 
 	@Test
-	void submitReturnsBadRequestWhenParticipantKeyHeaderIsMissing() throws Exception {
-		mockMvc(new StubGameResultService())
-			.perform(post("/api/v1/game-results")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(VALID_BODY))
-			.andExpect(status().isBadRequest());
-	}
-
-	@Test
 	void submitReturnsBadRequestWhenParticipantsAreEmpty() throws Exception {
+		authenticateMember();
 		String body = """
 			{
 			  "playId": "019abcde-1234-4abc-8def-0123456789ab",
@@ -96,7 +126,6 @@ class GameResultControllerTest {
 
 		mockMvc(new StubGameResultService())
 			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(body))
 			.andExpect(status().isBadRequest())
@@ -105,6 +134,7 @@ class GameResultControllerTest {
 
 	@Test
 	void submitReturnsBadRequestWhenPlayIdIsMissing() throws Exception {
+		authenticateMember();
 		String body = """
 			{
 			  "gameId": 1,
@@ -120,30 +150,6 @@ class GameResultControllerTest {
 
 		mockMvc(new StubGameResultService())
 			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(body))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON-001"));
-	}
-
-	@Test
-	void submitReturnsBadRequestWhenPlayPeriodIsMissing() throws Exception {
-		String body = """
-			{
-			  "playId": "019abcde-1234-4abc-8def-0123456789ab",
-			  "gameId": 1,
-			  "participants": [
-			    { "participantKey": "USER:1", "participantType": "USER", "slotNo": 1,
-			      "displayName": "A", "outcome": "WIN", "rank": 1 }
-			  ],
-			  "gameResult": { "durationMs": 60000 }
-			}
-			""";
-
-		mockMvc(new StubGameResultService())
-			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(body))
 			.andExpect(status().isBadRequest())
@@ -152,6 +158,7 @@ class GameResultControllerTest {
 
 	@Test
 	void submitReturnsBadRequestWhenGameResultIsMissing() throws Exception {
+		authenticateMember();
 		String body = """
 			{
 			  "playId": "019abcde-1234-4abc-8def-0123456789ab",
@@ -167,16 +174,26 @@ class GameResultControllerTest {
 
 		mockMvc(new StubGameResultService())
 			.perform(post("/api/v1/game-results")
-				.header(PARTICIPANT_KEY_HEADER, REQUESTER_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(body))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("COMMON-001"));
 	}
 
+	private static void authenticateMember() {
+		SecurityContextHolder.getContext().setAuthentication(
+			new UsernamePasswordAuthenticationToken(
+				new AuthenticatedUser(MEMBER_USER_ID),
+				null,
+				List.of()
+			)
+		);
+	}
+
 	private MockMvc mockMvc(GameResultService gameResultService) {
 		return MockMvcBuilders
 			.standaloneSetup(new GameResultController(gameResultService))
+			.setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
 			.setControllerAdvice(new GlobalExceptionHandler())
 			.build();
 	}
@@ -184,7 +201,7 @@ class GameResultControllerTest {
 	private static class StubGameResultService extends GameResultService {
 
 		private StubGameResultService() {
-			super(null, null);
+			super(null, null, null);
 		}
 
 		@Override

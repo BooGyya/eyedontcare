@@ -866,8 +866,8 @@ class SecurityIntegrationTest {
         mockMvc.perform(
                 post("/api/v1/game-results")
                     .header(
-                        "X-Participant-Key",
-                        "GUEST:abc"
+                        "X-Guest-Session-Id",
+                        "019abcde-5678-4abc-8def-0123456789ab"
                     )
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(GAME_RESULT_BODY)

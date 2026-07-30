@@ -13,7 +13,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
+import java.time.Duration;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.ssafy.b102.backend.guest.config.GuestSessionProperties;
+import org.ssafy.b102.backend.guest.service.GuestSessionService;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.ssafy.b102.backend.game.entity.Game;
 import org.ssafy.b102.backend.game.entity.GameName;
@@ -38,7 +43,13 @@ import org.ssafy.b102.backend.global.error.BusinessException;
 	"spring.sql.init.mode=never"
 })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({JpaAuditingConfig.class, GameResultService.class, GameResultQueryService.class, GameService.class})
+@Import({
+	JpaAuditingConfig.class,
+	GameResultService.class,
+	GameResultQueryService.class,
+	GameService.class,
+	GameResultQueryServiceTest.GuestConfig.class
+})
 @EntityScan(basePackageClasses = {GameResult.class, Game.class})
 @EnableJpaRepositories(basePackageClasses = {GameResultRepository.class, GameRepository.class})
 class GameResultQueryServiceTest {
@@ -207,5 +218,18 @@ class GameResultQueryServiceTest {
 		);
 
 		return gameResultService.submit(OPPONENT_KEY, request).resultId();
+	}
+
+	/**
+	 * 이 테스트는 회원 참가자만 심으므로 게스트 세션은 호출되지 않는다.
+	 * {@link GameResultService}가 빈으로 필요할 뿐이라 최소 구성만 제공한다.
+	 */
+	@TestConfiguration
+	static class GuestConfig {
+
+		@Bean
+		GuestSessionService guestSessionService() {
+			return new GuestSessionService(null, null, new GuestSessionProperties(Duration.ofHours(24)));
+		}
 	}
 }
