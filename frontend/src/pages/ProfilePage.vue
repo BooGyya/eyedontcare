@@ -13,9 +13,12 @@ const nickname = ref(auth.user.nickname)
 const draftNickname = ref(auth.user.nickname)
 const selectedAvatarId = ref(profileData.avatars[0]?.id ?? '')
 const draftAvatarId = ref(selectedAvatarId.value)
-const newPassword = ref('')
-const passwordConfirmation = ref('')
 const isNicknameChecked = ref(false)
+const isPasswordDialogOpen = ref(false)
+const currentPassword = ref('')
+const changePassword = ref('')
+const changePasswordConfirmation = ref('')
+const isWithdrawDialogOpen = ref(false)
 const selectedRecord = ref<GameResultDetail | null>(null)
 const closeButton = ref<globalThis.HTMLButtonElement | null>(null)
 const modalDialog = ref<globalThis.HTMLElement | null>(null)
@@ -29,10 +32,8 @@ const selectedAvatar = computed(
     ) ?? profileData.avatars[0],
 )
 
-const passwordsMatch = computed(
-  () =>
-    passwordConfirmation.value.length > 0 &&
-    newPassword.value === passwordConfirmation.value,
+const changePasswordsMatch = computed(
+  () => changePassword.value === changePasswordConfirmation.value,
 )
 
 watch(selectedRecord, async (record) => {
@@ -125,8 +126,6 @@ function getSummary(record: GameResultDetail) {
 function handleOpenEdit() {
   draftNickname.value = nickname.value
   draftAvatarId.value = selectedAvatarId.value
-  newPassword.value = ''
-  passwordConfirmation.value = ''
   isNicknameChecked.value = false
   isEditing.value = true
 }
@@ -148,11 +147,6 @@ function handleCheckNickname() {
 function handleSaveProfile() {
   if (!isNicknameChecked.value && draftNickname.value !== nickname.value) {
     showToast('닉네임 중복 확인을 먼저 해주세요.')
-    return
-  }
-
-  if (newPassword.value && !passwordsMatch.value) {
-    showToast('새 비밀번호와 확인 비밀번호가 일치하지 않아요.')
     return
   }
 
@@ -212,12 +206,44 @@ function handleModalTab(event: globalThis.KeyboardEvent) {
   }
 }
 
-function handleLogout() {
-  showToast('로그아웃 기능을 준비하고 있어요.')
+function handleOpenPasswordChange() {
+  currentPassword.value = ''
+  changePassword.value = ''
+  changePasswordConfirmation.value = ''
+  isPasswordDialogOpen.value = true
+}
+
+function handleClosePasswordChange() {
+  isPasswordDialogOpen.value = false
+}
+
+function handleSubmitPasswordChange() {
+  if (!currentPassword.value.trim()) {
+    showToast('현재 비밀번호를 입력해 주세요.')
+    return
+  }
+
+  if (!changePassword.value.trim()) {
+    showToast('새 비밀번호를 입력해 주세요.')
+    return
+  }
+
+  if (!changePasswordsMatch.value) {
+    showToast('새 비밀번호와 확인 비밀번호가 일치하지 않아요.')
+    return
+  }
+
+  isPasswordDialogOpen.value = false
+  showToast('비밀번호가 변경되었어요.')
 }
 
 function handleWithdraw() {
-  showToast('탈퇴는 고객센터를 통해 진행할 수 있어요.')
+  isWithdrawDialogOpen.value = true
+}
+
+function handleConfirmWithdraw() {
+  isWithdrawDialogOpen.value = false
+  showToast('탈퇴가 접수되었어요. 그동안 함께해 주셔서 감사합니다.')
 }
 </script>
 
@@ -254,7 +280,7 @@ function handleWithdraw() {
           <span>EDIT PROFILE</span>
           <h2 id="profile-edit-title">프로필 수정</h2>
         </div>
-        <p>닉네임, 프로필 이미지, 비밀번호를 변경할 수 있어요.</p>
+        <p>닉네임과 프로필 이미지를 변경할 수 있어요.</p>
       </header>
       <div class="profile-page__form-grid">
         <label class="profile-page__field">
@@ -272,34 +298,6 @@ function handleWithdraw() {
           </div>
           <small v-if="isNicknameChecked" class="profile-page__success"
             >사용 가능한 닉네임이에요.</small
-          >
-        </label>
-        <label class="profile-page__field"
-          ><span>새 비밀번호</span
-          ><input
-            v-model="newPassword"
-            type="password"
-            autocomplete="new-password"
-            placeholder="변경할 비밀번호를 입력해 주세요"
-        /></label>
-        <label class="profile-page__field">
-          <span>새 비밀번호 확인</span
-          ><input
-            v-model="passwordConfirmation"
-            type="password"
-            autocomplete="new-password"
-            placeholder="비밀번호를 한 번 더 입력해 주세요"
-          />
-          <small
-            v-if="passwordConfirmation"
-            :class="
-              passwordsMatch ? 'profile-page__success' : 'profile-page__error'
-            "
-            >{{
-              passwordsMatch
-                ? '비밀번호가 일치해요.'
-                : '비밀번호가 일치하지 않아요.'
-            }}</small
           >
         </label>
       </div>
@@ -391,8 +389,10 @@ function handleWithdraw() {
         <p>서비스 이용을 종료하거나 계정 정보를 관리할 수 있어요.</p>
       </div>
       <div class="profile-page__account-actions">
-        <button type="button" @click="handleLogout">로그아웃</button
-        ><button
+        <button type="button" @click="handleOpenPasswordChange">
+          비밀번호 변경
+        </button>
+        <button
           class="profile-page__withdraw-button"
           type="button"
           @click="handleWithdraw"
@@ -487,6 +487,114 @@ function handleWithdraw() {
         >
           확인
         </button>
+      </section>
+    </div>
+
+    <div
+      v-if="isPasswordDialogOpen"
+      class="profile-dialog"
+      @click.self="handleClosePasswordChange"
+      @keydown.esc="handleClosePasswordChange"
+    >
+      <section
+        class="profile-dialog__card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="password-change-title"
+      >
+        <h2 id="password-change-title">비밀번호 변경</h2>
+        <label class="profile-page__field">
+          <span>현재 비밀번호</span>
+          <input
+            v-model="currentPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="현재 비밀번호를 입력해 주세요"
+          />
+        </label>
+        <label class="profile-page__field">
+          <span>새 비밀번호</span>
+          <input
+            v-model="changePassword"
+            type="password"
+            autocomplete="new-password"
+            placeholder="변경할 비밀번호를 입력해 주세요"
+          />
+        </label>
+        <label class="profile-page__field">
+          <span>새 비밀번호 확인</span>
+          <input
+            v-model="changePasswordConfirmation"
+            type="password"
+            autocomplete="new-password"
+            placeholder="비밀번호를 한 번 더 입력해 주세요"
+          />
+          <small
+            v-if="changePasswordConfirmation"
+            :class="
+              changePasswordsMatch
+                ? 'profile-page__success'
+                : 'profile-page__error'
+            "
+            >{{
+              changePasswordsMatch
+                ? '비밀번호가 일치해요.'
+                : '비밀번호가 일치하지 않아요.'
+            }}</small
+          >
+        </label>
+        <div class="profile-dialog__actions">
+          <button
+            class="profile-page__secondary-button"
+            type="button"
+            @click="handleClosePasswordChange"
+          >
+            취소
+          </button>
+          <button
+            class="profile-page__save-button"
+            type="button"
+            @click="handleSubmitPasswordChange"
+          >
+            변경하기
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="isWithdrawDialogOpen"
+      class="profile-dialog"
+      @click.self="isWithdrawDialogOpen = false"
+      @keydown.esc="isWithdrawDialogOpen = false"
+    >
+      <section
+        class="profile-dialog__card profile-dialog__card--narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="withdraw-title"
+      >
+        <h2 id="withdraw-title">정말 탈퇴하시겠어요?</h2>
+        <p class="profile-dialog__warning">
+          탈퇴하면 게임 기록과 랭킹, 소모임 활동 내역이 모두 삭제되고 되돌릴 수
+          없어요.<br />그래도 정말 탈퇴하시겠어요?
+        </p>
+        <div class="profile-dialog__actions">
+          <button
+            class="profile-page__secondary-button"
+            type="button"
+            @click="isWithdrawDialogOpen = false"
+          >
+            취소
+          </button>
+          <button
+            class="profile-dialog__danger-button"
+            type="button"
+            @click="handleConfirmWithdraw"
+          >
+            탈퇴하기
+          </button>
+        </div>
       </section>
     </div>
   </Teleport>
@@ -886,6 +994,58 @@ function handleWithdraw() {
   background: var(--color-primary);
   font-weight: 800;
   cursor: pointer;
+}
+.profile-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 36, 61, 0.45);
+}
+.profile-dialog__card {
+  display: grid;
+  gap: 16px;
+  width: min(440px, 100%);
+  padding: 30px 28px 24px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: var(--shadow-float);
+}
+.profile-dialog__card h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 24px;
+}
+.profile-dialog__card--narrow {
+  width: min(400px, 100%);
+}
+.profile-dialog__warning {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+.profile-dialog__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.profile-dialog__danger-button {
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 11px;
+  color: #fff;
+  background: #e05a5a;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.profile-dialog__danger-button:hover {
+  background: #c94b4b;
 }
 @media (max-width: 760px) {
   .profile-page__hero {
