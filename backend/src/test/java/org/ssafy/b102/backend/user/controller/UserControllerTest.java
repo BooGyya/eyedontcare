@@ -21,6 +21,7 @@ import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.GlobalExceptionHandler;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.user.dto.response.UserResponse;
+import org.ssafy.b102.backend.user.dto.response.NicknameCheckResponse;
 import org.ssafy.b102.backend.user.enums.ProfileImageCode;
 import org.ssafy.b102.backend.user.enums.UserLoginType;
 import org.ssafy.b102.backend.user.exception.UserErrorCode;
@@ -137,6 +138,106 @@ class UserControllerTest {
             );
     }
 
+    @Test
+    void 사용_가능한_닉네임을_확인한다() throws Exception {
+        NicknameCheckUserService userService =
+            new NicknameCheckUserService(
+                new NicknameCheckResponse(
+                    "새닉네임",
+                    true
+                )
+            );
+
+        mockMvc(userService)
+            .perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", "새닉네임")
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("NICKNAME_CHECK_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.message")
+                    .value("닉네임 중복 확인이 완료되었습니다.")
+            )
+            .andExpect(
+                jsonPath("$.data.nickname")
+                    .value("새닉네임")
+            )
+            .andExpect(
+                jsonPath("$.data.available").value(true)
+            );
+
+        assertThat(userService.authenticatedUserId)
+            .isEqualTo(USER_ID);
+        assertThat(userService.nickname)
+            .isEqualTo("새닉네임");
+    }
+
+    @Test
+    void 중복된_닉네임도_200과_available_false를_반환한다()
+        throws Exception {
+        mockMvc(new NicknameCheckUserService(
+            new NicknameCheckResponse(
+                "이미사용중",
+                false
+            )
+        ))
+            .perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", "이미사용중")
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.data.available").value(false)
+            );
+    }
+
+    @Test
+    void nickname_query가_누락되면_COMMON_003이다()
+        throws Exception {
+        mockMvc(new NicknameCheckUserService(null))
+            .perform(get("/api/v1/users/nickname/check"))
+            .andExpect(status().isBadRequest())
+            .andExpect(
+                jsonPath("$.code").value("COMMON-003")
+            );
+    }
+
+    @Test
+    void 잘못된_닉네임은_USER_003이다()
+        throws Exception {
+        mockMvc(new NicknameThrowingUserService(
+            UserErrorCode.INVALID_NICKNAME
+        ))
+            .perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", " 잘못된값")
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(
+                jsonPath("$.code").value("USER-003")
+            );
+    }
+
+    @Test
+    void 닉네임_확인_중_활성_사용자가_없으면_USER_001이다()
+        throws Exception {
+        mockMvc(new NicknameThrowingUserService(
+            UserErrorCode.USER_NOT_FOUND
+        ))
+            .perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", "새닉네임")
+            )
+            .andExpect(status().isNotFound())
+            .andExpect(
+                jsonPath("$.code").value("USER-001")
+            );
+    }
+
     private MockMvc mockMvc(UserService userService) {
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(
@@ -218,6 +319,55 @@ class UserControllerTest {
         public UserResponse getMyInfo(
             Long requestedUserId,
             Long authenticatedUserId
+        ) {
+            throw new BusinessException(errorCode);
+        }
+    }
+
+    private static class NicknameCheckUserService
+        extends UserService {
+
+        private final NicknameCheckResponse response;
+        private Long authenticatedUserId;
+        private String nickname;
+
+        private NicknameCheckUserService(
+            NicknameCheckResponse response
+        ) {
+            super(null, null);
+            this.response = response;
+        }
+
+        @Override
+        public NicknameCheckResponse
+        checkNicknameAvailability(
+            Long authenticatedUserId,
+            String nickname
+        ) {
+            this.authenticatedUserId = authenticatedUserId;
+            this.nickname = nickname;
+
+            return response;
+        }
+    }
+
+    private static final class NicknameThrowingUserService
+        extends NicknameCheckUserService {
+
+        private final UserErrorCode errorCode;
+
+        private NicknameThrowingUserService(
+            UserErrorCode errorCode
+        ) {
+            super(null);
+            this.errorCode = errorCode;
+        }
+
+        @Override
+        public NicknameCheckResponse
+        checkNicknameAvailability(
+            Long authenticatedUserId,
+            String nickname
         ) {
             throw new BusinessException(errorCode);
         }

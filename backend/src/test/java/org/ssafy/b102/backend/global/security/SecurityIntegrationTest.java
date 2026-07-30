@@ -61,6 +61,7 @@ import org.ssafy.b102.backend.global.security.jwt.TokenType;
 import org.ssafy.b102.backend.matchmaking.controller.MatchmakingController;
 import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
 import org.ssafy.b102.backend.user.controller.UserController;
+import org.ssafy.b102.backend.user.dto.response.NicknameCheckResponse;
 import org.ssafy.b102.backend.user.dto.response.UserResponse;
 import org.ssafy.b102.backend.user.enums.ProfileImageCode;
 import org.ssafy.b102.backend.user.enums.UserLoginType;
@@ -979,6 +980,102 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    void 유효한_액세스_토큰으로_닉네임을_확인하고_참가자_헤더는_무시한다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+        when(
+            userService.checkNicknameAvailability(
+                1L,
+                "새닉네임"
+            )
+        ).thenReturn(new NicknameCheckResponse(
+            "새닉네임",
+            true
+        ));
+
+        mockMvc.perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", "새닉네임")
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+                    .header(
+                        "X-Participant-Key",
+                        "USER:999"
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("NICKNAME_CHECK_SUCCESS")
+            )
+            .andExpect(
+                jsonPath("$.data.available").value(true)
+            );
+
+        verify(userService).checkNicknameAvailability(
+            1L,
+            "새닉네임"
+        );
+    }
+
+    @Test
+    void 닉네임_확인은_토큰이_없으면_401이다()
+        throws Exception {
+
+        mockMvc.perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", "새닉네임")
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(
+                jsonPath("$.code").value("SECURITY-001")
+            );
+    }
+
+    @Test
+    void 만료_변조_리프레시_토큰으로_닉네임을_확인할_수_없다()
+        throws Exception {
+
+        String expiredToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().minusSeconds(1L),
+            secretKey()
+        );
+        String tamperedToken = signedToken(
+            1L,
+            TokenType.ACCESS,
+            Instant.now().plusSeconds(300L),
+            Keys.hmacShaKeyFor(
+                Decoders.BASE64.decode(
+                    "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY="
+                )
+            )
+        );
+        String refreshToken =
+            jwtTokenProvider.issueRefreshToken(1L);
+
+        expectInvalidNicknameCheckToken(expiredToken);
+        expectInvalidNicknameCheckToken(tamperedToken);
+        expectInvalidNicknameCheckToken(refreshToken);
+    }
+
+    @Test
+    void 탈퇴한_회원의_토큰으로_닉네임을_확인할_수_없다()
+        throws Exception {
+
+        String token = jwtTokenProvider.issueAccessToken(1L);
+        when(
+            userRepository.existsByIdAndDeletedAtIsNull(1L)
+        ).thenReturn(false);
+
+        expectInvalidNicknameCheckToken(token);
+    }
+
+    @Test
     void OPTIONS_preflight는_차단되지_않는다()
         throws Exception {
 
@@ -1068,6 +1165,24 @@ class SecurityIntegrationTest {
 
         mockMvc.perform(
                 get("/api/v1/users/{userId}", 1L)
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(
+                jsonPath("$.code").value("SECURITY-002")
+            )
+            .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    private void expectInvalidNicknameCheckToken(String token)
+        throws Exception {
+
+        mockMvc.perform(
+                get("/api/v1/users/nickname/check")
+                    .param("nickname", "새닉네임")
                     .header(
                         HttpHeaders.AUTHORIZATION,
                         bearer(token)

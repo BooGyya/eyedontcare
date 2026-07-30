@@ -15,6 +15,12 @@ public enum UserErrorCode implements ErrorCode {
         HttpStatus.FORBIDDEN,
         "USER-002",
         "해당 사용자 정보에 접근할 수 없습니다."
+    ),
+
+    INVALID_NICKNAME(
+        HttpStatus.BAD_REQUEST,
+        "USER-003",
+        "닉네임 형식이 올바르지 않습니다."
     );
 
     private final HttpStatus status;
