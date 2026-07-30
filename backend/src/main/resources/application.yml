@@ -10,6 +10,7 @@ app:
     closed-ttl: PT30S
     max-participants: 2
     invite-code-max-attempts: 20
+    countdown-duration: PT3S
     websocket:
       auth-timeout: PT5S
       send-time-limit: PT5S

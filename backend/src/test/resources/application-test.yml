@@ -17,6 +17,7 @@ app:
   cors:
     allowed-origins: http://localhost:5173
   waiting-room:
+    countdown-duration: PT0.2S
     websocket:
       auth-timeout: PT0.2S
       send-time-limit: PT5S

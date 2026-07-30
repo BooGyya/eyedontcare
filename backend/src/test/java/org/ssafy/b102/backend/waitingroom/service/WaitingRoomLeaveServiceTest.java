@@ -51,7 +51,8 @@ class WaitingRoomLeaveServiceTest {
 				Duration.ofMinutes(10),
 				Duration.ofSeconds(30),
 				2,
-				20
+				20,
+				Duration.ofSeconds(3)
 			),
 			mock(InviteCodeGenerator.class),
 			mock(RoomIdGenerator.class)

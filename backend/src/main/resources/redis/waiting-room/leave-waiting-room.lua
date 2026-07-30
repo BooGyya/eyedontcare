@@ -21,8 +21,13 @@ if room_type ~= 'INVITE'
 end
 if room_status ~= 'WAITING'
     and room_status ~= 'COUNTDOWN'
+    and room_status ~= 'IN_GAME'
     and room_status ~= 'CLOSED' then
     return 'CORRUPTED'
+end
+
+if room_status == 'IN_GAME' then
+    return 'NOT_JOINABLE'
 end
 
 local participant_json = redis.call('HGET', KEYS[2], ARGV[2])

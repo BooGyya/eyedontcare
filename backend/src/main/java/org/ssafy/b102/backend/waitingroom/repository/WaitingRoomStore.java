@@ -16,4 +16,22 @@ public interface WaitingRoomStore {
 	Optional<WaitingRoomSnapshot> findSnapshot(UUID roomId);
 
 	LeaveWaitingRoomResult leaveAtomically(LeaveWaitingRoomCommand command);
+
+	UpdateCalibrationResult updateCalibrationAtomically(
+		UpdateCalibrationCommand command
+	);
+
+	UpdateReadyResult updateReadyAtomically(UpdateReadyCommand command);
+
+	StartInviteGameResult startInviteGameAtomically(
+		StartInviteGameCommand command
+	);
+
+	CompleteCountdownResult completeCountdownAtomically(
+		CompleteCountdownCommand command
+	);
+
+	RollbackCountdownResult rollbackCountdownAtomically(
+		RollbackCountdownCommand command
+	);
 }

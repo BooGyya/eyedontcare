@@ -11,8 +11,30 @@ public record WaitingRoom(
 	GameName gameName,
 	String roomCode,
 	RoomStatus roomStatus,
-	Instant createdAt
+	Instant createdAt,
+	UUID countdownId,
+	Instant countdownEndsAt
 ) {
+
+	public WaitingRoom(
+		UUID roomId,
+		RoomType roomType,
+		GameName gameName,
+		String roomCode,
+		RoomStatus roomStatus,
+		Instant createdAt
+	) {
+		this(
+			roomId,
+			roomType,
+			gameName,
+			roomCode,
+			roomStatus,
+			createdAt,
+			null,
+			null
+		);
+	}
 
 	public WaitingRoom {
 		Objects.requireNonNull(roomId);
@@ -21,5 +43,13 @@ public record WaitingRoom(
 		Objects.requireNonNull(roomCode);
 		Objects.requireNonNull(roomStatus);
 		Objects.requireNonNull(createdAt);
+		if (
+			roomStatus == RoomStatus.COUNTDOWN &&
+			(countdownId == null || countdownEndsAt == null)
+		) {
+			throw new IllegalArgumentException(
+				"Countdown room requires countdown metadata"
+			);
+		}
 	}
 }

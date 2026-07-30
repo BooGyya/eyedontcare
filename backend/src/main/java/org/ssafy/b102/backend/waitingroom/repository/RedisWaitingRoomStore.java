@@ -42,6 +42,16 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 	private static final DefaultRedisScript<String> READ_SCRIPT = stringScript(
 		"redis/waiting-room/read-waiting-room.lua"
 	);
+	private static final DefaultRedisScript<String> UPDATE_CALIBRATION_SCRIPT =
+		stringScript("redis/waiting-room/update-calibration.lua");
+	private static final DefaultRedisScript<String> UPDATE_READY_SCRIPT =
+		stringScript("redis/waiting-room/update-ready.lua");
+	private static final DefaultRedisScript<String> START_GAME_SCRIPT =
+		stringScript("redis/waiting-room/start-invite-game.lua");
+	private static final DefaultRedisScript<String> COMPLETE_COUNTDOWN_SCRIPT =
+		stringScript("redis/waiting-room/complete-countdown.lua");
+	private static final DefaultRedisScript<String> ROLLBACK_COUNTDOWN_SCRIPT =
+		stringScript("redis/waiting-room/rollback-countdown.lua");
 
 	private final StringRedisTemplate redisTemplate;
 	private final RedisKeyBuilder redisKeyBuilder;
@@ -233,6 +243,116 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		}
 	}
 
+	@Override
+	public UpdateCalibrationResult updateCalibrationAtomically(
+		UpdateCalibrationCommand command
+	) {
+		String result = executeString(
+			UPDATE_CALIBRATION_SCRIPT,
+			stateKeys(command.roomId(), command.roomCode()),
+			command.roomId().toString(),
+			command.roomCode(),
+			command.participantKey(),
+			command.calibrationStatus().name(),
+			Long.toString(command.activeTtl().toMillis()),
+			Integer.toString(command.maxParticipants())
+		);
+		try {
+			return UpdateCalibrationResult.valueOf(result);
+		} catch (IllegalArgumentException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public UpdateReadyResult updateReadyAtomically(UpdateReadyCommand command) {
+		String result = executeString(
+			UPDATE_READY_SCRIPT,
+			stateKeys(command.roomId(), command.roomCode()),
+			command.roomId().toString(),
+			command.roomCode(),
+			command.participantKey(),
+			Boolean.toString(command.ready()),
+			Long.toString(command.activeTtl().toMillis()),
+			Integer.toString(command.maxParticipants())
+		);
+		try {
+			return UpdateReadyResult.valueOf(result);
+		} catch (IllegalArgumentException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public StartInviteGameResult startInviteGameAtomically(
+		StartInviteGameCommand command
+	) {
+		String result = executeString(
+			START_GAME_SCRIPT,
+			stateKeys(command.roomId(), command.roomCode()),
+			command.roomId().toString(),
+			command.roomCode(),
+			command.participantKey(),
+			command.countdownId().toString(),
+			command.countdownEndsAt().toString(),
+			Integer.toString(command.maxParticipants()),
+			Long.toString(command.activeTtl().toMillis())
+		);
+		try {
+			StartScriptResponse response =
+				jsonMapper.readValue(result, StartScriptResponse.class);
+			StartInviteGameResult.Status status =
+				StartInviteGameResult.Status.valueOf(response.status());
+			return new StartInviteGameResult(
+				status,
+				response.countdownId(),
+				response.countdownEndsAt()
+			);
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public CompleteCountdownResult completeCountdownAtomically(
+		CompleteCountdownCommand command
+	) {
+		String result = executeString(
+			COMPLETE_COUNTDOWN_SCRIPT,
+			stateKeys(command.roomId(), command.roomCode()),
+			command.roomId().toString(),
+			command.roomCode(),
+			command.countdownId().toString(),
+			command.countdownEndsAt().toString(),
+			Integer.toString(command.maxParticipants()),
+			Long.toString(command.activeTtl().toMillis())
+		);
+		try {
+			return CompleteCountdownResult.valueOf(result);
+		} catch (IllegalArgumentException exception) {
+			throw storeUnavailable();
+		}
+	}
+
+	@Override
+	public RollbackCountdownResult rollbackCountdownAtomically(
+		RollbackCountdownCommand command
+	) {
+		String result = executeString(
+			ROLLBACK_COUNTDOWN_SCRIPT,
+			stateKeys(command.roomId(), command.roomCode()),
+			command.roomId().toString(),
+			command.roomCode(),
+			command.countdownId().toString(),
+			Long.toString(command.activeTtl().toMillis())
+		);
+		try {
+			return RollbackCountdownResult.valueOf(result);
+		} catch (IllegalArgumentException exception) {
+			throw storeUnavailable();
+		}
+	}
+
 	private List<String> keys(WaitingRoom room) {
 		return List.of(
 			roomKey(room.roomId()),
@@ -272,7 +392,9 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 			GameName.valueOf(storedRoom.gameName()),
 			storedRoom.roomCode(),
 			RoomStatus.valueOf(storedRoom.roomStatus()),
-			storedRoom.createdAt()
+			storedRoom.createdAt(),
+			storedRoom.countdownId(),
+			storedRoom.countdownEndsAt()
 		);
 		List<WaitingRoomParticipant> participants = storedParticipants.stream()
 			.map(stored -> stored.participant().toParticipant(stored.participantKey()))
@@ -291,6 +413,36 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 
 	private String inviteCodeKey(String roomCode) {
 		return redisKeyBuilder.build(DOMAIN, "invite-code", roomCode);
+	}
+
+	private List<String> stateKeys(UUID roomId, String roomCode) {
+		return List.of(
+			roomKey(roomId),
+			participantsKey(roomId),
+			inviteCodeKey(roomCode)
+		);
+	}
+
+	private String executeString(
+		DefaultRedisScript<String> script,
+		List<String> keys,
+		String... arguments
+	) {
+		try {
+			String result = redisTemplate.execute(
+				script,
+				keys,
+				(Object[]) arguments
+			);
+			if (result == null) {
+				throw storeUnavailable();
+			}
+			return result;
+		} catch (BusinessException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw storeUnavailable();
+		}
 	}
 
 	private String requiredField(Map<Object, Object> fields, String name) {
@@ -347,7 +499,16 @@ public class RedisWaitingRoomStore implements WaitingRoomStore {
 		String gameName,
 		String roomCode,
 		String roomStatus,
-		java.time.Instant createdAt
+		java.time.Instant createdAt,
+		UUID countdownId,
+		java.time.Instant countdownEndsAt
+	) {
+	}
+
+	record StartScriptResponse(
+		String status,
+		UUID countdownId,
+		java.time.Instant countdownEndsAt
 	) {
 	}
 

@@ -8,7 +8,8 @@ public record WaitingRoomProperties(
 	Duration activeTtl,
 	Duration closedTtl,
 	int maxParticipants,
-	int inviteCodeMaxAttempts
+	int inviteCodeMaxAttempts,
+	Duration countdownDuration
 ) {
 
 	public WaitingRoomProperties {
@@ -20,6 +21,7 @@ public record WaitingRoomProperties(
 		if (inviteCodeMaxAttempts < 1) {
 			throw new IllegalArgumentException("Invite code max attempts must be positive");
 		}
+		requirePositive(countdownDuration, "Countdown duration");
 	}
 
 	private static void requirePositive(Duration duration, String name) {
