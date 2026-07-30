@@ -1,17 +1,39 @@
 <script setup lang="ts">
 import PageHeader from '../components/common/PageHeader.vue'
+import { useAuthStore } from '../stores/auth'
 
 defineProps<{
   title: string
   description: string
   items: readonly string[]
 }>()
+
+const auth = useAuthStore()
 </script>
 
 <template>
   <section class="account-page">
     <PageHeader :title="title" :description="description" />
-    <div class="account-page__panel">
+    <section
+      v-if="!auth.isAuthenticated"
+      class="account-page__access-notice"
+      aria-live="polite"
+    >
+      <strong
+        >{{ auth.isGuest ? '게스트 모드에서는' : '로그인 후에는' }} 이 기능을
+        이용할 수 있어요.</strong
+      >
+      <p>로그인하면 활동 기록과 개인 설정을 확인할 수 있습니다.</p>
+      <button type="button" @click="auth.openLogin">로그인하기</button>
+    </section>
+    <div v-else class="account-page__panel">
+      <section v-if="title === '마이페이지'" class="account-page__profile">
+        <img :src="auth.user.avatar" :alt="`${auth.user.nickname} 프로필`" />
+        <div>
+          <strong>{{ auth.user.nickname }}</strong>
+          <p>Lv. {{ auth.user.level }} · 눈 건강 챌린저</p>
+        </div>
+      </section>
       <section v-for="item in items" :key="item">
         <h2>{{ item }}</h2>
         <p>이 기능의 상세 설정은 준비 중입니다.</p>
@@ -40,6 +62,19 @@ defineProps<{
   background: #fff;
   box-shadow: var(--shadow-card);
 }
+.account-page__panel .account-page__profile {
+  gap: 12px;
+}
+.account-page__profile img {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-blue-soft);
+}
+.account-page__profile strong {
+  font-size: 17px;
+}
 .account-page h2 {
   flex: 0 0 140px;
   margin: 0;
@@ -57,6 +92,29 @@ defineProps<{
   color: var(--color-muted);
   background: var(--color-surface-soft);
   font-size: 12px;
+}
+.account-page__access-notice {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+  width: min(100%, 620px);
+  padding: 25px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-soft);
+}
+.account-page__access-notice strong {
+  font-size: 18px;
+}
+.account-page__access-notice p {
+  line-height: 1.5;
+}
+.account-page__access-notice button {
+  margin: 4px 0 0;
+  color: #fff;
+  background: var(--color-accent-blue);
+  font-weight: 800;
+  cursor: pointer;
 }
 @media (max-width: 640px) {
   .account-page {
