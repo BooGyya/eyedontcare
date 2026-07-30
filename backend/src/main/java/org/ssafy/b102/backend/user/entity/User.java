@@ -129,6 +129,20 @@ public class User extends BaseTimeEntity {
         return deletedAt != null;
     }
 
+    public void updateProfile(
+        String nickname,
+        ProfileImageCode profileImageCode
+    ) {
+        this.nickname = Objects.requireNonNull(
+            nickname,
+            "nickname은 null일 수 없습니다."
+        );
+        this.profileImageCode = Objects.requireNonNull(
+            profileImageCode,
+            "profileImageCode는 null일 수 없습니다."
+        );
+    }
+
     public void withdraw(Instant withdrawnAt) {
         Objects.requireNonNull(
             withdrawnAt,

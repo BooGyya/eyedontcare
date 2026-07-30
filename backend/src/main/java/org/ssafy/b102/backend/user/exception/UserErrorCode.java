@@ -21,6 +21,24 @@ public enum UserErrorCode implements ErrorCode {
         HttpStatus.BAD_REQUEST,
         "USER-003",
         "닉네임 형식이 올바르지 않습니다."
+    ),
+
+    NICKNAME_DUPLICATED(
+        HttpStatus.CONFLICT,
+        "USER-004",
+        "이미 사용 중인 닉네임입니다."
+    ),
+
+    INVALID_PROFILE_IMAGE(
+        HttpStatus.BAD_REQUEST,
+        "USER-005",
+        "유효하지 않은 프로필 이미지입니다."
+    ),
+
+    EMPTY_UPDATE_REQUEST(
+        HttpStatus.BAD_REQUEST,
+        "USER-006",
+        "수정할 정보가 없습니다."
     );
 
     private final HttpStatus status;

@@ -4,12 +4,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -61,6 +63,7 @@ import org.ssafy.b102.backend.global.security.jwt.TokenType;
 import org.ssafy.b102.backend.matchmaking.controller.MatchmakingController;
 import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
 import org.ssafy.b102.backend.user.controller.UserController;
+import org.ssafy.b102.backend.user.dto.request.UserUpdateRequest;
 import org.ssafy.b102.backend.user.dto.response.NicknameCheckResponse;
 import org.ssafy.b102.backend.user.dto.response.UserResponse;
 import org.ssafy.b102.backend.user.enums.ProfileImageCode;
@@ -977,6 +980,74 @@ class SecurityIntegrationTest {
             );
 
         verify(userService).getMyInfo(2L, 1L);
+    }
+
+    @Test
+    void 유효한_액세스_토큰으로_내_정보를_수정하고_참가자_헤더는_무시한다()
+        throws Exception {
+
+        String token = activeUserToken(1L);
+        when(
+            userService.updateMyInfo(
+                eq(1L),
+                eq(1L),
+                any(UserUpdateRequest.class)
+            )
+        ).thenReturn(new UserResponse(
+            1L,
+            "user@example.com",
+            "새닉네임",
+            ProfileImageCode.PROFILE_2,
+            UserLoginType.LOCAL,
+            Instant.parse("2026-07-30T00:00:00Z")
+        ));
+
+        mockMvc.perform(
+                patch("/api/v1/users/{userId}", 1L)
+                    .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearer(token)
+                    )
+                    .header(
+                        "X-Participant-Key",
+                        "USER:999"
+                    )
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "nickname": "새닉네임",
+                          "profileImageCode": "PROFILE_2"
+                        }
+                        """
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(
+                jsonPath("$.code")
+                    .value("USER_UPDATE_SUCCESS")
+            );
+
+        verify(userService).updateMyInfo(
+            eq(1L),
+            eq(1L),
+            any(UserUpdateRequest.class)
+        );
+    }
+
+    @Test
+    void 내_정보_수정은_토큰이_없으면_401이다()
+        throws Exception {
+
+        mockMvc.perform(
+                patch("/api/v1/users/{userId}", 1L)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"nickname\":\"새닉네임\"}")
+            )
+            .andExpect(status().isUnauthorized())
+            .andExpect(
+                jsonPath("$.code").value("SECURITY-001")
+            );
     }
 
     @Test
