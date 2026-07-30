@@ -101,4 +101,43 @@ describe('gameplay routes', () => {
       wrapper.unmount()
     },
   )
+
+  it('shows the redesigned draw result summary with round score tooltips', async () => {
+    const router = createGameRouter()
+    await router.push('/games/draw/result?mode=solo')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+    expect(wrapper.text()).toContain('게임이 종료되었습니다!')
+    expect(wrapper.text()).toContain(
+      '3개 라운드의 그림 인식 결과를 확인해보세요.',
+    )
+    expect(wrapper.text()).toContain('최종 총점')
+    expect(wrapper.text()).toContain('680점')
+    expect(wrapper.text()).toContain('NEW RECORD')
+    expect(wrapper.text()).not.toContain('랭킹 반영 예정')
+
+    const roundCards = wrapper.findAll('.draw-round-card')
+    expect(roundCards).toHaveLength(3)
+    expect(wrapper.text()).toContain('정답')
+    expect(wrapper.text()).toContain('쉬움')
+
+    const scoreButton = wrapper.get('.draw-round-card__score')
+    const describedBy = scoreButton.attributes('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    const tooltip = wrapper.find(`#${describedBy}`)
+    expect(tooltip.exists()).toBe(true)
+    expect(tooltip.text()).toContain('상세 점수')
+    expect(tooltip.text()).toContain('시간 보너스')
+
+    expect(wrapper.text()).toContain('랭킹 결과')
+    expect(wrapper.text()).toContain('전체 랭킹 보기')
+    expect(wrapper.text()).toContain('다시 플레이')
+
+    const gamesButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === '게임 목록')
+    expect(gamesButton?.exists()).toBe(true)
+    wrapper.unmount()
+  })
 })

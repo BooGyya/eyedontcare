@@ -43,6 +43,7 @@ const drawRoundResults = [
     score: 180,
     timeBonus: 40,
     confidenceBonus: 40,
+    correct: true,
   },
   {
     prompt: '우산',
@@ -50,13 +51,15 @@ const drawRoundResults = [
     score: 230,
     timeBonus: 50,
     confidenceBonus: 80,
+    correct: true,
   },
   {
-    prompt: '고양이',
+    prompt: '강아지',
     difficulty: '어려움',
     score: 270,
     timeBonus: 60,
     confidenceBonus: 110,
+    correct: true,
   },
 ] as const
 const drawTotalScore = computed(() =>
@@ -73,6 +76,9 @@ function replay() {
 }
 function viewRanking() {
   router.push({ name: 'ranking', query: { game: game.value?.id } })
+}
+function goToGames() {
+  router.push({ name: 'games' })
 }
 </script>
 
@@ -96,90 +102,134 @@ function viewRanking() {
     >
       <template v-if="isDrawResult">
         <header class="draw-final-hero">
-          <span aria-hidden="true">✦</span>
-          <div>
-            <h1>게임이 종료되었습니다!</h1>
-            <p>3개 라운드의 그림 인식 결과를 확인해 보세요.</p>
-          </div>
-          <span aria-hidden="true">✦</span>
+          <span
+            class="draw-final-hero__sparkle draw-final-hero__sparkle--left"
+            aria-hidden="true"
+            >✦</span
+          >
+          <span
+            class="draw-final-hero__sparkle draw-final-hero__sparkle--right"
+            aria-hidden="true"
+            >✧</span
+          >
+          <h1>
+            <span class="draw-final-hero__deco" aria-hidden="true">🎉</span>
+            게임이 종료되었습니다!
+            <span
+              class="draw-final-hero__deco draw-final-hero__deco--tail"
+              aria-hidden="true"
+              >🎊</span
+            >
+          </h1>
+          <p>3개 라운드의 그림 인식 결과를 확인해보세요.</p>
         </header>
 
-        <div class="draw-final-grid">
-          <article class="draw-final-summary">
-            <h2>최종 점수 요약</h2>
-            <section class="draw-total-card">
-              <span class="draw-trophy" aria-hidden="true">🏆</span>
-              <div>
-                <p>최종 총점</p>
-                <strong>{{ drawTotalScore }}점</strong>
-                <b>NEW RECORD!</b>
-                <small>좋은 기록을 달성했어요! 축하드립니다.</small>
-              </div>
-            </section>
-            <div class="draw-round-cards">
-              <article
-                v-for="(round, index) in drawRoundResults"
-                :key="round.prompt"
-              >
-                <p>
-                  ROUND {{ index + 1 }} <b>{{ round.difficulty }}</b>
-                </p>
-                <strong>{{ round.score }}점</strong>
-                <dl>
-                  <div>
-                    <dt>◎ 기본 점수</dt>
-                    <dd>100점</dd>
-                  </div>
-                  <div>
-                    <dt>◷ 시간 보너스</dt>
-                    <dd>+{{ round.timeBonus }}점</dd>
-                  </div>
-                  <div>
-                    <dt>✦ AI Confidence</dt>
-                    <dd>+{{ round.confidenceBonus }}점</dd>
-                  </div>
-                </dl>
-                <small>정답 제시어: {{ round.prompt }} ✓</small>
-              </article>
-            </div>
-            <p class="draw-total-equation">
-              <span
-                v-for="(round, index) in drawRoundResults"
-                :key="round.prompt"
-              >
-                {{ round.score }}점<i v-if="index < drawRoundResults.length - 1"
-                  >+</i
-                >
-              </span>
-              <b>= {{ drawTotalScore }}점</b>
-            </p>
-            <small class="draw-confidence-note"
-              >ⓘ AI Confidence는 제시어를 맞췄다고 판단한 mock 확신
-              정보입니다.</small
-            >
-          </article>
+        <section class="draw-total-card" aria-label="최종 총점">
+          <p class="draw-total-card__label">
+            <span aria-hidden="true">🏆</span> 최종 총점
+          </p>
+          <strong class="draw-total-card__score">{{ drawTotalScore }}점</strong>
+          <p class="draw-total-card__message">신기록을 달성했어요!</p>
+          <p class="draw-total-card__meta">
+            <b>NEW RECORD</b>
+          </p>
+        </section>
 
-          <aside class="draw-ranking-result" aria-label="mock 랭킹 결과">
+        <section class="draw-rounds" aria-label="라운드 결과">
+          <h2>라운드 결과</h2>
+          <div class="draw-rounds__grid">
+            <article
+              v-for="(round, index) in drawRoundResults"
+              :key="round.prompt"
+              class="draw-round-card"
+            >
+              <p class="draw-round-card__head">
+                <span class="draw-round-card__head-group">
+                  <span class="draw-round-card__label"
+                    >ROUND {{ index + 1 }}</span
+                  >
+                  <span class="draw-round-card__difficulty">{{
+                    round.difficulty
+                  }}</span>
+                </span>
+              </p>
+              <p class="draw-round-card__prompt">
+                <b
+                  class="draw-round-card__answer"
+                  :class="
+                    round.correct
+                      ? 'draw-round-card__answer--correct'
+                      : 'draw-round-card__answer--wrong'
+                  "
+                  >{{ round.correct ? '정답' : '오답' }}</b
+                >
+                {{ round.prompt }}
+              </p>
+              <button
+                type="button"
+                class="draw-round-card__score"
+                :aria-describedby="`draw-score-detail-${index}`"
+              >
+                {{ round.score }}점
+                <span
+                  :id="`draw-score-detail-${index}`"
+                  class="draw-score-tooltip"
+                  role="tooltip"
+                >
+                  <b>상세 점수</b>
+                  <span><i>기본 점수</i><em>100점</em></span>
+                  <span
+                    ><i>시간 보너스</i><em>{{ round.timeBonus }}점</em></span
+                  >
+                  <span
+                    ><i>AI Confidence</i
+                    ><em>{{ round.confidenceBonus }}점</em></span
+                  >
+                </span>
+              </button>
+            </article>
+          </div>
+        </section>
+
+        <section class="draw-ranking" aria-label="랭킹 결과">
+          <div class="draw-ranking__heading">
             <h2>랭킹 결과</h2>
-            <section class="draw-rank-highlight">
+            <button type="button" @click="viewRanking">전체 랭킹 보기 →</button>
+          </div>
+          <div class="draw-ranking__panel">
+            <div class="draw-ranking__highlight">
               <span aria-hidden="true">🥈</span>
-              <div>
-                <small>내 순위</small><strong>2위</strong><b>/ 154명</b>
-              </div>
-              <p>상위 1.3%</p>
-            </section>
-            <ol>
+              <p>내 순위 <strong>2위</strong> <small>/ 154명</small></p>
+              <b>상위 1.3%</b>
+            </div>
+            <ol class="draw-ranking__list">
               <li><b>1</b><span>눈빛 마스터</span><strong>785점</strong></li>
-              <li class="mine">
+              <li class="draw-ranking__list-item--mine">
                 <b>2</b><span>눈빛 좋은 플레이어 (나)</span
                 ><strong>{{ drawTotalScore }}점</strong>
               </li>
               <li><b>3</b><span>시선의 지배자</span><strong>698점</strong></li>
               <li><b>4</b><span>집중하는 눈빛</span><strong>645점</strong></li>
             </ol>
-            <button type="button" @click="viewRanking">전체 랭킹 보기 →</button>
-          </aside>
-        </div>
+          </div>
+        </section>
+
+        <section class="draw-final-footer">
+          <button
+            type="button"
+            class="draw-final-footer__replay"
+            @click="replay"
+          >
+            <span aria-hidden="true">↻</span> 다시 플레이
+          </button>
+          <button
+            type="button"
+            class="draw-final-footer__list"
+            @click="goToGames"
+          >
+            게임 목록
+          </button>
+        </section>
       </template>
 
       <template v-else>
@@ -278,7 +328,11 @@ function viewRanking() {
         </article>
       </template>
     </section>
-    <nav class="result-actions" aria-label="결과 화면 동작">
+    <nav
+      v-if="!isDrawResult"
+      class="result-actions"
+      aria-label="결과 화면 동작"
+    >
       <button type="button" class="primary" @click="replay">
         ↻ 다시 플레이</button
       ><button type="button" @click="viewRanking">랭킹 보기</button
@@ -650,261 +704,387 @@ function viewRanking() {
   gap: 20px;
 }
 .draw-final-hero {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
+  position: relative;
   text-align: center;
 }
-.draw-final-hero > span {
-  color: #7462ea;
-  font-size: 44px;
-}
 .draw-final-hero h1 {
+  position: relative;
+  display: inline-flex;
+  gap: 14px;
+  align-items: center;
   margin: 0;
   color: var(--color-ink);
-  font-size: clamp(30px, 4vw, 43px);
-  letter-spacing: -0.06em;
+  font-size: clamp(30px, 3.4vw, 42px);
 }
 .draw-final-hero p {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   color: var(--color-muted);
+  font-size: 16px;
 }
-.draw-final-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 760px);
-  justify-content: center;
-  gap: 18px;
-  text-align: left;
+.draw-final-hero__deco {
+  font-size: 0.72em;
+  transform: rotate(-10deg) translateY(-4px);
 }
-.draw-final-summary,
-.draw-ranking-result {
-  padding: 22px;
-  border: 1px solid #e0e3f1;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 12px 30px rgba(36, 44, 95, 0.05);
+.draw-final-hero__deco--tail {
+  transform: rotate(10deg) translateY(-4px);
 }
-.draw-final-summary h2,
-.draw-ranking-result h2 {
-  margin: 0 0 14px;
-  color: var(--color-ink);
-  font-size: 18px;
+.draw-final-hero__sparkle {
+  position: absolute;
+  top: 4px;
+  color: #c0a9ff;
+  font-size: 20px;
 }
-.draw-final-summary h2,
-.draw-total-card b,
-.draw-round-cards dl,
-.draw-confidence-note,
-.draw-ranking-result {
-  display: none;
+.draw-final-hero__sparkle--left {
+  left: 18%;
+}
+.draw-final-hero__sparkle--right {
+  top: auto;
+  right: 18%;
+  bottom: 4px;
+  color: #8fd8b2;
+  font-size: 16px;
 }
 .draw-total-card {
   display: grid;
-  grid-template-columns: 42% 1fr;
-  align-items: center;
-  min-height: 150px;
-  padding: 14px 22px;
-  border: 1px solid #e1e5f7;
-  border-radius: 14px;
-  background: linear-gradient(140deg, #fafaff, #fff);
-}
-.draw-trophy {
-  display: grid;
-  place-items: center;
-  font-size: 86px;
-}
-.draw-total-card p,
-.draw-total-card small {
-  display: block;
-  margin: 0;
-  color: #68728d;
-  font-size: 13px;
-}
-.draw-total-card strong {
-  display: block;
-  margin: 2px 0;
-  color: #4539ed;
-  font-size: clamp(42px, 6vw, 62px);
-  line-height: 1;
-}
-.draw-total-card b {
-  display: inline-block;
-  margin: 3px 0 8px;
-  padding: 5px 9px;
-  border-radius: 8px;
-  color: #805500;
-  background: #ffe8a8;
-  font-size: 11px;
-}
-.draw-round-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 9px;
-  margin-top: 12px;
-}
-.draw-round-cards article {
-  padding: 16px 12px;
-  border: 1px solid #e4e7f4;
-  border-radius: 12px;
-}
-.draw-round-cards article > p {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 5px;
-  margin: 0;
-  color: var(--color-ink);
-  font-size: 12px;
-  font-weight: 900;
-}
-.draw-round-cards article > p b {
-  padding: 3px 7px;
-  border-radius: 99px;
-  color: #238952;
-  background: #eaf8ef;
-  font-size: 10px;
-}
-.draw-round-cards article > strong {
-  display: block;
-  margin: 12px 0 7px;
-  color: #28206c;
-  font-size: 26px;
-}
-.draw-round-cards dl {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-}
-.draw-round-cards dl div {
-  display: flex;
-  justify-content: space-between;
-  gap: 6px;
-  color: #5f6981;
-  font-size: 10px;
-}
-.draw-round-cards dd {
-  margin: 0;
-  color: #382dde;
-  font-weight: 900;
-  white-space: nowrap;
-}
-.draw-round-cards article > small {
-  display: block;
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-  color: #397d59;
-  font-size: 10px;
-}
-.draw-total-equation {
-  display: flex;
-  justify-content: center;
-  gap: 18px;
-  margin: 12px 0 8px;
-  padding: 12px;
-  border-radius: 10px;
-  color: #3429de;
-  background: #f3f2ff;
-  font-weight: 900;
-}
-.draw-total-equation span {
-  display: flex;
-  gap: 18px;
-}
-.draw-total-equation i {
-  color: #59627d;
-  font-style: normal;
-}
-.draw-total-equation b {
-  font-size: 22px;
-}
-.draw-confidence-note {
-  color: #68728d;
-  font-size: 11px;
-}
-.draw-ranking-result {
-  display: flex;
-  flex-direction: column;
-}
-.draw-rank-highlight {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  color: #fff;
-  background: linear-gradient(115deg, #4334ec, #7143e8);
-}
-.draw-rank-highlight > span {
-  font-size: 42px;
-}
-.draw-rank-highlight div {
-  display: grid;
-  grid-template-columns: auto auto;
-  column-gap: 5px;
-}
-.draw-rank-highlight small {
-  grid-column: span 2;
-  font-size: 11px;
-}
-.draw-rank-highlight strong {
-  font-size: 39px;
-  line-height: 1;
-}
-.draw-rank-highlight b {
-  align-self: end;
-  margin-bottom: 3px;
-  font-size: 13px;
-}
-.draw-rank-highlight p {
-  margin: 0 0 0 auto;
-  font-size: 12px;
-  font-weight: 900;
-}
-.draw-ranking-result ol {
-  margin: 12px 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid #e4e7f4;
-  border-radius: 12px;
-  list-style: none;
-}
-.draw-ranking-result li {
-  display: grid;
-  grid-template-columns: 26px 1fr auto;
-  align-items: center;
-  gap: 7px;
-  padding: 11px 13px;
-  border-top: 1px solid #edf0f7;
-  color: #253050;
-  font-size: 12px;
-}
-.draw-ranking-result li:first-child {
-  border-top: 0;
-}
-.draw-ranking-result li.mine {
-  color: #4539ed;
-  background: #f4f3ff;
-  font-weight: 900;
-}
-.draw-ranking-result li > b {
+  gap: 8px;
+  justify-items: center;
+  margin-top: 26px;
+  padding: 34px 24px 28px;
+  border: 1px solid #e5e2fa;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #fbfaff, #f3f0fe);
+  box-shadow: var(--shadow-card);
   text-align: center;
 }
-.draw-ranking-result li > strong {
-  font-size: 13px;
+.draw-total-card__label {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 17px;
+  font-weight: 700;
 }
-.draw-ranking-result button {
-  min-height: 42px;
-  margin-top: auto;
-  border: 1px solid #d9ddf2;
-  border-radius: 10px;
-  color: #4438e7;
+.draw-total-card__score {
+  color: #6b46e5;
+  font-family: var(--font-display);
+  font-size: clamp(52px, 6vw, 72px);
+  line-height: 1.1;
+  text-shadow: 0 6px 24px rgba(107, 70, 229, 0.25);
+}
+.draw-total-card__message {
+  margin: 0;
+  color: #71c191;
+  font-size: 16px;
+  font-weight: 700;
+}
+.draw-total-card__meta {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 0;
+}
+.draw-total-card__meta b {
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: #fff;
+  background: #71c191;
+  box-shadow: 0 4px 12px rgba(113, 193, 145, 0.4);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+.draw-rounds {
+  margin-top: 30px;
+}
+.draw-rounds h2 {
+  margin: 0 0 14px;
+  color: var(--color-ink);
+  font-size: 22px;
+}
+.draw-rounds__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.draw-round-card {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 22px 14px 20px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
   background: #fff;
-  font-weight: 900;
+  box-shadow: var(--shadow-card);
+  text-align: center;
+}
+.draw-round-card__head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+.draw-round-card__head-group {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.draw-round-card__label {
+  color: var(--color-accent-blue);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.draw-round-card__difficulty {
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--color-accent-blue);
+  background: var(--color-blue-soft);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+.draw-round-card__prompt {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 20px;
+  font-weight: 700;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.draw-round-card__answer {
+  padding: 3px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.draw-round-card__answer--correct {
+  color: #2f9e63;
+  background: #e4f6ec;
+}
+.draw-round-card__answer--wrong {
+  color: #e05a5a;
+  background: #fdecec;
+}
+.draw-round-card__score {
+  position: relative;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--color-ink);
+  background: var(--color-surface-soft);
+  font-family: var(--font-display);
+  font-size: 26px;
+  cursor: help;
+}
+.draw-round-card__score:hover,
+.draw-round-card__score:focus-visible {
+  background: var(--color-blue-soft);
+}
+.draw-score-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 20;
+  display: grid;
+  gap: 7px;
+  width: 208px;
+  padding: 14px 15px;
+  border-radius: 13px;
+  color: #fff;
+  background: #26334f;
+  box-shadow: var(--shadow-float);
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 12.5px;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) translateY(4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0.16s;
+  pointer-events: none;
+}
+.draw-score-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  border: 6px solid transparent;
+  border-top-color: #26334f;
+  transform: translateX(-50%);
+}
+.draw-round-card__score:hover .draw-score-tooltip,
+.draw-round-card__score:focus-visible .draw-score-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+.draw-score-tooltip > b {
+  justify-self: center;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  color: #ffd95e;
+}
+.draw-score-tooltip > span {
+  display: flex;
+  justify-content: space-between;
+}
+.draw-score-tooltip > span i {
+  font-style: normal;
+  color: #c3cbe2;
+}
+.draw-score-tooltip > span em {
+  font-style: normal;
+  font-weight: 700;
+}
+.draw-ranking {
+  margin-top: 30px;
+}
+.draw-ranking__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 14px;
+}
+.draw-ranking__heading h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 22px;
+}
+.draw-ranking__heading button {
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--color-accent-blue);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 800;
   cursor: pointer;
 }
-.draw-ranking-result button:hover {
-  background: #f7f6ff;
+.draw-ranking__heading button:hover {
+  background: var(--color-blue-soft);
+}
+.draw-ranking__panel {
+  display: grid;
+  gap: 14px;
+  padding: 22px 24px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+.draw-ranking__highlight {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fbfaff, #f3f0fe);
+}
+.draw-ranking__highlight span {
+  font-size: 26px;
+}
+.draw-ranking__highlight p {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.draw-ranking__highlight strong {
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: #7451dd;
+}
+.draw-ranking__highlight small {
+  color: var(--color-muted);
+}
+.draw-ranking__highlight b {
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: #2f9e63;
+  background: #e4f6ec;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+.draw-ranking__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.draw-ranking__list li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 11px;
+  background: var(--color-surface-soft);
+  font-size: 14px;
+}
+.draw-ranking__list li b {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--color-muted);
+  background: #fff;
+  font-size: 12px;
+}
+.draw-ranking__list li span {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.draw-ranking__list li strong {
+  margin-left: auto;
+  color: var(--color-ink);
+}
+.draw-ranking__list li.draw-ranking__list-item--mine {
+  border: 1px solid #cfd6f6;
+  background: var(--color-blue-soft);
+}
+.draw-ranking__list li.draw-ranking__list-item--mine b {
+  color: #fff;
+  background: var(--color-accent-blue);
+}
+.draw-final-footer {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin-top: 34px;
+}
+.draw-final-footer__replay {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 14px 30px;
+  border: 0;
+  border-radius: 14px;
+  color: #fff;
+  background: #7b81e3;
+  box-shadow: 0 8px 18px rgba(123, 129, 227, 0.3);
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.draw-final-footer__replay:hover {
+  background: #6a70d6;
+}
+.draw-final-footer__list {
+  padding: 14px 30px;
+  border: 1.5px solid #dcdff6;
+  border-radius: 14px;
+  color: #26334f;
+  background: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.draw-final-footer__list:hover {
+  border-color: #7b81e3;
+  color: #7b81e3;
 }
 .missing {
   padding: 60px;
@@ -914,18 +1094,12 @@ function viewRanking() {
   .result-grid {
     grid-template-columns: 1fr;
   }
-  .draw-final-grid,
-  .draw-round-cards {
+  .draw-rounds__grid {
     grid-template-columns: 1fr;
   }
-  .draw-final-hero {
-    gap: 8px;
-  }
-  .draw-final-hero > span {
-    font-size: 24px;
-  }
-  .draw-total-equation {
-    flex-wrap: wrap;
+  .draw-final-footer {
+    justify-content: center;
+    text-align: center;
   }
   .versus-result {
     grid-template-columns: 1fr;
