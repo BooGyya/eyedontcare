@@ -14,7 +14,9 @@ import org.ssafy.b102.backend.global.common.response.ApiResponse;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.waitingroom.WaitingRoomSuccessCode;
 import org.ssafy.b102.backend.waitingroom.dto.request.WaitingRoomCreateRequest;
+import org.ssafy.b102.backend.waitingroom.dto.request.WaitingRoomJoinRequest;
 import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomCreateResponse;
+import org.ssafy.b102.backend.waitingroom.dto.response.WaitingRoomJoinResponse;
 import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
 
 @RestController
@@ -41,6 +43,23 @@ public class WaitingRoomController {
 		return ResponseEntity.status(HttpStatus.CREATED).body(
 			ApiResponse.success(
 				WaitingRoomSuccessCode.WAITING_ROOM_CREATE_SUCCESS,
+				response
+			)
+		);
+	}
+
+	@PostMapping("/join")
+	public ResponseEntity<ApiResponse<WaitingRoomJoinResponse>> joinInviteRoom(
+		@AuthenticationPrincipal AuthenticatedUser member,
+		@RequestHeader(value = GUEST_SESSION_HEADER, required = false) UUID guestSessionId,
+		@Valid @RequestBody WaitingRoomJoinRequest request
+	) {
+		WaitingRoomJoinResponse response =
+			waitingRoomService.joinInviteRoom(member, guestSessionId, request);
+
+		return ResponseEntity.ok(
+			ApiResponse.success(
+				WaitingRoomSuccessCode.WAITING_ROOM_JOIN_SUCCESS,
 				response
 			)
 		);

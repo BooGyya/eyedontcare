@@ -3,7 +3,10 @@ package org.ssafy.b102.backend.waitingroom.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,5 +42,66 @@ class RedisWaitingRoomStoreTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.getErrorCode())
 					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+	}
+
+	@Test
+	void convertsJoinRedisFailureToWaitingRoomStoreUnavailable() {
+		StringRedisTemplate redisTemplate = new StringRedisTemplate() {
+			@Override
+			public <T> T execute(
+				RedisScript<T> script,
+				List<String> keys,
+				Object... args
+			) {
+				throw new RedisConnectionFailureException("unavailable");
+			}
+		};
+		RedisWaitingRoomStore store = new RedisWaitingRoomStore(
+			redisTemplate,
+			new RedisKeyBuilder("test"),
+			JsonMapper.builder().findAndAddModules().build()
+		);
+
+		assertThatThrownBy(() -> store.joinInviteRoomAtomically(joinCommand()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+	}
+
+	@Test
+	void convertsUnexpectedJoinScriptResultToStoreUnavailable() {
+		StringRedisTemplate redisTemplate = new StringRedisTemplate() {
+			@Override
+			@SuppressWarnings("unchecked")
+			public <T> T execute(
+				RedisScript<T> script,
+				List<String> keys,
+				Object... args
+			) {
+				return (T) "{\"status\":\"UNKNOWN\"}";
+			}
+		};
+		RedisWaitingRoomStore store = new RedisWaitingRoomStore(
+			redisTemplate,
+			new RedisKeyBuilder("test"),
+			JsonMapper.builder().findAndAddModules().build()
+		);
+
+		assertThatThrownBy(() -> store.joinInviteRoomAtomically(joinCommand()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+	}
+
+	private JoinInviteRoomCommand joinCommand() {
+		return new JoinInviteRoomCommand(
+			UUID.fromString("c93c76b2-7f78-4275-b8af-7cdd921bbb4f"),
+			"0123",
+			"USER:2",
+			"입장참가자",
+			Instant.parse("2026-07-30T04:01:00Z"),
+			2,
+			Duration.ofMinutes(10)
+		);
 	}
 }
