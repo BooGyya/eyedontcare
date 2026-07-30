@@ -9,8 +9,8 @@ import type { GameSessionMode } from '../types/gameplay'
 
 const route = useRoute()
 const router = useRouter()
-const combo = ref(12)
-const hearts = ref(4)
+const rhythmMine = ref({ score: 1240, combo: 12, hearts: 4 })
+const rhythmOpponent = ref({ score: 1180, combo: 8, hearts: 4 })
 const blinkCount = ref(28)
 const drawScoreOpen = ref(false)
 const drawRound = ref(1)
@@ -90,6 +90,10 @@ const displayTitle = computed(
 const isCompetitive = computed(() =>
   ['ai', 'friends', 'random'].includes(mode.value),
 )
+const isRhythmDuel = computed(
+  () =>
+    game.value?.id === 'rhythm' && ['friends', 'random'].includes(mode.value),
+)
 const currentDrawResult = computed(() => drawRoundResults[drawRound.value - 1])
 const drawAccumulatedScore = computed(() =>
   drawRoundResults
@@ -111,13 +115,24 @@ function leaveGame() {
     router.push({ name: 'game-detail', params: { gameId: game.value.id } })
 }
 
-function handleRhythmInput(isMiss = false) {
+function handleRhythmInput(
+  player: 'mine' | 'opponent' = 'mine',
+  isMiss = false,
+) {
+  const playerStatus =
+    player === 'mine' ? rhythmMine.value : rhythmOpponent.value
+
   if (isMiss) {
-    hearts.value = Math.max(0, hearts.value - 1)
-    combo.value = 0
+    playerStatus.hearts = Math.max(0, playerStatus.hearts - 1)
+    playerStatus.combo = 0
+
+    if (playerStatus.hearts === 0) toResult()
+
     return
   }
-  combo.value += 1
+
+  playerStatus.combo += 1
+  playerStatus.score += 100
 }
 
 function advanceDrawRound() {
@@ -145,11 +160,13 @@ function advanceDrawRound() {
         ? { current: drawRound, total: drawRoundResults.length }
         : undefined
     "
-    :show-score="game.id !== 'draw' && game.id !== 'hold'"
+    :show-score="game.id !== 'draw' && game.id !== 'hold' && !isRhythmDuel"
     :score="
       game.id === 'blink'
         ? `${blinkCount}회`
-        : `${session.score}${game.id === 'draw' ? '점' : ''}`
+        : game.id === 'rhythm'
+          ? `${rhythmMine.score.toLocaleString()}점`
+          : `${session.score}${game.id === 'draw' ? '점' : ''}`
     "
     @leave="leaveGame"
   >
@@ -161,6 +178,7 @@ function advanceDrawRound() {
         {
           'gameplay-layout--blink-solo': game.id === 'blink' && mode === 'solo',
         },
+        { 'gameplay-layout--rhythm-duel': isRhythmDuel },
       ]"
     >
       <aside v-if="game.id === 'draw'" class="info-panel draw-info">
@@ -230,16 +248,56 @@ function advanceDrawRound() {
       </aside>
 
       <aside
+        v-else-if="isRhythmDuel"
+        class="info-panel rhythm-duel-player rhythm-duel-player--mine"
+      >
+        <p class="rhythm-duel-player__label">나 · PLAYER 1</p>
+        <div class="rhythm-duel-player__camera">
+          <video
+            aria-label="향후 내 웹캠 영상이 표시될 영역"
+            muted
+            playsinline
+          ></video>
+          <img
+            :src="game.mascotImage"
+            alt="내 웹캠 대기 마스코트"
+            draggable="false"
+          />
+          <span>내 웹캠</span>
+        </div>
+        <p class="rhythm-duel-player__camera-note">
+          카메라 영상은 게임 연동 후 표시됩니다.
+        </p>
+        <section class="rhythm-player-stats" aria-label="내 리듬 게임 상태">
+          <div>
+            <span>점수</span
+            ><strong>{{ rhythmMine.score.toLocaleString() }}</strong>
+          </div>
+          <div>
+            <span>콤보</span><strong>{{ rhythmMine.combo }} 콤보</strong>
+          </div>
+          <div class="rhythm-player-stats__hearts">
+            <span>체력</span>
+            <b aria-label="내 남은 체력">
+              {{ '♥'.repeat(rhythmMine.hearts)
+              }}<i>{{ '♥'.repeat(5 - rhythmMine.hearts) }}</i>
+            </b>
+          </div>
+        </section>
+      </aside>
+
+      <aside
         v-else-if="game.id === 'rhythm'"
         class="info-panel rhythm-score-panel"
       >
         <p>Score</p>
-        <strong>{{ session.score.toLocaleString() }}</strong>
+        <strong>{{ rhythmMine.score.toLocaleString() }}</strong>
         <hr />
         <p>Combo</p>
-        <b>{{ combo }} 콤보!</b>
+        <b>{{ rhythmMine.combo }} 콤보!</b>
         <div class="hearts" aria-label="남은 체력">
-          {{ '♥'.repeat(hearts) }}<i>{{ '♥'.repeat(5 - hearts) }}</i>
+          {{ '♥'.repeat(rhythmMine.hearts)
+          }}<i>{{ '♥'.repeat(5 - rhythmMine.hearts) }}</i>
         </div>
       </aside>
 
@@ -339,12 +397,21 @@ function advanceDrawRound() {
             </div>
           </div>
           <div class="rhythm-controls">
-            <button type="button" @click="handleRhythmInput()">
+            <button type="button" @click="handleRhythmInput('mine')">
               왼쪽 눈 입력</button
-            ><button type="button" @click="handleRhythmInput()">
+            ><button type="button" @click="handleRhythmInput('mine')">
               오른쪽 눈 입력</button
-            ><button type="button" @click="handleRhythmInput(true)">
+            ><button type="button" @click="handleRhythmInput('mine', true)">
               miss (mock)
+            </button>
+            <button
+              v-if="isRhythmDuel"
+              type="button"
+              class="rhythm-opponent-miss"
+              data-testid="opponent-rhythm-miss"
+              @click="handleRhythmInput('opponent', true)"
+            >
+              상대 miss (mock)
             </button>
           </div>
         </template>
@@ -449,7 +516,52 @@ function advanceDrawRound() {
       </section>
 
       <aside
-        v-if="game.id === 'draw' || game.id === 'rhythm'"
+        v-if="isRhythmDuel"
+        class="info-panel rhythm-duel-player rhythm-duel-player--opponent"
+      >
+        <p class="rhythm-duel-player__label">
+          {{ mode === 'friends' ? '친구' : '매칭된 상대' }} · PLAYER 2
+        </p>
+        <div class="rhythm-duel-player__camera">
+          <video
+            aria-label="향후 상대 웹캠 영상이 표시될 영역"
+            muted
+            playsinline
+          ></video>
+          <img
+            :src="game.mascotImage"
+            alt="상대 웹캠 대기 마스코트"
+            draggable="false"
+          />
+          <span>상대 웹캠</span>
+        </div>
+        <section
+          class="rhythm-opponent-screen"
+          aria-label="향후 상대 게임 화면이 표시될 영역"
+        >
+          <b>상대 게임 화면</b>
+          <div aria-hidden="true"><i /><i /><i /><i /></div>
+          <small>게임 화면 연동 후 표시됩니다.</small>
+        </section>
+        <section class="rhythm-player-stats" aria-label="상대 리듬 게임 상태">
+          <div>
+            <span>점수</span
+            ><strong>{{ rhythmOpponent.score.toLocaleString() }}</strong>
+          </div>
+          <div>
+            <span>콤보</span><strong>{{ rhythmOpponent.combo }} 콤보</strong>
+          </div>
+          <div class="rhythm-player-stats__hearts">
+            <span>체력</span>
+            <b aria-label="상대 남은 체력">
+              {{ '♥'.repeat(rhythmOpponent.hearts)
+              }}<i>{{ '♥'.repeat(5 - rhythmOpponent.hearts) }}</i>
+            </b>
+          </div>
+        </section>
+      </aside>
+      <aside
+        v-else-if="game.id === 'draw' || game.id === 'rhythm'"
         class="info-panel webcam-panel"
       >
         <p class="eyebrow">나의 웹캠</p>
@@ -971,6 +1083,146 @@ function advanceDrawRound() {
   border: 0;
   border-top: 1px solid var(--color-line);
 }
+.gameplay-layout--rhythm-duel {
+  grid-template-columns: minmax(210px, 0.72fr) minmax(420px, 1.8fr) minmax(
+      210px,
+      0.72fr
+    );
+  align-items: start;
+}
+.rhythm-duel-player {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+.rhythm-duel-player--mine {
+  background: linear-gradient(180deg, #f7f6ff 0%, #fff 34%) !important;
+}
+.rhythm-duel-player--opponent {
+  background: linear-gradient(180deg, #fff8fb 0%, #fff 34%) !important;
+}
+.rhythm-duel-player__label {
+  margin: 0;
+  color: #5144e8;
+  font-size: 14px;
+  font-weight: 900;
+}
+.rhythm-duel-player--opponent .rhythm-duel-player__label {
+  color: #db3d70;
+}
+.rhythm-duel-player__camera {
+  position: relative;
+  display: grid;
+  min-height: 168px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #e4e2ff;
+  border-radius: 16px;
+  background: #f2f1ff;
+}
+.rhythm-duel-player--opponent .rhythm-duel-player__camera {
+  border-color: #f3d9e2;
+  background: #fff4f7;
+}
+.rhythm-duel-player__camera video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rhythm-duel-player__camera img {
+  position: relative;
+  z-index: 1;
+  width: min(72%, 150px);
+  max-height: 144px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.rhythm-duel-player__camera span {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #5144e8;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 900;
+}
+.rhythm-duel-player__camera-note {
+  margin: -4px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rhythm-opponent-screen {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e3e3ef;
+  border-radius: 13px;
+  color: var(--color-ink);
+  background: #111642;
+}
+.rhythm-opponent-screen > b {
+  color: #fff;
+  font-size: 12px;
+}
+.rhythm-opponent-screen > div {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.rhythm-opponent-screen i {
+  height: 24px;
+  border: 2px solid #ff8fc7;
+  border-radius: 999px;
+  background: #fae0f0;
+  box-shadow: 0 0 8px rgba(255, 119, 183, 0.5);
+}
+.rhythm-opponent-screen i:nth-child(even) {
+  border-color: #89b0ff;
+  background: #dbe7ff;
+  box-shadow: 0 0 8px rgba(111, 157, 255, 0.5);
+}
+.rhythm-opponent-screen small {
+  color: #c9cff4;
+  font-size: 10px;
+}
+.rhythm-player-stats {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid #e7e8f1;
+}
+.rhythm-player-stats > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef0f6;
+}
+.rhythm-player-stats span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.rhythm-player-stats strong {
+  color: var(--color-accent-blue);
+  font-size: 18px;
+}
+.rhythm-player-stats__hearts b {
+  color: #e44576;
+  font-size: 19px;
+  letter-spacing: 1px;
+}
+.rhythm-player-stats__hearts i {
+  color: #e5e8ee;
+  font-style: normal;
+}
 .hearts {
   margin-top: 18px;
   color: #e44576;
@@ -991,6 +1243,19 @@ function advanceDrawRound() {
   border-radius: 16px;
   color: #fff;
   background: radial-gradient(circle at 50% 0, #25206d, #0d133c 65%);
+}
+.gameplay-layout--rhythm .gameplay-board {
+  display: flex;
+  min-height: 620px;
+  flex-direction: column;
+}
+.gameplay-layout--rhythm .rhythm-stage {
+  min-height: 420px;
+  flex: 1;
+  grid-template-rows: repeat(2, minmax(138px, 1fr));
+}
+.gameplay-layout--rhythm .rhythm-lane {
+  height: auto;
 }
 .rhythm-lane {
   position: relative;
@@ -2169,6 +2434,19 @@ function advanceDrawRound() {
   .gameplay-layout--rhythm > :last-child {
     grid-column: auto;
   }
+  .gameplay-layout--rhythm-duel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .gameplay-layout--rhythm-duel .gameplay-board {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .gameplay-layout--rhythm-duel .rhythm-duel-player {
+    grid-row: 2;
+  }
+  .gameplay-layout--rhythm .gameplay-board {
+    min-height: 560px;
+  }
   .webcam-panel {
     display: none;
   }
@@ -2183,6 +2461,14 @@ function advanceDrawRound() {
   }
   .gameplay-layout > :last-child {
     grid-column: auto;
+  }
+  .gameplay-layout--rhythm-duel .gameplay-board,
+  .gameplay-layout--rhythm-duel .rhythm-duel-player {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .rhythm-duel-player__camera {
+    min-height: 205px;
   }
   .gameplay-layout--hold {
     grid-template-columns: 1fr;
@@ -2235,6 +2521,13 @@ function advanceDrawRound() {
   .rhythm-stage {
     min-height: 260px;
     padding: 20px;
+  }
+  .gameplay-layout--rhythm .gameplay-board {
+    min-height: 430px;
+  }
+  .gameplay-layout--rhythm .rhythm-stage {
+    min-height: 280px;
+    grid-template-rows: repeat(2, minmax(104px, 1fr));
   }
   .score-backdrop {
     padding: 10px;

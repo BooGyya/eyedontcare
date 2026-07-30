@@ -58,6 +58,38 @@ describe('gameplay routes', () => {
     wrapper.unmount()
   })
 
+  it.each(['friends', 'random'])(
+    'renders separate rhythm game status panels in %s mode',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/rhythm/play?mode=${mode}`)
+      await router.isReady()
+      const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+
+      expect(wrapper.findAll('.rhythm-duel-player')).toHaveLength(2)
+      expect(wrapper.text()).toContain('상대 게임 화면')
+      expect(wrapper.text()).toContain('체력')
+      wrapper.unmount()
+    },
+  )
+
+  it('moves to the result screen when a rhythm duel player loses all health', async () => {
+    const router = createGameRouter()
+    await router.push('/games/rhythm/play?mode=friends')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+    const opponentMiss = wrapper.get('[data-testid="opponent-rhythm-miss"]')
+
+    for (let count = 0; count < 4; count += 1) {
+      await opponentMiss.trigger('click')
+    }
+
+    await nextTick()
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
+    expect(router.currentRoute.value.name).toBe('game-result')
+    wrapper.unmount()
+  })
+
   it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
     'renders the %s result route from mock data',
     async (gameId) => {
