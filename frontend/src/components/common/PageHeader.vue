@@ -1,19 +1,13 @@
 <script setup lang="ts">
-withDefaults(
-  defineProps<{
-    eyebrow?: string
-    title: string
-    description: string
-  }>(),
-  {
-    eyebrow: "EYE DON'T CARE",
-  },
-)
+defineProps<{
+  eyebrow?: string
+  title: string
+  description: string
+}>()
 </script>
 
 <template>
   <header class="page-header">
-    <span class="page-header__eyebrow">{{ eyebrow }}</span>
     <h1>{{ title }}</h1>
     <p>{{ description }}</p>
   </header>
@@ -22,13 +16,7 @@ withDefaults(
 <style scoped>
 .page-header {
   margin: 8px 0 28px;
-}
-
-.page-header__eyebrow {
-  color: var(--color-accent-blue);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  animation: page-fade-up 0.4s var(--ease-out) both;
 }
 
 .page-header h1 {

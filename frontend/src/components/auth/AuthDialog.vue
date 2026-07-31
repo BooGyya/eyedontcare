@@ -129,152 +129,161 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="auth.isDialogOpen"
-      class="auth-dialog-backdrop"
-      @click="handleBackdropClick"
-    >
-      <section
-        ref="dialogRef"
-        class="auth-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="auth-dialog-title"
+    <Transition name="dialog-pop" appear>
+      <div
+        v-if="auth.isDialogOpen"
+        class="auth-dialog-backdrop"
+        @click="handleBackdropClick"
       >
-        <button
-          class="auth-dialog__close"
-          type="button"
-          aria-label="인증 창 닫기"
-          @click="closeDialog"
+        <section
+          ref="dialogRef"
+          class="auth-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="auth-dialog-title"
         >
-          ×
-        </button>
+          <button
+            class="auth-dialog__close"
+            type="button"
+            aria-label="인증 창 닫기"
+            @click="closeDialog"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6 6 18"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
 
-        <template v-if="auth.dialogScreen === 'signup'">
-          <h2 id="auth-dialog-title">반가워요!</h2>
-          <p>눈으로 즐기는 게임을 시작해요.</p>
-          <div class="auth-dialog__signup-panel">
+          <template v-if="auth.dialogScreen === 'signup'">
+            <h2 id="auth-dialog-title">반가워요!</h2>
+            <p>눈으로 즐기는 게임을 시작해요.</p>
+            <div class="auth-dialog__signup-panel">
+              <form
+                class="auth-dialog__form"
+                novalidate
+                @submit.prevent="handleSignupSubmit"
+              >
+                <label for="signup-email">이메일</label>
+                <input
+                  id="signup-email"
+                  v-model="signupForm.email"
+                  type="email"
+                  autocomplete="email"
+                  data-auth-initial-focus
+                  :aria-invalid="Boolean(signupErrors.email)"
+                  aria-describedby="signup-email-error"
+                />
+                <p
+                  id="signup-email-error"
+                  class="auth-dialog__error"
+                  role="alert"
+                >
+                  {{ signupErrors.email }}
+                </p>
+                <label for="signup-password">비밀번호</label>
+                <input
+                  id="signup-password"
+                  v-model="signupForm.password"
+                  type="password"
+                  autocomplete="new-password"
+                  :aria-invalid="Boolean(signupErrors.password)"
+                  aria-describedby="signup-password-error"
+                />
+                <p
+                  id="signup-password-error"
+                  class="auth-dialog__error"
+                  role="alert"
+                >
+                  {{ signupErrors.password }}
+                </p>
+                <button class="auth-dialog__submit" type="submit">
+                  회원가입
+                </button>
+              </form>
+              <p class="auth-dialog__switch">
+                이미 계정이 있나요?
+                <button type="button" @click="auth.openLogin">로그인</button>
+              </p>
+            </div>
+            <div class="auth-dialog__social-login">
+              <span>소셜 계정으로 시작하기</span>
+              <button
+                type="button"
+                aria-label="카카오로 시작하기"
+                @click="handleMockKakaoLogin"
+              >
+                <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
+                  <img :src="kakaoTalkIcon" alt="" />
+                </span>
+                <span>카카오 계정으로 시작하기</span>
+              </button>
+            </div>
+          </template>
+
+          <template v-else>
+            <h2 id="auth-dialog-title">로그인</h2>
+            <p>다시 만나서 반가워요. 게임을 이어서 즐겨요.</p>
             <form
               class="auth-dialog__form"
               novalidate
-              @submit.prevent="handleSignupSubmit"
+              @submit.prevent="handleLoginSubmit"
             >
-              <label for="signup-email">이메일</label>
+              <label for="login-email">이메일</label>
               <input
-                id="signup-email"
-                v-model="signupForm.email"
+                id="login-email"
+                v-model="loginForm.email"
                 type="email"
                 autocomplete="email"
                 data-auth-initial-focus
-                :aria-invalid="Boolean(signupErrors.email)"
-                aria-describedby="signup-email-error"
+                :aria-invalid="Boolean(loginErrors.email)"
+                aria-describedby="login-email-error"
               />
-              <p
-                id="signup-email-error"
-                class="auth-dialog__error"
-                role="alert"
-              >
-                {{ signupErrors.email }}
+              <p id="login-email-error" class="auth-dialog__error" role="alert">
+                {{ loginErrors.email }}
               </p>
-              <label for="signup-password">비밀번호</label>
+              <label for="login-password">비밀번호</label>
               <input
-                id="signup-password"
-                v-model="signupForm.password"
+                id="login-password"
+                v-model="loginForm.password"
                 type="password"
-                autocomplete="new-password"
-                :aria-invalid="Boolean(signupErrors.password)"
-                aria-describedby="signup-password-error"
+                autocomplete="current-password"
+                :aria-invalid="Boolean(loginErrors.password)"
+                aria-describedby="login-password-error"
               />
               <p
-                id="signup-password-error"
+                id="login-password-error"
                 class="auth-dialog__error"
                 role="alert"
               >
-                {{ signupErrors.password }}
+                {{ loginErrors.password }}
               </p>
-              <button class="auth-dialog__submit" type="submit">
-                회원가입
-              </button>
+              <button class="auth-dialog__submit" type="submit">로그인</button>
             </form>
             <p class="auth-dialog__switch">
-              이미 계정이 있나요?
-              <button type="button" @click="auth.openLogin">로그인</button>
+              처음이신가요?
+              <button type="button" @click="auth.openSignup">회원가입</button>
             </p>
-          </div>
-          <div class="auth-dialog__social-login">
-            <span>소셜 계정으로 시작하기</span>
-            <button
-              type="button"
-              aria-label="카카오로 시작하기"
-              @click="handleMockKakaoLogin"
-            >
-              <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
-                <img :src="kakaoTalkIcon" alt="" />
-              </span>
-              <span>카카오 계정으로 시작하기</span>
-            </button>
-          </div>
-        </template>
-
-        <template v-else>
-          <h2 id="auth-dialog-title">로그인</h2>
-          <p>다시 만나서 반가워요. 게임을 이어서 즐겨요.</p>
-          <form
-            class="auth-dialog__form"
-            novalidate
-            @submit.prevent="handleLoginSubmit"
-          >
-            <label for="login-email">이메일</label>
-            <input
-              id="login-email"
-              v-model="loginForm.email"
-              type="email"
-              autocomplete="email"
-              data-auth-initial-focus
-              :aria-invalid="Boolean(loginErrors.email)"
-              aria-describedby="login-email-error"
-            />
-            <p id="login-email-error" class="auth-dialog__error" role="alert">
-              {{ loginErrors.email }}
-            </p>
-            <label for="login-password">비밀번호</label>
-            <input
-              id="login-password"
-              v-model="loginForm.password"
-              type="password"
-              autocomplete="current-password"
-              :aria-invalid="Boolean(loginErrors.password)"
-              aria-describedby="login-password-error"
-            />
-            <p
-              id="login-password-error"
-              class="auth-dialog__error"
-              role="alert"
-            >
-              {{ loginErrors.password }}
-            </p>
-            <button class="auth-dialog__submit" type="submit">로그인</button>
-          </form>
-          <p class="auth-dialog__switch">
-            처음이신가요?
-            <button type="button" @click="auth.openSignup">회원가입</button>
-          </p>
-          <div class="auth-dialog__social-login">
-            <span>소셜 계정으로 로그인</span>
-            <button
-              type="button"
-              aria-label="카카오로 로그인"
-              @click="handleMockKakaoLogin"
-            >
-              <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
-                <img :src="kakaoTalkIcon" alt="" />
-              </span>
-              <span>카카오 계정으로 로그인</span>
-            </button>
-          </div>
-        </template>
-      </section>
-    </div>
+            <div class="auth-dialog__social-login">
+              <span>소셜 계정으로 로그인</span>
+              <button
+                type="button"
+                aria-label="카카오로 로그인"
+                @click="handleMockKakaoLogin"
+              >
+                <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
+                  <img :src="kakaoTalkIcon" alt="" />
+                </span>
+                <span>카카오 계정으로 로그인</span>
+              </button>
+            </div>
+          </template>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -310,9 +319,16 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   color: var(--color-ink);
   background: var(--color-surface-soft);
-  font-size: 24px;
   line-height: 1;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.auth-dialog__close svg {
+  width: 18px;
+  height: 18px;
+}
+.auth-dialog__close:hover {
+  background: var(--color-blue-soft);
 }
 .auth-dialog h2 {
   margin: 10px 0 7px;
@@ -338,6 +354,13 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+.auth-dialog__submit:hover {
+  background: color-mix(in srgb, var(--color-accent-blue) 85%, black);
+  transform: translateY(-2px);
 }
 .auth-dialog__social-login {
   display: grid;
@@ -372,6 +395,13 @@ onBeforeUnmount(() => {
   font-weight: 800;
   background: transparent;
   cursor: pointer;
+  transition:
+    filter var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+.auth-dialog__social-login button:hover {
+  filter: brightness(0.97);
+  transform: translateY(-2px);
 }
 .auth-dialog__social-kakao-icon {
   display: grid;
@@ -415,14 +445,15 @@ onBeforeUnmount(() => {
   border-radius: 9px;
   color: var(--color-ink);
   background: #fff;
+  transition: border-color var(--duration-fast) ease;
 }
 .auth-dialog__form input[aria-invalid='true'] {
-  border-color: #c44a55;
+  border-color: var(--color-danger, #c2455a);
 }
 .auth-dialog__error {
   min-height: 17px;
   margin: -3px 0 2px;
-  color: #b63745;
+  color: var(--color-danger, #c2455a);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -446,6 +477,10 @@ onBeforeUnmount(() => {
   background: transparent;
   font-weight: 800;
   cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+.auth-dialog__switch button:hover {
+  color: var(--color-primary-hover);
 }
 @media (max-width: 640px) {
   .auth-dialog-backdrop {
@@ -458,5 +493,24 @@ onBeforeUnmount(() => {
   .auth-dialog h2 {
     font-size: 27px;
   }
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: opacity 200ms ease;
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  opacity: 0;
+}
+.dialog-pop-enter-active .auth-dialog,
+.dialog-pop-leave-active .auth-dialog {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from .auth-dialog,
+.dialog-pop-leave-to .auth-dialog {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 </style>

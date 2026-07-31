@@ -14,11 +14,7 @@ const auth = useAuthStore()
 <template>
   <section class="account-page">
     <PageHeader :title="title" :description="description" />
-    <section
-      v-if="!auth.isAuthenticated"
-      class="account-page__access-notice"
-      aria-live="polite"
-    >
+    <section v-if="!auth.isAuthenticated" class="account-page__access-notice">
       <strong
         >{{ auth.isGuest ? '게스트 모드에서는' : '로그인 후에는' }} 이 기능을
         이용할 수 있어요.</strong
@@ -51,6 +47,7 @@ const auth = useAuthStore()
   display: grid;
   gap: 12px;
   width: min(100%, 720px);
+  animation: page-fade-up 0.4s var(--ease-out);
 }
 .account-page__panel section {
   display: flex;
@@ -61,6 +58,10 @@ const auth = useAuthStore()
   border-radius: 14px;
   background: #fff;
   box-shadow: var(--shadow-card);
+  transition: background-color var(--duration-fast) ease;
+}
+.account-page__panel section:hover {
+  background: var(--color-surface-soft);
 }
 .account-page__panel .account-page__profile {
   gap: 12px;
@@ -102,6 +103,7 @@ const auth = useAuthStore()
   border: 1px solid var(--color-line);
   border-radius: var(--radius-card);
   background: var(--color-surface-soft);
+  animation: page-fade-up 0.4s var(--ease-out);
 }
 .account-page__access-notice strong {
   font-size: 18px;
@@ -115,6 +117,13 @@ const auth = useAuthStore()
   background: var(--color-accent-blue);
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+.account-page__access-notice button:hover {
+  background: var(--color-primary-hover);
+  transform: translateY(-2px);
 }
 @media (max-width: 640px) {
   .account-page {

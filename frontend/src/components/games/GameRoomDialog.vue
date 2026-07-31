@@ -20,6 +20,7 @@ const codeError = ref('')
 const matchingSeconds = ref(0)
 let matchTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 let matchInterval: ReturnType<typeof globalThis.setInterval> | undefined
+let previousBodyOverflow = ''
 
 const title = computed(() =>
   props.flow === 'friends' ? '친구와 1:1 대결' : '랜덤 매칭',
@@ -104,92 +105,141 @@ watch(
     else globalThis.removeEventListener('keydown', handleKeydown)
   },
 )
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (typeof globalThis.document === 'undefined') return
+    if (isOpen) {
+      previousBodyOverflow = globalThis.document.body.style.overflow
+      globalThis.document.body.style.overflow = 'hidden'
+    } else {
+      globalThis.document.body.style.overflow = previousBodyOverflow
+    }
+  },
+)
 onBeforeUnmount(() => {
   clearMatching()
   globalThis.removeEventListener('keydown', handleKeydown)
+  if (typeof globalThis.document !== 'undefined')
+    globalThis.document.body.style.overflow = previousBodyOverflow
 })
 </script>
 
 <template>
   <Teleport to="body"
-    ><div
-      v-if="open"
-      class="game-room-dialog-backdrop"
-      @click="handleBackdropClick"
-    >
-      <section
-        ref="dialogRef"
-        class="game-room-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="game-room-dialog-title"
-        aria-describedby="game-room-dialog-description"
+    ><Transition name="dialog-pop"
+      ><div
+        v-if="open"
+        class="game-room-dialog-backdrop"
+        @click="handleBackdropClick"
       >
-        <header>
-          <div>
-            <span>{{ gameTitle }}</span>
-            <h2 id="game-room-dialog-title">{{ title }}</h2>
-            <p id="game-room-dialog-description">{{ description }}</p>
+        <section
+          ref="dialogRef"
+          class="game-room-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="game-room-dialog-title"
+          aria-describedby="game-room-dialog-description"
+        >
+          <header>
+            <div>
+              <span>{{ gameTitle }}</span>
+              <h2 id="game-room-dialog-title">{{ title }}</h2>
+              <p id="game-room-dialog-description">{{ description }}</p>
+            </div>
+            <button type="button" aria-label="모달 닫기" @click="closeDialog">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </header>
+          <div v-if="flow === 'friends'" class="game-room-dialog__options">
+            <article>
+              <b aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M12 5v14M5 12h14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </b>
+              <h3>방 만들기</h3>
+              <p>방 코드를 만들어 친구에게 공유해요.</p>
+              <button
+                class="primary"
+                type="button"
+                data-dialog-initial-focus
+                @click="createRoom"
+              >
+                방 만들기
+              </button>
+            </article>
+            <span>또는</span>
+            <article>
+              <b aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M5 4v7a4 4 0 0 0 4 4h9M13 11l4 4-4 4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </b>
+              <h3>방 코드로 참여</h3>
+              <p>친구가 공유한 숫자 4자리를 입력해요.</p>
+              <label for="room-code">방 코드</label
+              ><input
+                id="room-code"
+                v-model="roomCode"
+                inputmode="numeric"
+                maxlength="4"
+                placeholder="예: 4827"
+                :aria-invalid="Boolean(codeError)"
+                aria-describedby="room-code-error"
+                @input="codeError = ''"
+              />
+              <p
+                v-if="codeError"
+                id="room-code-error"
+                class="error"
+                role="alert"
+              >
+                {{ codeError }}
+              </p>
+              <button class="secondary" type="button" @click="joinRoom">
+                참여하기
+              </button>
+            </article>
           </div>
-          <button type="button" aria-label="모달 닫기" @click="closeDialog">
-            ×
-          </button>
-        </header>
-        <div v-if="flow === 'friends'" class="game-room-dialog__options">
-          <article>
-            <b aria-hidden="true">＋</b>
-            <h3>방 만들기</h3>
-            <p>방 코드를 만들어 친구에게 공유해요.</p>
-            <button
-              class="primary"
+          <div v-else class="game-room-dialog__matching">
+            <i aria-hidden="true" /><strong>상대를 찾고 있어요</strong>
+            <p>
+              대기 시간 <b>{{ matchingTime }}</b>
+            </p>
+            <small>잠시만 기다려 주세요. mock 상대를 곧 연결할게요.</small
+            ><button
+              class="secondary"
               type="button"
               data-dialog-initial-focus
-              @click="createRoom"
+              @click="closeDialog"
             >
-              방 만들기
+              매칭 취소
             </button>
-          </article>
-          <span>또는</span>
-          <article>
-            <b aria-hidden="true">↪</b>
-            <h3>방 코드로 참여</h3>
-            <p>친구가 공유한 숫자 4자리를 입력해요.</p>
-            <label for="room-code">방 코드</label
-            ><input
-              id="room-code"
-              v-model="roomCode"
-              inputmode="numeric"
-              maxlength="4"
-              placeholder="예: 4827"
-              :aria-invalid="Boolean(codeError)"
-              aria-describedby="room-code-error"
-              @input="codeError = ''"
-            />
-            <p v-if="codeError" id="room-code-error" class="error" role="alert">
-              {{ codeError }}
-            </p>
-            <button class="secondary" type="button" @click="joinRoom">
-              참여하기
-            </button>
-          </article>
-        </div>
-        <div v-else class="game-room-dialog__matching">
-          <i aria-hidden="true" /><strong>상대를 찾고 있어요</strong>
-          <p>
-            대기 시간 <b>{{ matchingTime }}</b>
-          </p>
-          <small>잠시만 기다려 주세요. mock 상대를 곧 연결할게요.</small
-          ><button
-            class="secondary"
-            type="button"
-            data-dialog-initial-focus
-            @click="closeDialog"
-          >
-            매칭 취소
-          </button>
-        </div>
-      </section>
-    </div></Teleport
+          </div>
+        </section>
+      </div></Transition
+    ></Teleport
   >
 </template>
 
@@ -211,6 +261,25 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-card);
   background: #fff;
   box-shadow: var(--shadow-float);
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: background-color 200ms ease;
+}
+.dialog-pop-enter-active .game-room-dialog,
+.dialog-pop-leave-active .game-room-dialog {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  background-color: rgba(23, 36, 61, 0);
+}
+.dialog-pop-enter-from .game-room-dialog,
+.dialog-pop-leave-to .game-room-dialog {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 header {
   display: flex;
@@ -238,13 +307,22 @@ article p {
   line-height: 1.55;
 }
 header button {
+  display: grid;
   width: 34px;
   height: 34px;
+  place-items: center;
   border: 0;
   border-radius: 50%;
   background: var(--color-surface-soft);
-  font-size: 26px;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+header button:hover {
+  background: var(--color-line);
+}
+header button svg {
+  width: 18px;
+  height: 18px;
 }
 .game-room-dialog__options {
   display: grid;
@@ -295,6 +373,10 @@ article > b {
   color: var(--color-accent-blue);
   background: var(--color-blue-soft);
 }
+article > b svg {
+  width: 18px;
+  height: 18px;
+}
 .game-room-dialog__options article:last-child > b {
   color: #318b57;
   background: #e8f7ee;
@@ -336,6 +418,10 @@ input {
   border-radius: 10px;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    filter var(--duration-fast) ease,
+    color var(--duration-fast) ease;
 }
 .primary {
   border: 1px solid var(--color-accent-blue);

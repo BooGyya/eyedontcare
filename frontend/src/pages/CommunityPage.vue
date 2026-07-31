@@ -14,6 +14,7 @@ import type {
   CommunityGroupSort,
 } from '../types/community'
 import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
+import teamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
 
 const { showToast } = useToast()
 
@@ -76,6 +77,16 @@ const filteredGroups = computed(() => {
 function selectFilter(label: string) {
   const selected = groupFilters.find((filter) => filterLabels[filter] === label)
   if (selected) selectedFilter.value = selected
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+}
+
+function resetFilters() {
+  selectedFilter.value = 'all'
+  searchQuery.value = ''
+  selectedSort.value = 'latest'
 }
 
 function openCreateDialog() {
@@ -270,13 +281,48 @@ function handleCreateGroup() {
       <div class="community-page__toolbar-controls">
         <label class="community-page__search-label">
           <span class="sr-only">소모임 검색</span>
-          <span aria-hidden="true">⌕</span>
+          <svg
+            class="community-page__search-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle
+              cx="10.5"
+              cy="10.5"
+              r="6.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <path
+              d="M20 20l-4.35-4.35"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
           <input
             v-model="searchQuery"
             data-testid="community-search"
             type="search"
             placeholder="소모임 검색"
           />
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="community-page__search-clear"
+            aria-label="검색어 지우기"
+            @click="clearSearch"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6 6 18"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
         </label>
         <label class="community-page__sort-label">
           <span class="sr-only">소모임 정렬</span>
@@ -293,7 +339,12 @@ function handleCreateGroup() {
       {{ filteredGroups.length }}개의 소모임
     </p>
 
-    <div v-if="filteredGroups.length" class="community-page__list">
+    <TransitionGroup
+      v-if="filteredGroups.length"
+      tag="div"
+      name="group-list"
+      class="community-page__list"
+    >
       <CommunityGroupCard
         v-for="group in filteredGroups"
         :key="group.id"
@@ -302,10 +353,32 @@ function handleCreateGroup() {
         @join="handleGroupAction"
         @enter="handleGroupAction"
       />
-    </div>
+    </TransitionGroup>
     <section v-else class="community-page__empty" aria-live="polite">
+      <img
+        :src="teamworkImage"
+        alt=""
+        aria-hidden="true"
+        class="community-page__empty-image"
+      />
       <strong>찾는 소모임이 없어요.</strong>
       <p>검색어 또는 필터를 바꿔서 다시 찾아보세요.</p>
+      <div class="community-page__empty-actions">
+        <button
+          type="button"
+          class="community-page__primary-button"
+          @click="openCreateDialog"
+        >
+          소모임 만들기
+        </button>
+        <button
+          type="button"
+          class="community-page__empty-reset"
+          @click="resetFilters"
+        >
+          필터 초기화
+        </button>
+      </div>
     </section>
 
     <CommunityDialog
@@ -464,6 +537,10 @@ function handleCreateGroup() {
   font-weight: 800;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
 }
 .community-page__primary-button {
   color: #fff;
@@ -527,6 +604,11 @@ function handleCreateGroup() {
   padding: 0 12px;
   color: var(--color-muted);
 }
+.community-page__search-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
 .community-page__search-label input,
 .community-page__sort-label select {
   min-width: 0;
@@ -539,6 +621,28 @@ function handleCreateGroup() {
 }
 .community-page__search-label input {
   width: 160px;
+}
+.community-page__search-clear {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.community-page__search-clear svg {
+  width: 14px;
+  height: 14px;
+}
+.community-page__search-clear:hover {
+  color: var(--color-ink);
+  background: var(--color-surface-soft);
 }
 .community-page__sort-label select {
   height: 100%;
@@ -559,14 +663,33 @@ function handleCreateGroup() {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
 }
+.group-list-enter-active {
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 240ms var(--ease-out);
+}
+.group-list-move {
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.group-list-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
 .community-page__empty {
   display: grid;
+  gap: 6px;
   place-items: center;
   min-height: 250px;
   padding: 32px;
   border: 1px dashed var(--color-line);
   border-radius: var(--radius-card);
   text-align: center;
+}
+.community-page__empty-image {
+  width: 140px;
+  height: 140px;
+  margin-bottom: 6px;
+  object-fit: contain;
 }
 .community-page__empty strong {
   font-size: 18px;
@@ -575,6 +698,24 @@ function handleCreateGroup() {
   margin: 7px 0 0;
   color: var(--color-muted);
   font-size: 14px;
+}
+.community-page__empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+.community-page__empty-reset {
+  padding: 4px 6px;
+  color: var(--color-accent-blue);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+.community-page__empty-reset:hover {
+  color: var(--color-primary-hover);
 }
 .community-form {
   display: grid;
@@ -603,6 +744,9 @@ function handleCreateGroup() {
   font-weight: 400;
   outline: 0;
   resize: vertical;
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
 }
 .community-form input:focus,
 .community-form textarea:focus,
@@ -611,7 +755,7 @@ function handleCreateGroup() {
   box-shadow: 0 0 0 3px rgba(79, 116, 219, 0.14);
 }
 .community-form small {
-  color: #c04d5f;
+  color: var(--color-danger, #c2455a);
   font-size: 12px;
   font-weight: 500;
 }
@@ -657,6 +801,7 @@ function handleCreateGroup() {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
 }
 .community-form__submit:hover {
   background: var(--color-primary-hover);

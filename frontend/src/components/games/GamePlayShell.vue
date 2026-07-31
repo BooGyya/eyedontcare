@@ -105,7 +105,6 @@ defineEmits<{ leave: [] }>()
   background: #f0efff;
   font-size: 12px;
   font-weight: 800;
-  transform: none;
 }
 .play-shell__header h1 {
   margin: 0;
@@ -113,7 +112,6 @@ defineEmits<{ leave: [] }>()
   font-family: var(--font-display);
   font-size: 34px;
   letter-spacing: -0.04em;
-  transform: none;
 }
 .play-shell__round {
   position: absolute;
@@ -154,6 +152,9 @@ defineEmits<{ leave: [] }>()
   margin: 0 17px;
   border-radius: 50%;
   background: #cdc8fa;
+  transition:
+    background-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
 }
 .play-shell__round-steps i.active {
   background: #4f40ea;
@@ -206,6 +207,7 @@ defineEmits<{ leave: [] }>()
   font-family: inherit;
   font-size: 25px;
   font-weight: 900;
+  font-variant-numeric: tabular-nums;
 }
 .play-shell__header button {
   justify-self: end;
@@ -217,6 +219,11 @@ defineEmits<{ leave: [] }>()
   background: #fffef9;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    transform var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
 }
 .play-shell__header button:hover {
   border-color: #bfc7e9;
@@ -224,7 +231,7 @@ defineEmits<{ leave: [] }>()
   background: #f8f8ff;
 }
 .play-shell__header button:active {
-  transform: translate(2px, 2px);
+  transform: translateY(1px);
   box-shadow: none;
 }
 .play-shell__content {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { onBeforeUnmount, watch } from 'vue'
 import type { PolicyDocument } from '../../types/footer'
 
-defineProps<{
+const props = defineProps<{
   document: PolicyDocument | null
 }>()
 
@@ -9,6 +10,8 @@ const emit = defineEmits<{
   close: []
   'open-feedback': []
 }>()
+
+let previousBodyOverflow = ''
 
 function handleBackdropClick(event: {
   target: unknown
@@ -18,68 +21,101 @@ function handleBackdropClick(event: {
     emit('close')
   }
 }
+
+function handleKeydown(event: globalThis.KeyboardEvent) {
+  if (event.key === 'Escape') emit('close')
+}
+
+watch(
+  () => props.document,
+  (document) => {
+    if (document) {
+      previousBodyOverflow = globalThis.document.body.style.overflow
+      globalThis.document.body.style.overflow = 'hidden'
+      globalThis.addEventListener('keydown', handleKeydown)
+      return
+    }
+
+    globalThis.document.body.style.overflow = previousBodyOverflow
+    globalThis.removeEventListener('keydown', handleKeydown)
+  },
+)
+
+onBeforeUnmount(() => {
+  globalThis.document.body.style.overflow = previousBodyOverflow
+  globalThis.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="document"
-      class="policy-dialog-backdrop"
-      @click="handleBackdropClick"
-    >
-      <section
-        class="policy-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="policy-dialog-title"
+    <Transition name="dialog-pop" appear>
+      <div
+        v-if="document"
+        class="policy-dialog-backdrop"
+        @click="handleBackdropClick"
       >
-        <button
-          class="policy-dialog__close"
-          type="button"
-          aria-label="닫기"
-          @click="emit('close')"
+        <section
+          class="policy-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="policy-dialog-title"
         >
-          ×
-        </button>
-
-        <h2 id="policy-dialog-title">{{ document.title }}</h2>
-
-        <div class="policy-dialog__sections">
-          <section
-            v-for="section in document.sections"
-            :key="section.heading"
-            class="policy-dialog__section"
+          <button
+            class="policy-dialog__close"
+            type="button"
+            aria-label="닫기"
+            @click="emit('close')"
           >
-            <h3>{{ section.heading }}</h3>
-            <p v-for="paragraph in section.paragraphs" :key="paragraph">
-              {{ paragraph }}
-            </p>
-            <ul v-if="section.bullets">
-              <li v-for="bullet in section.bullets" :key="bullet">
-                {{ bullet }}
-              </li>
-            </ul>
-          </section>
-        </div>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6 6 18"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
 
-        <button
-          v-if="document.id === 'support'"
-          class="policy-dialog__feedback"
-          type="button"
-          @click="emit('open-feedback')"
-        >
-          피드백 보내기
-        </button>
+          <h2 id="policy-dialog-title">{{ document.title }}</h2>
 
-        <button
-          class="policy-dialog__confirm"
-          type="button"
-          @click="emit('close')"
-        >
-          확인
-        </button>
-      </section>
-    </div>
+          <div class="policy-dialog__sections">
+            <section
+              v-for="section in document.sections"
+              :key="section.heading"
+              class="policy-dialog__section"
+            >
+              <h3>{{ section.heading }}</h3>
+              <p v-for="paragraph in section.paragraphs" :key="paragraph">
+                {{ paragraph }}
+              </p>
+              <ul v-if="section.bullets">
+                <li v-for="bullet in section.bullets" :key="bullet">
+                  {{ bullet }}
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          <button
+            v-if="document.id === 'support'"
+            class="policy-dialog__feedback"
+            type="button"
+            @click="emit('open-feedback')"
+          >
+            피드백 보내기
+          </button>
+
+          <button
+            class="policy-dialog__confirm"
+            type="button"
+            @click="emit('close')"
+          >
+            확인
+          </button>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -116,9 +152,16 @@ function handleBackdropClick(event: {
   border-radius: 50%;
   color: var(--color-ink);
   background: var(--color-surface-soft);
-  font-size: 24px;
   line-height: 1;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.policy-dialog__close svg {
+  width: 18px;
+  height: 18px;
+}
+.policy-dialog__close:hover {
+  background: var(--color-blue-soft);
 }
 
 .policy-dialog h2 {
@@ -129,13 +172,13 @@ function handleBackdropClick(event: {
 
 .policy-dialog__sections {
   display: grid;
-  gap: 20px;
+  gap: 26px;
 }
 
 .policy-dialog__section h3 {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   color: var(--color-ink);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .policy-dialog__section p {
@@ -183,6 +226,13 @@ function handleBackdropClick(event: {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.policy-dialog__feedback:hover {
+  color: #fff;
+  background: var(--color-accent-blue);
 }
 
 .policy-dialog__confirm {
@@ -195,5 +245,28 @@ function handleBackdropClick(event: {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.policy-dialog__confirm:hover {
+  background: color-mix(in srgb, var(--color-accent-blue) 85%, black);
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: opacity 200ms ease;
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  opacity: 0;
+}
+.dialog-pop-enter-active .policy-dialog,
+.dialog-pop-leave-active .policy-dialog {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from .policy-dialog,
+.dialog-pop-leave-to .policy-dialog {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 </style>

@@ -28,7 +28,12 @@ function handleFeedbackSubmit() {
     <RouterLink class="app-footer__brand" to="/" aria-label="eye dont care 홈">
       <img :src="footerLogoImage" alt="eye dont care" />
     </RouterLink>
-    <small>© 2026 eye dont care. All rights reserved.</small>
+    <div class="app-footer__meta">
+      <small>© 2026 eye dont care. All rights reserved.</small>
+      <p class="app-footer__support">
+        문의 support@eyedontcare.app · 평일 10:00~18:00
+      </p>
+    </div>
     <div class="app-footer__links">
       <button
         v-for="doc in policyDocuments"
@@ -61,12 +66,12 @@ function handleFeedbackSubmit() {
   display: flex;
   align-items: center;
   gap: 28px;
-  width: min(var(--content-width), calc(100% - 120px));
+  width: var(--layout-inline);
   min-height: 100px;
   margin: auto auto 0;
   padding: 16px 0 12px;
   border-top: 1px solid var(--color-line);
-  color: #17345e;
+  color: var(--color-muted);
   font-size: 12px;
 }
 
@@ -76,8 +81,16 @@ function handleFeedbackSubmit() {
   object-fit: contain;
 }
 
-.app-footer small {
+.app-footer__meta {
+  display: grid;
+  gap: 4px;
   margin-right: 52px;
+}
+
+.app-footer__support {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
 }
 
 .app-footer__links {
@@ -88,9 +101,19 @@ function handleFeedbackSubmit() {
 
 .app-footer__links button {
   padding: 0;
+  border-bottom: 1px solid transparent;
   color: inherit;
   background: transparent;
   cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+.app-footer__links button:hover,
+.app-footer__links button:focus-visible {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
 }
 
 @media (max-width: 1100px) {
@@ -98,7 +121,7 @@ function handleFeedbackSubmit() {
     width: min(900px, calc(100% - 52px));
   }
 
-  .app-footer small {
+  .app-footer__meta {
     margin-right: 0;
   }
 
@@ -121,9 +144,9 @@ function handleFeedbackSubmit() {
     height: 58px;
   }
 
-  .app-footer small {
-    width: 100%;
+  .app-footer__meta {
     order: 3;
+    width: 100%;
   }
 
   .app-footer__links {

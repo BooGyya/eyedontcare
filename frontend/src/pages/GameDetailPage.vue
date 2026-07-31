@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 import { useToast } from '../composables/useToast'
@@ -19,14 +19,24 @@ const roomFlow = ref<'friends' | 'random'>('friends')
 const isRoomDialogOpen = ref(false)
 
 const isDescriptionOpen = ref(false)
+let previousBodyOverflow = ''
 
 const game = computed(() => {
   const gameId = String(route.params.gameId ?? '')
   return isGameDetailId(gameId) ? gameDetails[gameId] : undefined
 })
 
-const displayTitle = computed(
-  () => game.value?.title.replace(/\s*\([^)]*\)\s*$/, '') ?? '',
+function toDisplayTitle(title: string) {
+  return title.replace(/\s*\([^)]*\)\s*$/, '')
+}
+
+const displayTitle = computed(() => toDisplayTitle(game.value?.title ?? ''))
+const otherGames = computed(() =>
+  game.value
+    ? Object.values(gameDetails).filter(
+        (detail) => detail.id !== game.value?.id,
+      )
+    : [],
 )
 
 const modeArtImages: Record<GamePlayMode['id'], string[]> = {
@@ -87,13 +97,48 @@ function handleEnterRoom(payload: {
     },
   })
 }
+
+function handleKeydown(event: globalThis.KeyboardEvent) {
+  if (event.key === 'Escape' && isDescriptionOpen.value)
+    isDescriptionOpen.value = false
+}
+
+watch(isDescriptionOpen, (isOpen) => {
+  if (typeof globalThis.document === 'undefined') return
+  if (isOpen) {
+    previousBodyOverflow = globalThis.document.body.style.overflow
+    globalThis.document.body.style.overflow = 'hidden'
+  } else {
+    globalThis.document.body.style.overflow = previousBodyOverflow
+  }
+})
+
+if (typeof globalThis.window !== 'undefined')
+  globalThis.window.addEventListener('keydown', handleKeydown)
+
+onBeforeUnmount(() => {
+  if (typeof globalThis.document !== 'undefined')
+    globalThis.document.body.style.overflow = previousBodyOverflow
+  if (typeof globalThis.window !== 'undefined')
+    globalThis.window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
   <section v-if="game" class="game-detail-page">
-    <RouterLink class="game-detail-page__back" to="/games"
-      >← 게임 목록으로</RouterLink
-    >
+    <RouterLink class="game-detail-page__back" to="/games">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M14 6l-6 6 6 6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      게임 목록으로
+    </RouterLink>
 
     <section class="game-detail-page__hero">
       <div class="game-detail-page__art">
@@ -345,939 +390,999 @@ function handleEnterRoom(payload: {
           {{ mode.badge }}
         </span>
         <small>{{ mode.description }}</small>
-        <span class="game-detail-page__mode-arrow" aria-hidden="true">→</span>
+        <span class="game-detail-page__mode-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M5 12h14M13 6l6 6-6 6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
       </button>
     </section>
 
-    <div
-      v-if="isDescriptionOpen"
-      class="game-detail-page__dialog-backdrop"
-      @click.self="isDescriptionOpen = false"
-    >
+    <section class="game-detail-page__other-games" aria-label="다른 게임 목록">
+      <h2>다른 게임도 있어요</h2>
+      <div class="game-detail-page__other-games-grid">
+        <RouterLink
+          v-for="other in otherGames"
+          :key="other.id"
+          class="game-detail-page__other-game"
+          :to="`/games/${other.id}`"
+        >
+          <span class="game-detail-page__other-game-thumb">
+            <img
+              :src="other.image"
+              :alt="`${toDisplayTitle(other.title)} 썸네일`"
+            />
+          </span>
+          <span class="game-detail-page__other-game-title">{{
+            toDisplayTitle(other.title)
+          }}</span>
+        </RouterLink>
+      </div>
+    </section>
+
+    <Transition name="dialog-pop">
       <div
-        v-if="game.guide"
-        class="game-detail-page__dialog game-detail-page__dialog--guide"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="game-description-title"
+        v-if="isDescriptionOpen"
+        class="game-detail-page__dialog-backdrop"
+        @click.self="isDescriptionOpen = false"
       >
-        <button
-          type="button"
-          class="game-detail-page__dialog-x"
-          aria-label="게임 설명 닫기"
-          @click="isDescriptionOpen = false"
-        >
-          ✕
-        </button>
-        <h2 id="game-description-title" class="game-detail-page__guide-title">
-          게임 설명
-        </h2>
-
-        <div class="game-detail-page__guide-intro">
-          <img :src="guideMascotImage" alt="" />
-          <div class="game-detail-page__guide-bubble">
-            <p v-for="paragraph in game.guide.intro" :key="paragraph">
-              <span
-                v-for="(token, tokenIndex) in toTokens(paragraph)"
-                :key="tokenIndex"
-                :class="{ 'game-detail-page__highlight': token.highlight }"
-                >{{ token.text }}</span
-              >
-            </p>
-          </div>
-        </div>
-
         <div
-          v-if="game.guide.highlights?.length"
-          class="game-detail-page__guide-highlights"
+          v-if="game.guide"
+          class="game-detail-page__dialog game-detail-page__dialog--guide"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="game-description-title"
         >
-          <div
-            v-for="highlight in game.guide.highlights"
-            :key="highlight.text"
-            class="game-detail-page__guide-highlight"
+          <button
+            type="button"
+            class="game-detail-page__dialog-x"
+            aria-label="게임 설명 닫기"
+            @click="isDescriptionOpen = false"
           >
-            <span
-              class="game-detail-page__guide-highlight-icon"
-              aria-hidden="true"
-            >
-              <svg v-if="highlight.icon === 'trophy'" viewBox="0 0 64 64">
-                <path
-                  d="M20 13h-9a9 9 0 0 0 10 9M44 13h9a9 9 0 0 1-10 9"
-                  fill="none"
-                  stroke="#e0a51f"
-                  stroke-width="3.4"
-                />
-                <path
-                  d="M20 8h24v14a12 12 0 0 1-24 0z"
-                  fill="#f6c443"
-                  stroke="#e0a51f"
-                  stroke-width="2.4"
-                />
-                <path
-                  d="M32 13l1.7 3.6 4 .5-2.9 2.7.7 3.9-3.5-1.9-3.5 1.9.7-3.9-2.9-2.7 4-.5z"
-                  fill="#fff"
-                />
-                <path d="M29 34h6v8h-6z" fill="#e0a51f" />
-                <path
-                  d="M21 48c0-4 5-6 11-6s11 2 11 6v3H21z"
-                  fill="#f6c443"
-                  stroke="#e0a51f"
-                  stroke-width="2.4"
-                />
-              </svg>
-              <svg v-else-if="highlight.icon === 'timer'" viewBox="0 0 64 64">
-                <path
-                  d="M26 5h12M32 5v6M50 15l4-4"
-                  fill="none"
-                  stroke="#6b7cf5"
-                  stroke-width="3.4"
-                  stroke-linecap="round"
-                />
-                <circle
-                  cx="32"
-                  cy="37"
-                  r="21"
-                  fill="#fff"
-                  stroke="#6b7cf5"
-                  stroke-width="3.4"
-                />
-                <path
-                  d="M32 24v13l8 5"
-                  fill="none"
-                  stroke="#6b7cf5"
-                  stroke-width="3.2"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <svg v-else-if="highlight.icon === 'goal'" viewBox="0 0 64 64">
-                <path
-                  d="M10 16v32M54 16v32M10 16h44"
-                  fill="none"
-                  stroke="#8f9bf0"
-                  stroke-width="3.6"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M10 25h44M10 34h44M21 16v27M32 16v27M43 16v27"
-                  fill="none"
-                  stroke="#c9cef1"
-                  stroke-width="2"
-                />
-                <ellipse
-                  cx="32"
-                  cy="51"
-                  rx="11"
-                  ry="5.5"
-                  fill="#6b7cf5"
-                  stroke="#17243d"
-                  stroke-width="2.2"
-                />
-              </svg>
-              <svg v-else viewBox="0 0 64 64">
-                <path
-                  d="M32 10v-5M18 14l-3-4M46 14l3-4M10 24l-4-2M54 24l4-2"
-                  fill="none"
-                  stroke="#17243d"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M6 38c6-11 15-17 26-17s20 6 26 17c-6 11-15 17-26 17S12 49 6 38z"
-                  fill="#fff"
-                  stroke="#17243d"
-                  stroke-width="3"
-                />
-                <circle cx="32" cy="38" r="11" fill="#8f9bf0" />
-                <circle cx="32" cy="38" r="5" fill="#17243d" />
-              </svg>
-            </span>
-            <p>
-              <span
-                v-for="(token, tokenIndex) in toTokens(highlight.text)"
-                :key="tokenIndex"
-                :class="{ 'game-detail-page__highlight': token.highlight }"
-                >{{ token.text }}</span
-              >
-            </p>
-          </div>
-        </div>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <h2 id="game-description-title" class="game-detail-page__guide-title">
+            게임 설명
+          </h2>
 
-        <div
-          v-if="game.guide.difficulties"
-          class="game-detail-page__guide-difficulties"
-        >
-          <h3>{{ game.guide.difficulties.title }}</h3>
-          <div class="game-detail-page__guide-difficulty-grid">
-            <div
-              v-for="item in game.guide.difficulties.items"
-              :key="item.label"
-              class="game-detail-page__guide-difficulty"
-              :class="`game-detail-page__guide-difficulty--${item.color}`"
-            >
-              <b>{{ item.label }}</b>
-              <strong>{{ item.duration }}</strong>
+          <div class="game-detail-page__guide-intro">
+            <img :src="guideMascotImage" alt="" />
+            <div class="game-detail-page__guide-bubble">
+              <p v-for="paragraph in game.guide.intro" :key="paragraph">
+                <span
+                  v-for="(token, tokenIndex) in toTokens(paragraph)"
+                  :key="tokenIndex"
+                  :class="{ 'game-detail-page__highlight': token.highlight }"
+                  >{{ token.text }}</span
+                >
+              </p>
             </div>
           </div>
+
+          <div
+            v-if="game.guide.highlights?.length"
+            class="game-detail-page__guide-highlights"
+          >
+            <div
+              v-for="highlight in game.guide.highlights"
+              :key="highlight.text"
+              class="game-detail-page__guide-highlight"
+            >
+              <span
+                class="game-detail-page__guide-highlight-icon"
+                aria-hidden="true"
+              >
+                <svg v-if="highlight.icon === 'trophy'" viewBox="0 0 64 64">
+                  <path
+                    d="M20 13h-9a9 9 0 0 0 10 9M44 13h9a9 9 0 0 1-10 9"
+                    fill="none"
+                    stroke="#e0a51f"
+                    stroke-width="3.4"
+                  />
+                  <path
+                    d="M20 8h24v14a12 12 0 0 1-24 0z"
+                    fill="#f6c443"
+                    stroke="#e0a51f"
+                    stroke-width="2.4"
+                  />
+                  <path
+                    d="M32 13l1.7 3.6 4 .5-2.9 2.7.7 3.9-3.5-1.9-3.5 1.9.7-3.9-2.9-2.7 4-.5z"
+                    fill="#fff"
+                  />
+                  <path d="M29 34h6v8h-6z" fill="#e0a51f" />
+                  <path
+                    d="M21 48c0-4 5-6 11-6s11 2 11 6v3H21z"
+                    fill="#f6c443"
+                    stroke="#e0a51f"
+                    stroke-width="2.4"
+                  />
+                </svg>
+                <svg v-else-if="highlight.icon === 'timer'" viewBox="0 0 64 64">
+                  <path
+                    d="M26 5h12M32 5v6M50 15l4-4"
+                    fill="none"
+                    stroke="#6b7cf5"
+                    stroke-width="3.4"
+                    stroke-linecap="round"
+                  />
+                  <circle
+                    cx="32"
+                    cy="37"
+                    r="21"
+                    fill="#fff"
+                    stroke="#6b7cf5"
+                    stroke-width="3.4"
+                  />
+                  <path
+                    d="M32 24v13l8 5"
+                    fill="none"
+                    stroke="#6b7cf5"
+                    stroke-width="3.2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <svg v-else-if="highlight.icon === 'goal'" viewBox="0 0 64 64">
+                  <path
+                    d="M10 16v32M54 16v32M10 16h44"
+                    fill="none"
+                    stroke="#8f9bf0"
+                    stroke-width="3.6"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M10 25h44M10 34h44M21 16v27M32 16v27M43 16v27"
+                    fill="none"
+                    stroke="#c9cef1"
+                    stroke-width="2"
+                  />
+                  <ellipse
+                    cx="32"
+                    cy="51"
+                    rx="11"
+                    ry="5.5"
+                    fill="#6b7cf5"
+                    stroke="#17243d"
+                    stroke-width="2.2"
+                  />
+                </svg>
+                <svg v-else viewBox="0 0 64 64">
+                  <path
+                    d="M32 10v-5M18 14l-3-4M46 14l3-4M10 24l-4-2M54 24l4-2"
+                    fill="none"
+                    stroke="#17243d"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M6 38c6-11 15-17 26-17s20 6 26 17c-6 11-15 17-26 17S12 49 6 38z"
+                    fill="#fff"
+                    stroke="#17243d"
+                    stroke-width="3"
+                  />
+                  <circle cx="32" cy="38" r="11" fill="#8f9bf0" />
+                  <circle cx="32" cy="38" r="5" fill="#17243d" />
+                </svg>
+              </span>
+              <p>
+                <span
+                  v-for="(token, tokenIndex) in toTokens(highlight.text)"
+                  :key="tokenIndex"
+                  :class="{ 'game-detail-page__highlight': token.highlight }"
+                  >{{ token.text }}</span
+                >
+              </p>
+            </div>
+          </div>
+
+          <div
+            v-if="game.guide.difficulties"
+            class="game-detail-page__guide-difficulties"
+          >
+            <h3>{{ game.guide.difficulties.title }}</h3>
+            <div class="game-detail-page__guide-difficulty-grid">
+              <div
+                v-for="item in game.guide.difficulties.items"
+                :key="item.label"
+                class="game-detail-page__guide-difficulty"
+                :class="`game-detail-page__guide-difficulty--${item.color}`"
+              >
+                <b>{{ item.label }}</b>
+                <strong>{{ item.duration }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="game.guide.stepIcons?.length"
+            class="game-detail-page__guide-bottom"
+            :class="{
+              'game-detail-page__guide-bottom--single':
+                !game.guide.events?.length &&
+                !game.guide.notes &&
+                !game.guide.formula,
+            }"
+          >
+            <div class="game-detail-page__steps game-detail-page__steps--guide">
+              <h3>게임 방법</h3>
+              <ol>
+                <li v-for="(step, index) in game.steps" :key="step">
+                  <span class="game-detail-page__step-icon" aria-hidden="true">
+                    <svg
+                      v-if="(game.guide.stepIcons ?? [])[index] === 'eye'"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
+                        fill="none"
+                        stroke="#17243d"
+                        stroke-width="1.8"
+                      />
+                      <circle cx="12" cy="12" r="3.4" fill="#17243d" />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'tally'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M4.5 5v14M9 5v14M13.5 5v14M18 5v14M2.5 16.5L21 8"
+                        fill="none"
+                        stroke="#4f74db"
+                        stroke-width="1.9"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'trophy'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M7 3h10v5a5 5 0 0 1-10 0z"
+                        fill="#f6c443"
+                        stroke="#e0a51f"
+                        stroke-width="1.4"
+                      />
+                      <path
+                        d="M7 4H3.5A3.5 3.5 0 0 0 7 8M17 4h3.5A3.5 3.5 0 0 1 17 8"
+                        fill="none"
+                        stroke="#e0a51f"
+                        stroke-width="1.6"
+                      />
+                      <path d="M11 13h2v3h-2z" fill="#e0a51f" />
+                      <path
+                        d="M7.5 19c0-1.8 2-2.7 4.5-2.7s4.5.9 4.5 2.7v1h-9z"
+                        fill="#f6c443"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'pencil'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M5 19l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L9 18z"
+                        fill="#f6c443"
+                        stroke="#e0a51f"
+                        stroke-width="1.6"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M14.5 6.5l3 3"
+                        fill="none"
+                        stroke="#e0a51f"
+                        stroke-width="1.6"
+                      />
+                      <path
+                        d="M4 21c2-.5 3.5-.5 5.5 0"
+                        fill="none"
+                        stroke="#4f74db"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'clock'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="8.5"
+                        fill="#fff"
+                        stroke="#17243d"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M12 7.5V12l3.2 2.2"
+                        fill="none"
+                        stroke="#17243d"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'space'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <rect
+                        x="3"
+                        y="7"
+                        width="18"
+                        height="11"
+                        rx="2.4"
+                        fill="#fff"
+                        stroke="#4f74db"
+                        stroke-width="1.7"
+                      />
+                      <path
+                        d="M8 14.5h8"
+                        stroke="#4f74db"
+                        stroke-width="1.7"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'mouse'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <rect
+                        x="7"
+                        y="3.5"
+                        width="10"
+                        height="17"
+                        rx="5"
+                        fill="#fff"
+                        stroke="#17243d"
+                        stroke-width="1.7"
+                      />
+                      <path
+                        d="M12 7v3.5"
+                        stroke="#17243d"
+                        stroke-width="1.7"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="(game.guide.stepIcons ?? [])[index] === 'list'"
+                      viewBox="0 0 24 24"
+                    >
+                      <rect
+                        x="4"
+                        y="4"
+                        width="16"
+                        height="16"
+                        rx="3"
+                        fill="#fff"
+                        stroke="#4f74db"
+                        stroke-width="1.7"
+                      />
+                      <path
+                        d="M8.5 9h7M8.5 12.5h7M8.5 16h4.5"
+                        stroke="#4f74db"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'robot'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <rect
+                        x="5"
+                        y="8"
+                        width="14"
+                        height="11"
+                        rx="3.5"
+                        fill="#7c88ec"
+                      />
+                      <path
+                        d="M12 5v3M9.5 13h.01M14.5 13h.01"
+                        stroke="#fff"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                      <circle cx="12" cy="4.5" r="1.3" fill="#7c88ec" />
+                      <path
+                        d="M9.5 16.2c1.6 1.1 3.4 1.1 5 0"
+                        stroke="#fff"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        fill="none"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="(game.guide.stepIcons ?? [])[index] === 'note'"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M9.5 5v10"
+                        stroke="#6b7cf5"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        fill="none"
+                      />
+                      <path
+                        d="M9.5 5c2.5-1.7 5-1.7 7.5 0v4c-2.5-1.7-5-1.7-7.5 0z"
+                        fill="#6b7cf5"
+                      />
+                      <circle cx="7.5" cy="16.8" r="2.6" fill="#6b7cf5" />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'heartbreak'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M12 20S4.8 15.2 3.7 10.2C3 6.9 5.4 4.2 8.4 4.2c1.5 0 2.9.8 3.6 1.9.7-1.1 2.1-1.9 3.6-1.9 3 0 5.4 2.7 4.7 6-1.1 5-8.3 9.8-8.3 9.8z"
+                        fill="#f06d7d"
+                        stroke="#d94f60"
+                        stroke-width="1.2"
+                      />
+                      <path
+                        d="M12 6.5l-1.7 3.7 2.8 1.9-1.7 3.7"
+                        fill="none"
+                        stroke="#fff"
+                        stroke-width="1.5"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="
+                        (game.guide.stepIcons ?? [])[index] === 'flame'
+                      "
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M12 3.2c3 3.1 5.8 5.6 5.8 9.6a5.8 5.8 0 1 1-11.6 0c0-2.2 1-3.7 2.2-5.2 0 1.5.7 2.6 1.8 3.1-.4-2.9.3-5.3 1.8-7.5z"
+                        fill="#f59e2e"
+                        stroke="#e07a12"
+                        stroke-width="1.4"
+                      />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24">
+                      <path
+                        d="M12 6c-1.5-3-6-3.4-6-1s4 2 6 1zM12 6c1.5-3 6-3.4 6-1s-4 2-6 1z"
+                        fill="#f5a623"
+                      />
+                      <rect
+                        x="4"
+                        y="6.5"
+                        width="16"
+                        height="4"
+                        rx="1.2"
+                        fill="#7c88ec"
+                      />
+                      <rect
+                        x="5.5"
+                        y="10.5"
+                        width="13"
+                        height="9.5"
+                        rx="1.6"
+                        fill="#8f9bf0"
+                      />
+                      <rect
+                        x="10.5"
+                        y="6.5"
+                        width="3"
+                        height="13.5"
+                        fill="#fff"
+                      />
+                    </svg>
+                  </span>
+                  <span class="game-detail-page__step-text">
+                    <span
+                      v-for="(token, tokenIndex) in toTokens(step)"
+                      :key="tokenIndex"
+                      :class="{
+                        'game-detail-page__highlight': token.highlight,
+                      }"
+                      >{{ token.text }}</span
+                    >
+                  </span>
+                </li>
+              </ol>
+            </div>
+
+            <div
+              v-if="game.guide.events?.length"
+              class="game-detail-page__guide-events"
+            >
+              <h3>이벤트 예시</h3>
+              <div>
+                <article
+                  v-for="event in game.guide.events"
+                  :key="event.label"
+                  class="game-detail-page__guide-event"
+                  :class="`game-detail-page__guide-event--${event.color}`"
+                >
+                  <span
+                    class="game-detail-page__guide-event-icon"
+                    aria-hidden="true"
+                  >
+                    <svg v-if="event.icon === 'clock'" viewBox="0 0 48 48">
+                      <circle
+                        cx="24"
+                        cy="24"
+                        r="17"
+                        fill="#fff"
+                        stroke="#17243d"
+                        stroke-width="2.6"
+                      />
+                      <path
+                        d="M24 14v10l7 5"
+                        fill="none"
+                        stroke="#17243d"
+                        stroke-width="2.6"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <svg v-else-if="event.icon === 'star'" viewBox="0 0 48 48">
+                      <path
+                        d="M24 6l4.8 9.7L39.5 17.3l-7.7 7.5 1.8 10.7L24 30.4l-9.6 5.1 1.8-10.7-7.7-7.5L19.2 15.7z"
+                        fill="#f6c443"
+                        stroke="#e0a51f"
+                        stroke-width="1.8"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M8 8l1 2.4L11.4 11.4l-2.4 1L8 14.8l-1-2.4-2.4-1L7 10.4zM41 34l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"
+                        fill="#7fd4a8"
+                      />
+                    </svg>
+                    <svg v-else viewBox="0 0 60 32">
+                      <path
+                        d="M8 8l10 8-10 8"
+                        fill="none"
+                        stroke="#17243d"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                      <circle
+                        cx="40"
+                        cy="16"
+                        r="12"
+                        fill="#fff"
+                        stroke="#17243d"
+                        stroke-width="2.6"
+                      />
+                      <circle cx="42.5" cy="16" r="6" fill="#17243d" />
+                      <circle cx="44.5" cy="13.5" r="2" fill="#fff" />
+                    </svg>
+                  </span>
+                  <p>{{ event.label }}</p>
+                  <b>성공 시 보너스!</b>
+                </article>
+              </div>
+            </div>
+            <div
+              v-else-if="game.guide.notes"
+              class="game-detail-page__guide-notes"
+            >
+              <h3>{{ game.guide.notes.title }}</h3>
+              <ul>
+                <li v-for="item in game.guide.notes.items" :key="item">
+                  {{ item }}
+                </li>
+              </ul>
+            </div>
+            <div
+              v-else-if="game.guide.formula"
+              class="game-detail-page__guide-formula"
+            >
+              <h3>{{ game.guide.formula.title }}</h3>
+              <div class="game-detail-page__guide-formula-parts">
+                <template
+                  v-for="(part, partIndex) in game.guide.formula.parts"
+                  :key="part.label"
+                >
+                  <span
+                    v-if="partIndex > 0"
+                    class="game-detail-page__guide-formula-plus"
+                    aria-hidden="true"
+                    >+</span
+                  >
+                  <span
+                    class="game-detail-page__guide-formula-part"
+                    :class="`game-detail-page__guide-formula-part--${part.color}`"
+                  >
+                    <svg
+                      v-if="part.icon === 'star'"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M12 3l2.5 5.3 5.8.8-4.2 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.2-4 5.8-.8z"
+                        fill="#8f9bf0"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="part.icon === 'flame'"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M12 3.2c3 3.1 5.8 5.6 5.8 9.6a5.8 5.8 0 1 1-11.6 0c0-2.2 1-3.7 2.2-5.2 0 1.5.7 2.6 1.8 3.1-.4-2.9.3-5.3 1.8-7.5z"
+                        fill="#f59e2e"
+                      />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 20S4.8 15.2 3.7 10.2C3 6.9 5.4 4.2 8.4 4.2c1.5 0 2.9.8 3.6 1.9.7-1.1 2.1-1.9 3.6-1.9 3 0 5.4 2.7 4.7 6-1.1 5-8.3 9.8-8.3 9.8z"
+                        fill="#f06d7d"
+                      />
+                    </svg>
+                    {{ part.label }}
+                  </span>
+                </template>
+              </div>
+              <div class="game-detail-page__guide-formula-total">
+                = {{ game.guide.formula.total }}
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="game.guide.cards?.length"
+            class="game-detail-page__guide-cards"
+          >
+            <article
+              v-for="(card, index) in game.guide.cards"
+              :key="card.title"
+              class="game-detail-page__guide-card"
+              :class="`game-detail-page__guide-card--${card.color}`"
+            >
+              <h3>
+                <b>{{ index + 1 }}</b>
+                {{ card.title }}
+                <small v-if="card.suffix">{{ card.suffix }}</small>
+              </h3>
+              <span class="game-detail-page__guide-icon" aria-hidden="true">
+                <svg v-if="card.icon === 'timer'" viewBox="0 0 64 64">
+                  <path
+                    d="M26 5h12M32 5v6M50 15l4-4"
+                    fill="none"
+                    stroke="#2f9e63"
+                    stroke-width="3.4"
+                    stroke-linecap="round"
+                  />
+                  <circle
+                    cx="32"
+                    cy="37"
+                    r="21"
+                    fill="#fff"
+                    stroke="#2f9e63"
+                    stroke-width="3.4"
+                    stroke-dasharray="9 5"
+                  />
+                  <text
+                    x="32"
+                    y="45"
+                    text-anchor="middle"
+                    fill="#2f9e63"
+                    font-size="22"
+                    font-weight="800"
+                  >
+                    {{ card.iconText }}
+                  </text>
+                </svg>
+                <svg v-else-if="card.icon === 'trophy'" viewBox="0 0 64 64">
+                  <path
+                    d="M20 13h-9a9 9 0 0 0 10 9M44 13h9a9 9 0 0 1-10 9"
+                    fill="none"
+                    stroke="#e0a51f"
+                    stroke-width="3.4"
+                  />
+                  <path
+                    d="M20 8h24v14a12 12 0 0 1-24 0z"
+                    fill="#f6c443"
+                    stroke="#e0a51f"
+                    stroke-width="2.4"
+                  />
+                  <path
+                    d="M32 13l1.7 3.6 4 .5-2.9 2.7.7 3.9-3.5-1.9-3.5 1.9.7-3.9-2.9-2.7 4-.5z"
+                    fill="#fff"
+                  />
+                  <path d="M29 34h6v8h-6z" fill="#e0a51f" />
+                  <path
+                    d="M21 48c0-4 5-6 11-6s11 2 11 6v3H21z"
+                    fill="#f6c443"
+                    stroke="#e0a51f"
+                    stroke-width="2.4"
+                  />
+                </svg>
+                <svg v-else-if="card.icon === 'gift'" viewBox="0 0 64 64">
+                  <path
+                    d="M32 17c-4-8-15-9-15-3s10 5 15 3zM32 17c4-8 15-9 15-3s-10 5-15 3z"
+                    fill="#f5a623"
+                  />
+                  <rect
+                    x="12"
+                    y="18"
+                    width="40"
+                    height="11"
+                    rx="3"
+                    fill="#7c88ec"
+                  />
+                  <rect
+                    x="15"
+                    y="29"
+                    width="34"
+                    height="24"
+                    rx="4"
+                    fill="#8f9bf0"
+                  />
+                  <rect x="28" y="18" width="8" height="35" fill="#fff" />
+                </svg>
+                <svg v-else-if="card.icon === 'heart'" viewBox="0 0 64 64">
+                  <path
+                    d="M32 52S10 39.5 7.5 26.5C6 18.5 12 12 19.5 12c5 0 9.5 3 12.5 7 3-4 7.5-7 12.5-7C52 12 58 18.5 56.5 26.5 54 39.5 32 52 32 52z"
+                    fill="#f06d7d"
+                    stroke="#d94f60"
+                    stroke-width="2.4"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M50 8l1.4 3.3L54.7 12.7l-3.3 1.4L50 17.4l-1.4-3.3-3.3-1.4 3.3-1.4z"
+                    fill="#f6c443"
+                  />
+                </svg>
+                <svg v-else-if="card.icon === 'robot'" viewBox="0 0 64 64">
+                  <path
+                    d="M32 8v7M32 6.5a2.5 2.5 0 1 0 0-.01"
+                    stroke="#6b7cf5"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    fill="none"
+                  />
+                  <rect
+                    x="12"
+                    y="15"
+                    width="40"
+                    height="32"
+                    rx="12"
+                    fill="#fff"
+                    stroke="#6b7cf5"
+                    stroke-width="3"
+                  />
+                  <rect
+                    x="19"
+                    y="24"
+                    width="26"
+                    height="14"
+                    rx="7"
+                    fill="#17243d"
+                  />
+                  <circle cx="26.5" cy="31" r="2.6" fill="#7fd4ff" />
+                  <circle cx="37.5" cy="31" r="2.6" fill="#7fd4ff" />
+                  <path
+                    d="M26 42.5c4 2.4 8 2.4 12 0"
+                    stroke="#6b7cf5"
+                    stroke-width="2.6"
+                    stroke-linecap="round"
+                    fill="none"
+                  />
+                  <path
+                    d="M12 28H7M57 28h-5"
+                    stroke="#6b7cf5"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <svg v-else-if="card.icon === 'rounds'" viewBox="0 0 64 64">
+                  <circle
+                    cx="12"
+                    cy="32"
+                    r="8.5"
+                    fill="#fff"
+                    stroke="#f5a623"
+                    stroke-width="2.6"
+                  />
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="8.5"
+                    fill="#fff"
+                    stroke="#f5a623"
+                    stroke-width="2.6"
+                  />
+                  <circle
+                    cx="52"
+                    cy="32"
+                    r="8.5"
+                    fill="#fff"
+                    stroke="#f5a623"
+                    stroke-width="2.6"
+                  />
+                  <text
+                    x="12"
+                    y="36.5"
+                    text-anchor="middle"
+                    fill="#f5a623"
+                    font-size="12"
+                    font-weight="800"
+                  >
+                    1
+                  </text>
+                  <text
+                    x="32"
+                    y="36.5"
+                    text-anchor="middle"
+                    fill="#f5a623"
+                    font-size="12"
+                    font-weight="800"
+                  >
+                    2
+                  </text>
+                  <text
+                    x="52"
+                    y="36.5"
+                    text-anchor="middle"
+                    fill="#f5a623"
+                    font-size="12"
+                    font-weight="800"
+                  >
+                    3
+                  </text>
+                  <path
+                    d="M22 32h1.5M40.5 32H42"
+                    stroke="#f5a623"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <svg v-else-if="card.icon === 'rhythm'" viewBox="0 0 64 64">
+                  <path
+                    d="M22 10v16"
+                    fill="none"
+                    stroke="#6b7cf5"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M22 10c4.5-3 9-3 13.5 0v7C31 14 26.5 14 22 17z"
+                    fill="#6b7cf5"
+                  />
+                  <circle cx="18" cy="27" r="5" fill="#6b7cf5" />
+                  <path
+                    d="M12 46c5.5-8.5 12.5-13 20-13s14.5 4.5 20 13c-5.5 8.5-12.5 13-20 13s-14.5-4.5-20-13z"
+                    fill="#fff"
+                    stroke="#17243d"
+                    stroke-width="2.8"
+                  />
+                  <circle cx="32" cy="46" r="7.5" fill="#8f9bf0" />
+                  <circle cx="32" cy="46" r="3.4" fill="#17243d" />
+                </svg>
+                <svg v-else-if="card.icon === 'combo'" viewBox="0 0 64 64">
+                  <path
+                    d="M32 6c8.5 8.5 16 15.5 16 26.5a16 16 0 1 1-32 0c0-6 2.8-10.2 6-14.5 0 4.2 2 7.2 5 8.5-1.2-8 1-14.5 5-20.5z"
+                    fill="#f59e2e"
+                    stroke="#e07a12"
+                    stroke-width="2.2"
+                  />
+                  <circle cx="32" cy="38" r="9.5" fill="#fff" />
+                  <text
+                    x="32"
+                    y="42.5"
+                    text-anchor="middle"
+                    fill="#e07a12"
+                    font-size="12"
+                    font-weight="800"
+                  >
+                    10
+                  </text>
+                </svg>
+                <svg v-else-if="card.icon === 'hearts'" viewBox="0 0 64 64">
+                  <path
+                    d="M16 34s-9-6-10.2-12C5 18 8 14.5 11.7 14.5c2 0 3.7 1.1 4.3 2.4.6-1.3 2.3-2.4 4.3-2.4 3.7 0 6.7 3.5 5.9 7.5C25 28 16 34 16 34z"
+                    fill="#f06d7d"
+                    stroke="#d94f60"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M40 30s-9-6-10.2-12C29 14 32 10.5 35.7 10.5c2 0 3.7 1.1 4.3 2.4.6-1.3 2.3-2.4 4.3-2.4 3.7 0 6.7 3.5 5.9 7.5C49 24 40 30 40 30z"
+                    fill="#f06d7d"
+                    stroke="#d94f60"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M30 54s-9-6-10.2-12C19 38 22 34.5 25.7 34.5c2 0 3.7 1.1 4.3 2.4.6-1.3 2.3-2.4 4.3-2.4 3.7 0 6.7 3.5 5.9 7.5C39 48 30 54 30 54z"
+                    fill="#e3e5f0"
+                    stroke="#c2c6da"
+                    stroke-width="1.8"
+                  />
+                </svg>
+                <svg v-else viewBox="0 0 64 64">
+                  <path
+                    d="M32 8l6.4 13 14.3 2.1-10.3 10 2.4 14.2L32 40.6 19.2 47.3l2.4-14.2-10.3-10L25.6 21z"
+                    fill="#f6c443"
+                    stroke="#e0a51f"
+                    stroke-width="2.4"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 12l1.5 3.5L14 17l-3.5 1.5L9 22l-1.5-3.5L4 17l3.5-1.5zM55 40l1.2 2.8 2.8 1.2-2.8 1.2L55 48l-1.2-2.8L51 44l2.8-1.2z"
+                    fill="#7fd4a8"
+                  />
+                </svg>
+              </span>
+              <p>{{ card.description }}</p>
+              <span
+                v-if="card.badge"
+                class="game-detail-page__guide-badge"
+                :class="`game-detail-page__guide-badge--${card.badgeColor ?? card.color}`"
+                >{{ card.badge }}</span
+              >
+            </article>
+          </div>
+
+          <button
+            type="button"
+            class="game-detail-page__dialog-close"
+            @click="isDescriptionOpen = false"
+          >
+            확인
+          </button>
         </div>
 
         <div
-          v-if="game.guide.stepIcons?.length"
-          class="game-detail-page__guide-bottom"
-          :class="{
-            'game-detail-page__guide-bottom--single':
-              !game.guide.events?.length &&
-              !game.guide.notes &&
-              !game.guide.formula,
-          }"
+          v-else
+          class="game-detail-page__dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="game-description-title"
         >
-          <div class="game-detail-page__steps game-detail-page__steps--guide">
-            <h3>게임 방법</h3>
+          <div class="game-detail-page__steps">
+            <h2 id="game-description-title">게임 방법</h2>
             <ol>
               <li v-for="(step, index) in game.steps" :key="step">
-                <span class="game-detail-page__step-icon" aria-hidden="true">
-                  <svg
-                    v-if="(game.guide.stepIcons ?? [])[index] === 'eye'"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
-                      fill="none"
-                      stroke="#17243d"
-                      stroke-width="1.8"
-                    />
-                    <circle cx="12" cy="12" r="3.4" fill="#17243d" />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'tally'"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M4.5 5v14M9 5v14M13.5 5v14M18 5v14M2.5 16.5L21 8"
-                      fill="none"
-                      stroke="#4f74db"
-                      stroke-width="1.9"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'trophy'"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M7 3h10v5a5 5 0 0 1-10 0z"
-                      fill="#f6c443"
-                      stroke="#e0a51f"
-                      stroke-width="1.4"
-                    />
-                    <path
-                      d="M7 4H3.5A3.5 3.5 0 0 0 7 8M17 4h3.5A3.5 3.5 0 0 1 17 8"
-                      fill="none"
-                      stroke="#e0a51f"
-                      stroke-width="1.6"
-                    />
-                    <path d="M11 13h2v3h-2z" fill="#e0a51f" />
-                    <path
-                      d="M7.5 19c0-1.8 2-2.7 4.5-2.7s4.5.9 4.5 2.7v1h-9z"
-                      fill="#f6c443"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'pencil'"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M5 19l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L9 18z"
-                      fill="#f6c443"
-                      stroke="#e0a51f"
-                      stroke-width="1.6"
-                      stroke-linejoin="round"
-                    />
-                    <path
-                      d="M14.5 6.5l3 3"
-                      fill="none"
-                      stroke="#e0a51f"
-                      stroke-width="1.6"
-                    />
-                    <path
-                      d="M4 21c2-.5 3.5-.5 5.5 0"
-                      fill="none"
-                      stroke="#4f74db"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'clock'"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="8.5"
-                      fill="#fff"
-                      stroke="#17243d"
-                      stroke-width="1.8"
-                    />
-                    <path
-                      d="M12 7.5V12l3.2 2.2"
-                      fill="none"
-                      stroke="#17243d"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'space'"
-                    viewBox="0 0 24 24"
-                  >
-                    <rect
-                      x="3"
-                      y="7"
-                      width="18"
-                      height="11"
-                      rx="2.4"
-                      fill="#fff"
-                      stroke="#4f74db"
-                      stroke-width="1.7"
-                    />
-                    <path
-                      d="M8 14.5h8"
-                      stroke="#4f74db"
-                      stroke-width="1.7"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'mouse'"
-                    viewBox="0 0 24 24"
-                  >
-                    <rect
-                      x="7"
-                      y="3.5"
-                      width="10"
-                      height="17"
-                      rx="5"
-                      fill="#fff"
-                      stroke="#17243d"
-                      stroke-width="1.7"
-                    />
-                    <path
-                      d="M12 7v3.5"
-                      stroke="#17243d"
-                      stroke-width="1.7"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'list'"
-                    viewBox="0 0 24 24"
-                  >
-                    <rect
-                      x="4"
-                      y="4"
-                      width="16"
-                      height="16"
-                      rx="3"
-                      fill="#fff"
-                      stroke="#4f74db"
-                      stroke-width="1.7"
-                    />
-                    <path
-                      d="M8.5 9h7M8.5 12.5h7M8.5 16h4.5"
-                      stroke="#4f74db"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'robot'"
-                    viewBox="0 0 24 24"
-                  >
-                    <rect
-                      x="5"
-                      y="8"
-                      width="14"
-                      height="11"
-                      rx="3.5"
-                      fill="#7c88ec"
-                    />
-                    <path
-                      d="M12 5v3M9.5 13h.01M14.5 13h.01"
-                      stroke="#fff"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                    />
-                    <circle cx="12" cy="4.5" r="1.3" fill="#7c88ec" />
-                    <path
-                      d="M9.5 16.2c1.6 1.1 3.4 1.1 5 0"
-                      stroke="#fff"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      fill="none"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'note'"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M9.5 5v10"
-                      stroke="#6b7cf5"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      fill="none"
-                    />
-                    <path
-                      d="M9.5 5c2.5-1.7 5-1.7 7.5 0v4c-2.5-1.7-5-1.7-7.5 0z"
-                      fill="#6b7cf5"
-                    />
-                    <circle cx="7.5" cy="16.8" r="2.6" fill="#6b7cf5" />
-                  </svg>
-                  <svg
-                    v-else-if="
-                      (game.guide.stepIcons ?? [])[index] === 'heartbreak'
-                    "
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M12 20S4.8 15.2 3.7 10.2C3 6.9 5.4 4.2 8.4 4.2c1.5 0 2.9.8 3.6 1.9.7-1.1 2.1-1.9 3.6-1.9 3 0 5.4 2.7 4.7 6-1.1 5-8.3 9.8-8.3 9.8z"
-                      fill="#f06d7d"
-                      stroke="#d94f60"
-                      stroke-width="1.2"
-                    />
-                    <path
-                      d="M12 6.5l-1.7 3.7 2.8 1.9-1.7 3.7"
-                      fill="none"
-                      stroke="#fff"
-                      stroke-width="1.5"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="(game.guide.stepIcons ?? [])[index] === 'flame'"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M12 3.2c3 3.1 5.8 5.6 5.8 9.6a5.8 5.8 0 1 1-11.6 0c0-2.2 1-3.7 2.2-5.2 0 1.5.7 2.6 1.8 3.1-.4-2.9.3-5.3 1.8-7.5z"
-                      fill="#f59e2e"
-                      stroke="#e07a12"
-                      stroke-width="1.4"
-                    />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24">
-                    <path
-                      d="M12 6c-1.5-3-6-3.4-6-1s4 2 6 1zM12 6c1.5-3 6-3.4 6-1s-4 2-6 1z"
-                      fill="#f5a623"
-                    />
-                    <rect
-                      x="4"
-                      y="6.5"
-                      width="16"
-                      height="4"
-                      rx="1.2"
-                      fill="#7c88ec"
-                    />
-                    <rect
-                      x="5.5"
-                      y="10.5"
-                      width="13"
-                      height="9.5"
-                      rx="1.6"
-                      fill="#8f9bf0"
-                    />
-                    <rect
-                      x="10.5"
-                      y="6.5"
-                      width="3"
-                      height="13.5"
-                      fill="#fff"
-                    />
-                  </svg>
-                </span>
-                <span class="game-detail-page__step-text">
-                  <span
-                    v-for="(token, tokenIndex) in toTokens(step)"
-                    :key="tokenIndex"
-                    :class="{ 'game-detail-page__highlight': token.highlight }"
-                    >{{ token.text }}</span
-                  >
-                </span>
+                <b>{{ index + 1 }}</b>
+                <span>{{ step }}</span>
               </li>
             </ol>
           </div>
-
-          <div
-            v-if="game.guide.events?.length"
-            class="game-detail-page__guide-events"
+          <img
+            class="game-detail-page__dialog-mascot"
+            :src="game.mascotImage"
+            alt=""
+          />
+          <button
+            type="button"
+            class="game-detail-page__dialog-close"
+            @click="isDescriptionOpen = false"
           >
-            <h3>이벤트 예시</h3>
-            <div>
-              <article
-                v-for="event in game.guide.events"
-                :key="event.label"
-                class="game-detail-page__guide-event"
-                :class="`game-detail-page__guide-event--${event.color}`"
-              >
-                <span
-                  class="game-detail-page__guide-event-icon"
-                  aria-hidden="true"
-                >
-                  <svg v-if="event.icon === 'clock'" viewBox="0 0 48 48">
-                    <circle
-                      cx="24"
-                      cy="24"
-                      r="17"
-                      fill="#fff"
-                      stroke="#17243d"
-                      stroke-width="2.6"
-                    />
-                    <path
-                      d="M24 14v10l7 5"
-                      fill="none"
-                      stroke="#17243d"
-                      stroke-width="2.6"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <svg v-else-if="event.icon === 'star'" viewBox="0 0 48 48">
-                    <path
-                      d="M24 6l4.8 9.7L39.5 17.3l-7.7 7.5 1.8 10.7L24 30.4l-9.6 5.1 1.8-10.7-7.7-7.5L19.2 15.7z"
-                      fill="#f6c443"
-                      stroke="#e0a51f"
-                      stroke-width="1.8"
-                      stroke-linejoin="round"
-                    />
-                    <path
-                      d="M8 8l1 2.4L11.4 11.4l-2.4 1L8 14.8l-1-2.4-2.4-1L7 10.4zM41 34l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"
-                      fill="#7fd4a8"
-                    />
-                  </svg>
-                  <svg v-else viewBox="0 0 60 32">
-                    <path
-                      d="M8 8l10 8-10 8"
-                      fill="none"
-                      stroke="#17243d"
-                      stroke-width="3"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                    <circle
-                      cx="40"
-                      cy="16"
-                      r="12"
-                      fill="#fff"
-                      stroke="#17243d"
-                      stroke-width="2.6"
-                    />
-                    <circle cx="42.5" cy="16" r="6" fill="#17243d" />
-                    <circle cx="44.5" cy="13.5" r="2" fill="#fff" />
-                  </svg>
-                </span>
-                <p>{{ event.label }}</p>
-                <b>성공 시 보너스!</b>
-              </article>
-            </div>
-          </div>
-          <div
-            v-else-if="game.guide.notes"
-            class="game-detail-page__guide-notes"
-          >
-            <h3>{{ game.guide.notes.title }}</h3>
-            <ul>
-              <li v-for="item in game.guide.notes.items" :key="item">
-                {{ item }}
-              </li>
-            </ul>
-          </div>
-          <div
-            v-else-if="game.guide.formula"
-            class="game-detail-page__guide-formula"
-          >
-            <h3>{{ game.guide.formula.title }}</h3>
-            <div class="game-detail-page__guide-formula-parts">
-              <template
-                v-for="(part, partIndex) in game.guide.formula.parts"
-                :key="part.label"
-              >
-                <span
-                  v-if="partIndex > 0"
-                  class="game-detail-page__guide-formula-plus"
-                  aria-hidden="true"
-                  >+</span
-                >
-                <span
-                  class="game-detail-page__guide-formula-part"
-                  :class="`game-detail-page__guide-formula-part--${part.color}`"
-                >
-                  <svg
-                    v-if="part.icon === 'star'"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12 3l2.5 5.3 5.8.8-4.2 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.2-4 5.8-.8z"
-                      fill="#8f9bf0"
-                    />
-                  </svg>
-                  <svg
-                    v-else-if="part.icon === 'flame'"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12 3.2c3 3.1 5.8 5.6 5.8 9.6a5.8 5.8 0 1 1-11.6 0c0-2.2 1-3.7 2.2-5.2 0 1.5.7 2.6 1.8 3.1-.4-2.9.3-5.3 1.8-7.5z"
-                      fill="#f59e2e"
-                    />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 20S4.8 15.2 3.7 10.2C3 6.9 5.4 4.2 8.4 4.2c1.5 0 2.9.8 3.6 1.9.7-1.1 2.1-1.9 3.6-1.9 3 0 5.4 2.7 4.7 6-1.1 5-8.3 9.8-8.3 9.8z"
-                      fill="#f06d7d"
-                    />
-                  </svg>
-                  {{ part.label }}
-                </span>
-              </template>
-            </div>
-            <div class="game-detail-page__guide-formula-total">
-              = {{ game.guide.formula.total }}
-            </div>
-          </div>
+            닫기
+          </button>
         </div>
-
-        <div
-          v-if="game.guide.cards?.length"
-          class="game-detail-page__guide-cards"
-        >
-          <article
-            v-for="(card, index) in game.guide.cards"
-            :key="card.title"
-            class="game-detail-page__guide-card"
-            :class="`game-detail-page__guide-card--${card.color}`"
-          >
-            <h3>
-              <b>{{ index + 1 }}</b>
-              {{ card.title }}
-              <small v-if="card.suffix">{{ card.suffix }}</small>
-            </h3>
-            <span class="game-detail-page__guide-icon" aria-hidden="true">
-              <svg v-if="card.icon === 'timer'" viewBox="0 0 64 64">
-                <path
-                  d="M26 5h12M32 5v6M50 15l4-4"
-                  fill="none"
-                  stroke="#2f9e63"
-                  stroke-width="3.4"
-                  stroke-linecap="round"
-                />
-                <circle
-                  cx="32"
-                  cy="37"
-                  r="21"
-                  fill="#fff"
-                  stroke="#2f9e63"
-                  stroke-width="3.4"
-                  stroke-dasharray="9 5"
-                />
-                <text
-                  x="32"
-                  y="45"
-                  text-anchor="middle"
-                  fill="#2f9e63"
-                  font-size="22"
-                  font-weight="800"
-                >
-                  {{ card.iconText }}
-                </text>
-              </svg>
-              <svg v-else-if="card.icon === 'trophy'" viewBox="0 0 64 64">
-                <path
-                  d="M20 13h-9a9 9 0 0 0 10 9M44 13h9a9 9 0 0 1-10 9"
-                  fill="none"
-                  stroke="#e0a51f"
-                  stroke-width="3.4"
-                />
-                <path
-                  d="M20 8h24v14a12 12 0 0 1-24 0z"
-                  fill="#f6c443"
-                  stroke="#e0a51f"
-                  stroke-width="2.4"
-                />
-                <path
-                  d="M32 13l1.7 3.6 4 .5-2.9 2.7.7 3.9-3.5-1.9-3.5 1.9.7-3.9-2.9-2.7 4-.5z"
-                  fill="#fff"
-                />
-                <path d="M29 34h6v8h-6z" fill="#e0a51f" />
-                <path
-                  d="M21 48c0-4 5-6 11-6s11 2 11 6v3H21z"
-                  fill="#f6c443"
-                  stroke="#e0a51f"
-                  stroke-width="2.4"
-                />
-              </svg>
-              <svg v-else-if="card.icon === 'gift'" viewBox="0 0 64 64">
-                <path
-                  d="M32 17c-4-8-15-9-15-3s10 5 15 3zM32 17c4-8 15-9 15-3s-10 5-15 3z"
-                  fill="#f5a623"
-                />
-                <rect
-                  x="12"
-                  y="18"
-                  width="40"
-                  height="11"
-                  rx="3"
-                  fill="#7c88ec"
-                />
-                <rect
-                  x="15"
-                  y="29"
-                  width="34"
-                  height="24"
-                  rx="4"
-                  fill="#8f9bf0"
-                />
-                <rect x="28" y="18" width="8" height="35" fill="#fff" />
-              </svg>
-              <svg v-else-if="card.icon === 'heart'" viewBox="0 0 64 64">
-                <path
-                  d="M32 52S10 39.5 7.5 26.5C6 18.5 12 12 19.5 12c5 0 9.5 3 12.5 7 3-4 7.5-7 12.5-7C52 12 58 18.5 56.5 26.5 54 39.5 32 52 32 52z"
-                  fill="#f06d7d"
-                  stroke="#d94f60"
-                  stroke-width="2.4"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M50 8l1.4 3.3L54.7 12.7l-3.3 1.4L50 17.4l-1.4-3.3-3.3-1.4 3.3-1.4z"
-                  fill="#f6c443"
-                />
-              </svg>
-              <svg v-else-if="card.icon === 'robot'" viewBox="0 0 64 64">
-                <path
-                  d="M32 8v7M32 6.5a2.5 2.5 0 1 0 0-.01"
-                  stroke="#6b7cf5"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                  fill="none"
-                />
-                <rect
-                  x="12"
-                  y="15"
-                  width="40"
-                  height="32"
-                  rx="12"
-                  fill="#fff"
-                  stroke="#6b7cf5"
-                  stroke-width="3"
-                />
-                <rect
-                  x="19"
-                  y="24"
-                  width="26"
-                  height="14"
-                  rx="7"
-                  fill="#17243d"
-                />
-                <circle cx="26.5" cy="31" r="2.6" fill="#7fd4ff" />
-                <circle cx="37.5" cy="31" r="2.6" fill="#7fd4ff" />
-                <path
-                  d="M26 42.5c4 2.4 8 2.4 12 0"
-                  stroke="#6b7cf5"
-                  stroke-width="2.6"
-                  stroke-linecap="round"
-                  fill="none"
-                />
-                <path
-                  d="M12 28H7M57 28h-5"
-                  stroke="#6b7cf5"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <svg v-else-if="card.icon === 'rounds'" viewBox="0 0 64 64">
-                <circle
-                  cx="12"
-                  cy="32"
-                  r="8.5"
-                  fill="#fff"
-                  stroke="#f5a623"
-                  stroke-width="2.6"
-                />
-                <circle
-                  cx="32"
-                  cy="32"
-                  r="8.5"
-                  fill="#fff"
-                  stroke="#f5a623"
-                  stroke-width="2.6"
-                />
-                <circle
-                  cx="52"
-                  cy="32"
-                  r="8.5"
-                  fill="#fff"
-                  stroke="#f5a623"
-                  stroke-width="2.6"
-                />
-                <text
-                  x="12"
-                  y="36.5"
-                  text-anchor="middle"
-                  fill="#f5a623"
-                  font-size="12"
-                  font-weight="800"
-                >
-                  1
-                </text>
-                <text
-                  x="32"
-                  y="36.5"
-                  text-anchor="middle"
-                  fill="#f5a623"
-                  font-size="12"
-                  font-weight="800"
-                >
-                  2
-                </text>
-                <text
-                  x="52"
-                  y="36.5"
-                  text-anchor="middle"
-                  fill="#f5a623"
-                  font-size="12"
-                  font-weight="800"
-                >
-                  3
-                </text>
-                <path
-                  d="M22 32h1.5M40.5 32H42"
-                  stroke="#f5a623"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <svg v-else-if="card.icon === 'rhythm'" viewBox="0 0 64 64">
-                <path
-                  d="M22 10v16"
-                  fill="none"
-                  stroke="#6b7cf5"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M22 10c4.5-3 9-3 13.5 0v7C31 14 26.5 14 22 17z"
-                  fill="#6b7cf5"
-                />
-                <circle cx="18" cy="27" r="5" fill="#6b7cf5" />
-                <path
-                  d="M12 46c5.5-8.5 12.5-13 20-13s14.5 4.5 20 13c-5.5 8.5-12.5 13-20 13s-14.5-4.5-20-13z"
-                  fill="#fff"
-                  stroke="#17243d"
-                  stroke-width="2.8"
-                />
-                <circle cx="32" cy="46" r="7.5" fill="#8f9bf0" />
-                <circle cx="32" cy="46" r="3.4" fill="#17243d" />
-              </svg>
-              <svg v-else-if="card.icon === 'combo'" viewBox="0 0 64 64">
-                <path
-                  d="M32 6c8.5 8.5 16 15.5 16 26.5a16 16 0 1 1-32 0c0-6 2.8-10.2 6-14.5 0 4.2 2 7.2 5 8.5-1.2-8 1-14.5 5-20.5z"
-                  fill="#f59e2e"
-                  stroke="#e07a12"
-                  stroke-width="2.2"
-                />
-                <circle cx="32" cy="38" r="9.5" fill="#fff" />
-                <text
-                  x="32"
-                  y="42.5"
-                  text-anchor="middle"
-                  fill="#e07a12"
-                  font-size="12"
-                  font-weight="800"
-                >
-                  10
-                </text>
-              </svg>
-              <svg v-else-if="card.icon === 'hearts'" viewBox="0 0 64 64">
-                <path
-                  d="M16 34s-9-6-10.2-12C5 18 8 14.5 11.7 14.5c2 0 3.7 1.1 4.3 2.4.6-1.3 2.3-2.4 4.3-2.4 3.7 0 6.7 3.5 5.9 7.5C25 28 16 34 16 34z"
-                  fill="#f06d7d"
-                  stroke="#d94f60"
-                  stroke-width="1.8"
-                />
-                <path
-                  d="M40 30s-9-6-10.2-12C29 14 32 10.5 35.7 10.5c2 0 3.7 1.1 4.3 2.4.6-1.3 2.3-2.4 4.3-2.4 3.7 0 6.7 3.5 5.9 7.5C49 24 40 30 40 30z"
-                  fill="#f06d7d"
-                  stroke="#d94f60"
-                  stroke-width="1.8"
-                />
-                <path
-                  d="M30 54s-9-6-10.2-12C19 38 22 34.5 25.7 34.5c2 0 3.7 1.1 4.3 2.4.6-1.3 2.3-2.4 4.3-2.4 3.7 0 6.7 3.5 5.9 7.5C39 48 30 54 30 54z"
-                  fill="#e3e5f0"
-                  stroke="#c2c6da"
-                  stroke-width="1.8"
-                />
-              </svg>
-              <svg v-else viewBox="0 0 64 64">
-                <path
-                  d="M32 8l6.4 13 14.3 2.1-10.3 10 2.4 14.2L32 40.6 19.2 47.3l2.4-14.2-10.3-10L25.6 21z"
-                  fill="#f6c443"
-                  stroke="#e0a51f"
-                  stroke-width="2.4"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M9 12l1.5 3.5L14 17l-3.5 1.5L9 22l-1.5-3.5L4 17l3.5-1.5zM55 40l1.2 2.8 2.8 1.2-2.8 1.2L55 48l-1.2-2.8L51 44l2.8-1.2z"
-                  fill="#7fd4a8"
-                />
-              </svg>
-            </span>
-            <p>{{ card.description }}</p>
-            <span
-              v-if="card.badge"
-              class="game-detail-page__guide-badge"
-              :class="`game-detail-page__guide-badge--${card.badgeColor ?? card.color}`"
-              >{{ card.badge }}</span
-            >
-          </article>
-        </div>
-
-        <button
-          type="button"
-          class="game-detail-page__dialog-close"
-          @click="isDescriptionOpen = false"
-        >
-          확인
-        </button>
       </div>
-
-      <div
-        v-else
-        class="game-detail-page__dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="game-description-title"
-      >
-        <div class="game-detail-page__steps">
-          <h2 id="game-description-title">게임 방법</h2>
-          <ol>
-            <li v-for="(step, index) in game.steps" :key="step">
-              <b>{{ index + 1 }}</b>
-              <span>{{ step }}</span>
-            </li>
-          </ol>
-        </div>
-        <img
-          class="game-detail-page__dialog-mascot"
-          :src="game.mascotImage"
-          alt=""
-        />
-        <button
-          type="button"
-          class="game-detail-page__dialog-close"
-          @click="isDescriptionOpen = false"
-        >
-          닫기
-        </button>
-      </div>
-    </div>
+    </Transition>
 
     <GameRoomDialog
       :open="isRoomDialogOpen"
@@ -1289,9 +1394,16 @@ function handleEnterRoom(payload: {
   </section>
 
   <section v-else class="game-detail-page__missing">
+    <img
+      class="game-detail-page__missing-mascot"
+      :src="guideMascotImage"
+      alt=""
+    />
     <h1>게임을 찾을 수 없어요.</h1>
     <p>게임 목록에서 다시 선택해주세요.</p>
-    <RouterLink to="/games">게임 목록으로</RouterLink>
+    <RouterLink class="game-detail-page__missing-cta" to="/games"
+      >게임 목록으로 가기</RouterLink
+    >
   </section>
 </template>
 
@@ -1301,10 +1413,22 @@ function handleEnterRoom(payload: {
 }
 .game-detail-page__back {
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 19px;
   color: var(--color-muted);
   font-size: 13px;
   font-weight: 700;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.game-detail-page__back svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
 }
 .game-detail-page__back:hover {
   color: var(--color-accent-blue);
@@ -1334,7 +1458,7 @@ function handleEnterRoom(payload: {
   top: 34px;
   left: 60%;
   color: #33b579;
-  font-family: 'Jua', 'Noto Sans KR', sans-serif;
+  font-family: var(--font-display);
   font-size: 26px;
   transform: rotate(-8deg);
 }
@@ -1364,6 +1488,10 @@ function handleEnterRoom(payload: {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 .game-detail-page__description-button:hover {
   background: var(--color-blue-soft);
@@ -1660,6 +1788,15 @@ function handleEnterRoom(payload: {
   font-size: 21px;
   font-weight: 700;
 }
+.game-detail-page__mode-arrow svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .game-detail-page__mode--solo {
   background: #edf9f1;
 }
@@ -1749,6 +1886,11 @@ function handleEnterRoom(payload: {
   background: transparent;
   font-size: 22px;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.game-detail-page__dialog-x svg {
+  width: 18px;
+  height: 18px;
 }
 .game-detail-page__dialog-x:hover {
   background: var(--color-surface-soft);
@@ -2285,9 +2427,61 @@ function handleEnterRoom(payload: {
   font-size: 15px;
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
 }
 .game-detail-page__dialog-close:hover {
   background: #4064c9;
+}
+.game-detail-page__other-games {
+  margin-top: 40px;
+}
+.game-detail-page__other-games h2 {
+  margin: 0 0 16px;
+  color: var(--color-ink);
+  font-size: clamp(20px, 2.4vw, 26px);
+}
+.game-detail-page__other-games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+.game-detail-page__other-game {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+.game-detail-page__other-game:hover {
+  box-shadow: var(--shadow-card);
+  transform: translateY(-3px);
+}
+.game-detail-page__other-game-thumb {
+  display: grid;
+  flex: 0 0 auto;
+  width: 84px;
+  height: 84px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--color-surface-soft);
+}
+.game-detail-page__other-game-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.game-detail-page__other-game-title {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  word-break: keep-all;
 }
 .game-detail-page__missing {
   display: grid;
@@ -2296,6 +2490,11 @@ function handleEnterRoom(payload: {
   padding: 32px;
   text-align: center;
 }
+.game-detail-page__missing-mascot {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+}
 .game-detail-page__missing h1 {
   margin: 0;
   font-size: 28px;
@@ -2303,10 +2502,38 @@ function handleEnterRoom(payload: {
 .game-detail-page__missing p {
   color: var(--color-muted);
 }
-.game-detail-page__missing a {
-  margin-top: 12px;
-  color: var(--color-accent-blue);
+.game-detail-page__missing-cta {
+  display: inline-flex;
+  margin-top: 16px;
+  padding: 12px 22px;
+  border-radius: var(--radius-button);
+  color: #fff;
+  background: var(--color-primary);
   font-weight: 800;
+  text-decoration: none;
+  transition: background-color var(--duration-fast) ease;
+}
+.game-detail-page__missing-cta:hover {
+  background: var(--color-primary-hover);
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: background-color 200ms ease;
+}
+.dialog-pop-enter-active :is(.game-detail-page__dialog),
+.dialog-pop-leave-active :is(.game-detail-page__dialog) {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  background-color: rgba(23, 36, 61, 0);
+}
+.dialog-pop-enter-from :is(.game-detail-page__dialog),
+.dialog-pop-leave-to :is(.game-detail-page__dialog) {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 
 @media (max-width: 1000px) {
@@ -2399,6 +2626,9 @@ function handleEnterRoom(payload: {
   }
   .game-detail-page__modes--compact {
     grid-template-columns: 1fr;
+  }
+  .game-detail-page__other-games-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

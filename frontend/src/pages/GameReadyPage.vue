@@ -210,6 +210,16 @@ function handleDialogBackdrop(event: globalThis.MouseEvent, close: () => void) {
   if (event.target === event.currentTarget) close()
 }
 
+async function handleCopyRoomCode() {
+  if (!roomCode.value) return
+  try {
+    await globalThis.navigator.clipboard.writeText(roomCode.value)
+    showToast('방 코드를 복사했어요!')
+  } catch {
+    /* no-op */
+  }
+}
+
 function handleKeydown(event: globalThis.KeyboardEvent) {
   if (event.key !== 'Escape') return
   if (isGameStartDialogOpen.value) closeGameStartDialog()
@@ -288,9 +298,81 @@ onBeforeUnmount(() => {
 
     <header class="room-header">
       <div>
-        <span class="room-header__mode" aria-hidden="true">{{
-          mode === 'random' ? '🎲' : mode === 'friends' ? '👥' : '🎮'
-        }}</span>
+        <span class="room-header__mode" aria-hidden="true">
+          <svg
+            v-if="mode === 'random'"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3.5" y="3.5" width="17" height="17" rx="5" />
+            <circle
+              cx="8.5"
+              cy="8.5"
+              r="1.1"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="15.5"
+              cy="8.5"
+              r="1.1"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" />
+            <circle
+              cx="8.5"
+              cy="15.5"
+              r="1.1"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="15.5"
+              cy="15.5"
+              r="1.1"
+              fill="currentColor"
+              stroke="none"
+            />
+          </svg>
+          <svg
+            v-else-if="mode === 'friends'"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <circle cx="8.5" cy="8" r="3" />
+            <path d="M2.5 19c.6-3.4 3-5.2 6-5.2s5.4 1.8 6 5.2" />
+            <circle cx="16.5" cy="8.5" r="2.6" opacity="0.7" />
+            <path
+              d="M13.6 13.6c1-.6 2-.9 3-.9 2.6 0 4.7 1.6 5.3 4.6"
+              opacity="0.7"
+            />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="2.5" y="7" width="19" height="10" rx="5" />
+            <path d="M7 10v4M5 12h4" />
+            <circle cx="16" cy="10.5" r="1" fill="currentColor" stroke="none" />
+            <circle
+              cx="18.2"
+              cy="12.7"
+              r="1"
+              fill="currentColor"
+              stroke="none"
+            />
+          </svg>
+        </span>
         <h1>{{ roomTitle }}</h1>
         <p>{{ roomDescription }}</p>
       </div>
@@ -302,6 +384,27 @@ onBeforeUnmount(() => {
             :key="index"
             >{{ digit }}</b
           >
+          <button
+            v-if="roomCode"
+            type="button"
+            class="room-code__copy"
+            aria-label="방 코드 복사"
+            @click="handleCopyRoomCode"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="8.5" y="8.5" width="11" height="11" rx="2.4" />
+              <path
+                d="M15.5 8.5V6.4A1.9 1.9 0 0 0 13.6 4.5H6.4A1.9 1.9 0 0 0 4.5 6.4v7.2a1.9 1.9 0 0 0 1.9 1.9h2.1"
+              />
+            </svg>
+          </button>
         </div>
         <button
           type="button"
@@ -326,9 +429,19 @@ onBeforeUnmount(() => {
             }}</span>
             <h2>나</h2>
           </div>
-          <span v-if="ownPreparationComplete" class="complete-badge"
-            >✓ 완료</span
-          >
+          <span v-if="ownPreparationComplete" class="complete-badge">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5 13l4 4L19 7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            완료
+          </span>
         </header>
         <div class="participant-visual">
           <img
@@ -340,17 +453,53 @@ onBeforeUnmount(() => {
         </div>
         <ol class="my-progress" aria-label="나의 게임 준비 진행 단계">
           <li :class="{ complete: isCameraConnected }">
-            <b aria-hidden="true">{{ isCameraConnected ? '✓' : '1' }}</b>
+            <b aria-hidden="true">
+              <svg v-if="isCameraConnected" viewBox="0 0 24 24">
+                <path
+                  d="M5 13l4 4L19 7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <template v-else>1</template>
+            </b>
             <span>카메라</span>
             <small>{{ isCameraConnected ? '완료' : '확인 필요' }}</small>
           </li>
           <li :class="{ complete: isCalibrated }">
-            <b aria-hidden="true">{{ isCalibrated ? '✓' : '2' }}</b>
+            <b aria-hidden="true">
+              <svg v-if="isCalibrated" viewBox="0 0 24 24">
+                <path
+                  d="M5 13l4 4L19 7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <template v-else>2</template>
+            </b>
             <span>캘리브레이션</span>
             <small>{{ isCalibrated ? '완료' : '미완료' }}</small>
           </li>
           <li :class="{ complete: ownPreparationComplete }">
-            <b aria-hidden="true">{{ ownPreparationComplete ? '✓' : '3' }}</b>
+            <b aria-hidden="true">
+              <svg v-if="ownPreparationComplete" viewBox="0 0 24 24">
+                <path
+                  d="M5 13l4 4L19 7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <template v-else>3</template>
+            </b>
             <span>준비 상태</span>
             <small>{{ ownPreparationComplete ? '완료' : '미완료' }}</small>
           </li>
@@ -362,7 +511,11 @@ onBeforeUnmount(() => {
           :disabled="actionDisabled"
           @click="handlePrimaryAction"
         >
-          {{ actionLabel }}
+          <template v-if="permissionStatus === 'requesting'">
+            <i class="participant-action__spinner" aria-hidden="true" />
+            카메라 권한 요청 중
+          </template>
+          <template v-else>{{ actionLabel }}</template>
         </button>
         <p v-if="actionReason" class="action-reason">{{ actionReason }}</p>
       </article>
@@ -378,7 +531,19 @@ onBeforeUnmount(() => {
             }}</span>
             <h2>{{ opponentName }}</h2>
           </div>
-          <span v-if="isOpponentReady" class="complete-badge">✓ 완료</span>
+          <span v-if="isOpponentReady" class="complete-badge">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5 13l4 4L19 7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            완료
+          </span>
         </header>
         <div class="participant-visual participant-visual--opponent">
           <img
@@ -413,193 +578,249 @@ onBeforeUnmount(() => {
   </section>
 
   <Teleport to="body">
-    <div
-      v-if="isWebcamGuideOpen"
-      class="ready-dialog-backdrop"
-      @click="handleDialogBackdrop($event, () => (isWebcamGuideOpen = false))"
-    >
-      <section
-        ref="dialogRef"
-        class="ready-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="webcam-guide-title"
-        aria-describedby="webcam-guide-description"
+    <Transition name="dialog-pop">
+      <div
+        v-if="isWebcamGuideOpen"
+        class="ready-dialog-backdrop"
+        @click="handleDialogBackdrop($event, () => (isWebcamGuideOpen = false))"
       >
-        <span class="ready-dialog__icon" aria-hidden="true">◉</span>
-        <h2 id="webcam-guide-title">게임 준비를 위해 웹캠을 켜주세요</h2>
-        <p id="webcam-guide-description">
-          게임 중 시선 인식 기능을 사용하기 위해 카메라 권한이 필요해요.
-        </p>
-        <p class="ready-dialog__notice">
-          카메라 영상은 게임 진행에 필요한 경우에만 사용됩니다.
-        </p>
-        <div class="ready-dialog__actions">
-          <button
-            type="button"
-            class="primary"
-            data-dialog-initial-focus
-            @click="handleRequestCamera"
-          >
-            웹캠 켜고 준비하기</button
-          ><button type="button" class="secondary" @click="handleLeaveRoom">
-            게임 상세로 돌아가기
-          </button>
-        </div>
-      </section>
-    </div>
-
-    <div
-      v-if="isCameraErrorOpen"
-      class="ready-dialog-backdrop"
-      @click="handleDialogBackdrop($event, () => (isCameraErrorOpen = false))"
-    >
-      <section
-        ref="dialogRef"
-        class="ready-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="camera-error-title"
-        aria-describedby="camera-error-description"
-      >
-        <span
-          class="ready-dialog__icon ready-dialog__icon--error"
-          aria-hidden="true"
-          >!</span
+        <section
+          ref="dialogRef"
+          class="ready-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="webcam-guide-title"
+          aria-describedby="webcam-guide-description"
         >
-        <h2 id="camera-error-title">카메라 권한을 확인해 주세요</h2>
-        <p id="camera-error-description">
-          {{
-            permissionStatus === 'denied'
-              ? '카메라 권한이 허용되지 않아 게임을 시작할 수 없어요. 브라우저 주소창의 카메라 권한 설정을 확인한 뒤 다시 시도해 주세요.'
-              : '카메라를 사용할 수 없어요. 연결된 카메라와 브라우저 지원 여부를 확인해 주세요.'
-          }}
-        </p>
-        <div class="ready-dialog__actions">
-          <button
-            type="button"
-            class="primary"
-            data-dialog-initial-focus
-            @click="handleRequestCamera"
-          >
-            다시 요청</button
-          ><button type="button" class="secondary" @click="handleLeaveRoom">
-            게임 상세로 돌아가기
-          </button>
-        </div>
-      </section>
-    </div>
-
-    <div
-      v-if="isCalibrationOpen"
-      class="ready-dialog-backdrop ready-dialog-backdrop--calibration"
-      @click="handleDialogBackdrop($event, () => (isCalibrationOpen = false))"
-    >
-      <section
-        ref="dialogRef"
-        class="calibration-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="calibration-title"
-        aria-describedby="calibration-description"
-      >
-        <header>
-          <div>
-            <span>STEP {{ calibrationStep }} / 3</span>
-            <h2 id="calibration-title">시선 캘리브레이션</h2>
-            <p id="calibration-description">
-              화면의 안내 지점을 눈으로 따라봐 주세요.
-            </p>
+          <span class="ready-dialog__icon" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M4 8a2 2 0 0 1 2-2h2l1.2-1.6A2 2 0 0 1 10.8 3.6h2.4a2 2 0 0 1 1.6.8L16 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"
+              />
+              <circle cx="12" cy="13" r="3.2" />
+            </svg>
+          </span>
+          <h2 id="webcam-guide-title">게임 준비를 위해 웹캠을 켜주세요</h2>
+          <p id="webcam-guide-description">
+            게임 중 시선 인식 기능을 사용하기 위해 카메라 권한이 필요해요.
+          </p>
+          <p class="ready-dialog__notice">
+            카메라 영상은 게임 진행에 필요한 경우에만 사용됩니다.
+          </p>
+          <div class="ready-dialog__actions">
+            <button
+              type="button"
+              class="primary"
+              data-dialog-initial-focus
+              @click="handleRequestCamera"
+            >
+              웹캠 켜고 준비하기</button
+            ><button type="button" class="secondary" @click="handleLeaveRoom">
+              게임 상세로 돌아가기
+            </button>
           </div>
-          <button
-            type="button"
-            aria-label="캘리브레이션 닫기"
-            @click="isCalibrationOpen = false"
-          >
-            ×
-          </button>
-        </header>
-        <div class="calibration-progress" aria-label="캘리브레이션 진행률">
-          <span :style="{ width: `${(calibrationStep / 3) * 100}%` }" />
-        </div>
-        <div class="calibration-stage">
-          <video
-            v-if="cameraStream"
-            ref="previewVideo"
-            autoplay
-            muted
-            playsinline
-            aria-label="내 카메라 로컬 프리뷰"
-          />
-          <img
-            v-else
-            :src="game?.mascotImage ?? ''"
-            alt="카메라 연결 전 안내 마스코트"
-            draggable="false"
-          />
-          <i
-            :class="`calibration-target calibration-target--${calibrationStep}`"
-            aria-hidden="true"
-          />
-          <p>mock 캘리브레이션 {{ calibrationStep }}단계</p>
-        </div>
-        <footer>
-          <button
-            type="button"
-            class="secondary"
-            @click="handleCalibrationBack"
-          >
-            {{ calibrationStep === 1 ? '나중에 하기' : '이전' }}</button
-          ><button
-            type="button"
-            class="primary"
-            data-dialog-initial-focus
-            @click="handleCalibrationNext"
-          >
-            {{ calibrationStep === 3 ? '완료' : '다음 안내 보기' }}
-          </button>
-        </footer>
-      </section>
-    </div>
+        </section>
+      </div>
+    </Transition>
 
-    <div
-      v-if="isGameStartDialogOpen"
-      class="ready-dialog-backdrop"
-      @click="handleDialogBackdrop($event, closeGameStartDialog)"
-    >
-      <section
-        ref="dialogRef"
-        class="ready-dialog ready-dialog--game-start"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="game-start-title"
-        aria-describedby="game-start-description"
-        tabindex="-1"
+    <Transition name="dialog-pop">
+      <div
+        v-if="isCameraErrorOpen"
+        class="ready-dialog-backdrop"
+        @click="handleDialogBackdrop($event, () => (isCameraErrorOpen = false))"
       >
-        <span class="ready-dialog__icon" aria-hidden="true">✓</span>
-        <h2 id="game-start-title">
-          {{
-            isGamePlaybackPending ? '게임 플레이 준비 중' : '게임이 시작됩니다'
-          }}
-        </h2>
-        <p id="game-start-description">
-          <template v-if="isGamePlaybackPending">
-            게임 플레이 화면은 준비 중이에요.
-          </template>
-          <template v-else>
-            게임 준비가 완료되었습니다.<br />
-            카운트다운이 끝나면 게임을 시작할 예정이에요.
-          </template>
-        </p>
-        <div
-          v-if="!isGamePlaybackPending"
-          class="game-start-countdown"
-          aria-label="게임 시작 예정 카운트다운"
+        <section
+          ref="dialogRef"
+          class="ready-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="camera-error-title"
+          aria-describedby="camera-error-description"
         >
-          <b>{{ countdown }}</b>
-        </div>
-      </section>
-    </div>
+          <span
+            class="ready-dialog__icon ready-dialog__icon--error"
+            aria-hidden="true"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 3.5l9.3 16a1 1 0 0 1-.9 1.5H3.6a1 1 0 0 1-.9-1.5z" />
+              <path d="M12 9.5v4.2M12 17h.01" />
+            </svg>
+          </span>
+          <h2 id="camera-error-title">카메라 권한을 확인해 주세요</h2>
+          <p id="camera-error-description">
+            {{
+              permissionStatus === 'denied'
+                ? '카메라 권한이 허용되지 않아 게임을 시작할 수 없어요. 브라우저 주소창의 카메라 권한 설정을 확인한 뒤 다시 시도해 주세요.'
+                : '카메라를 사용할 수 없어요. 연결된 카메라와 브라우저 지원 여부를 확인해 주세요.'
+            }}
+          </p>
+          <div class="ready-dialog__actions">
+            <button
+              type="button"
+              class="primary"
+              data-dialog-initial-focus
+              @click="handleRequestCamera"
+            >
+              다시 요청</button
+            ><button type="button" class="secondary" @click="handleLeaveRoom">
+              게임 상세로 돌아가기
+            </button>
+          </div>
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="dialog-pop">
+      <div
+        v-if="isCalibrationOpen"
+        class="ready-dialog-backdrop ready-dialog-backdrop--calibration"
+        @click="handleDialogBackdrop($event, () => (isCalibrationOpen = false))"
+      >
+        <section
+          ref="dialogRef"
+          class="calibration-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="calibration-title"
+          aria-describedby="calibration-description"
+        >
+          <header>
+            <div>
+              <span>STEP {{ calibrationStep }} / 3</span>
+              <h2 id="calibration-title">시선 캘리브레이션</h2>
+              <p id="calibration-description">
+                화면의 안내 지점을 눈으로 따라봐 주세요.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="캘리브레이션 닫기"
+              @click="isCalibrationOpen = false"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </header>
+          <div class="calibration-progress" aria-label="캘리브레이션 진행률">
+            <span :style="{ transform: `scaleX(${calibrationStep / 3})` }" />
+          </div>
+          <div class="calibration-stage">
+            <video
+              v-if="cameraStream"
+              ref="previewVideo"
+              autoplay
+              muted
+              playsinline
+              aria-label="내 카메라 로컬 프리뷰"
+            />
+            <img
+              v-else
+              :src="game?.mascotImage ?? ''"
+              alt="카메라 연결 전 안내 마스코트"
+              draggable="false"
+            />
+            <i
+              :class="`calibration-target calibration-target--${calibrationStep}`"
+              aria-hidden="true"
+            />
+            <p>mock 캘리브레이션 {{ calibrationStep }}단계</p>
+          </div>
+          <footer>
+            <button
+              type="button"
+              class="secondary"
+              @click="handleCalibrationBack"
+            >
+              {{ calibrationStep === 1 ? '나중에 하기' : '이전' }}</button
+            ><button
+              type="button"
+              class="primary"
+              data-dialog-initial-focus
+              @click="handleCalibrationNext"
+            >
+              {{ calibrationStep === 3 ? '완료' : '다음 안내 보기' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="dialog-pop">
+      <div
+        v-if="isGameStartDialogOpen"
+        class="ready-dialog-backdrop"
+        @click="handleDialogBackdrop($event, closeGameStartDialog)"
+      >
+        <section
+          ref="dialogRef"
+          class="ready-dialog ready-dialog--game-start"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="game-start-title"
+          aria-describedby="game-start-description"
+          tabindex="-1"
+        >
+          <span class="ready-dialog__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M5 13l4 4L19 7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <h2 id="game-start-title">
+            {{
+              isGamePlaybackPending
+                ? '게임 플레이 준비 중'
+                : '게임이 시작됩니다'
+            }}
+          </h2>
+          <p id="game-start-description">
+            <template v-if="isGamePlaybackPending">
+              게임 플레이 화면은 준비 중이에요.
+            </template>
+            <template v-else>
+              게임 준비가 완료되었습니다.<br />
+              카운트다운이 끝나면 게임을 시작할 예정이에요.
+            </template>
+          </p>
+          <div
+            v-if="!isGamePlaybackPending"
+            class="game-start-countdown"
+            aria-label="게임 시작 예정 카운트다운"
+            aria-live="assertive"
+          >
+            <Transition name="count-tick" mode="out-in">
+              <b :key="countdown">{{ countdown }}</b>
+            </Transition>
+          </div>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -636,6 +857,10 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   background: var(--color-blue-soft);
   font-size: 19px;
+}
+.room-header__mode svg {
+  width: 20px;
+  height: 20px;
 }
 .room-header h1 {
   margin: 0;
@@ -697,6 +922,31 @@ onBeforeUnmount(() => {
   background: #fff;
   font-size: 18px;
 }
+.room-code__copy {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  margin-left: 4px;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: 50%;
+  color: var(--color-muted);
+  background: #fff;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+.room-code__copy svg {
+  width: 16px;
+  height: 16px;
+}
+.room-code__copy:hover {
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+  background: var(--color-blue-soft);
+}
 .participant-role {
   color: var(--color-accent-blue);
   font-size: 11px;
@@ -737,13 +987,20 @@ onBeforeUnmount(() => {
   font-size: 20px;
 }
 .complete-badge {
+  display: inline-flex;
+  align-items: center;
   align-self: flex-start;
+  gap: 4px;
   padding: 6px 9px;
   border-radius: 99px;
   color: #278957;
   background: #e6f7eb;
   font-size: 11px;
   font-weight: 800;
+}
+.complete-badge svg {
+  width: 12px;
+  height: 12px;
 }
 .participant-visual {
   position: relative;
@@ -753,10 +1010,10 @@ onBeforeUnmount(() => {
   margin-top: 13px;
   overflow: hidden;
   border-radius: 13px;
-  background: linear-gradient(135deg, var(--color-purple-soft), #fff);
+  background: #f7f4ff;
 }
 .participant-visual--opponent {
-  background: linear-gradient(135deg, #eef9f2, #fff);
+  background: #f2fbf5;
 }
 .participant-visual img {
   width: min(46%, 145px);
@@ -792,6 +1049,10 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   color: var(--color-muted);
   background: var(--color-surface-soft);
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 .my-progress b {
   grid-row: span 2;
@@ -802,6 +1063,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-line);
   border-radius: 50%;
   font-size: 11px;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+.my-progress b svg {
+  width: 12px;
+  height: 12px;
 }
 .my-progress span {
   font-size: 11px;
@@ -835,6 +1103,22 @@ onBeforeUnmount(() => {
 .participant-action:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+.participant-action__spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 7px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .action-reason,
 .opponent-note {
@@ -880,6 +1164,10 @@ onBeforeUnmount(() => {
   color: var(--color-accent-blue);
   background: var(--color-blue-soft);
   font-weight: 900;
+}
+.ready-dialog__icon svg {
+  width: 22px;
+  height: 22px;
 }
 .ready-dialog__icon--error {
   color: #b75555;
@@ -932,14 +1220,21 @@ onBeforeUnmount(() => {
   color: var(--color-muted);
 }
 .calibration-dialog header button {
+  display: grid;
   width: 34px;
   height: 34px;
+  place-items: center;
   border: 0;
   border-radius: 50%;
   color: var(--color-ink);
   background: var(--color-surface-soft);
   font-size: 25px;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.calibration-dialog header button svg {
+  width: 16px;
+  height: 16px;
 }
 .calibration-progress {
   height: 7px;
@@ -950,10 +1245,12 @@ onBeforeUnmount(() => {
 }
 .calibration-progress span {
   display: block;
+  width: 100%;
   height: 100%;
   border-radius: inherit;
   background: var(--color-accent-blue);
-  transition: width 0.2s ease;
+  transform-origin: left center;
+  transition: transform 0.2s ease;
 }
 .calibration-stage {
   position: relative;
@@ -962,7 +1259,7 @@ onBeforeUnmount(() => {
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-purple-soft), #f6fbf8);
+  background: var(--color-purple-soft);
 }
 .calibration-stage video,
 .calibration-stage img {
@@ -990,8 +1287,16 @@ onBeforeUnmount(() => {
   border: 5px solid #fff;
   border-radius: 50%;
   background: var(--color-accent-blue);
-  box-shadow: 0 0 0 6px rgba(85, 105, 220, 0.2);
-  transition: all 0.2s ease;
+  animation: calib-pulse 1.6s ease-in-out infinite;
+}
+@keyframes calib-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 6px rgba(79, 116, 219, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(79, 116, 219, 0.08);
+  }
 }
 .calibration-target--1 {
   top: 20%;
@@ -1037,6 +1342,52 @@ onBeforeUnmount(() => {
   color: var(--color-accent-blue);
   background: var(--color-blue-soft);
   font-size: 42px;
+  animation: count-ring 1s ease-out infinite;
+}
+@keyframes count-ring {
+  from {
+    box-shadow: 0 0 0 0 rgba(79, 116, 219, 0.35);
+  }
+  to {
+    box-shadow: 0 0 0 18px rgba(79, 116, 219, 0);
+  }
+}
+.count-tick-enter-active {
+  transition:
+    transform 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+.count-tick-leave-active {
+  transition:
+    transform 120ms ease,
+    opacity 120ms ease;
+}
+.count-tick-enter-from {
+  opacity: 0;
+  transform: scale(0.85);
+}
+.count-tick-leave-to {
+  opacity: 0;
+  transform: scale(1.15);
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: background-color 200ms ease;
+}
+.dialog-pop-enter-active :is(.ready-dialog, .calibration-dialog),
+.dialog-pop-leave-active :is(.ready-dialog, .calibration-dialog) {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  background-color: rgba(13, 26, 56, 0);
+}
+.dialog-pop-enter-from :is(.ready-dialog, .calibration-dialog),
+.dialog-pop-leave-to :is(.ready-dialog, .calibration-dialog) {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 .ready-dialog--game-start .primary {
   width: 100%;
@@ -1047,7 +1398,7 @@ onBeforeUnmount(() => {
 }
 button:focus-visible,
 .back:focus-visible {
-  outline: 3px solid rgba(85, 105, 220, 0.4);
+  outline: 3px solid rgba(79, 116, 219, 0.4);
   outline-offset: 3px;
 }
 @media (max-width: 720px) {

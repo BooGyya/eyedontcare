@@ -51,11 +51,7 @@ watch(
 
 <template>
   <section class="ranking-page">
-    <PageHeader
-      eyebrow="LEADER BOARD"
-      title="랭킹"
-      description="게임별 최고 기록을 비교해 보세요."
-    />
+    <PageHeader title="랭킹" description="게임별 최고 기록을 비교해 보세요." />
 
     <section class="ranking-page__game-filter" aria-label="게임별 랭킹 필터">
       <SegmentedTabs
@@ -66,7 +62,13 @@ watch(
       />
     </section>
 
-    <RankingList class="ranking-page__list" :ranking="selectedRanking" />
+    <Transition name="ranking-swap" mode="out-in">
+      <RankingList
+        :key="selectedRanking.gameId"
+        class="ranking-page__list"
+        :ranking="selectedRanking"
+      />
+    </Transition>
   </section>
 </template>
 
@@ -77,6 +79,21 @@ watch(
 .ranking-page__list {
   width: 100%;
   margin-top: 16px;
+}
+.ranking-swap-leave-active {
+  transition: opacity 0.12s ease;
+}
+.ranking-swap-leave-to {
+  opacity: 0;
+}
+.ranking-swap-enter-active {
+  transition:
+    opacity 0.24s var(--ease-out),
+    transform 0.24s var(--ease-out);
+}
+.ranking-swap-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
 }
 @media (max-width: 640px) {
   .ranking-page {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAuthStore } from '../../stores/auth'
+import emptyMascotImage from '../../assets/images/games/game-eye.png'
 import type { GameRanking, RankingPlayer } from '../../types/pages'
 
 const props = defineProps<{
@@ -27,8 +28,10 @@ const currentUser = computed(() => {
 })
 const isCurrentUserInTopTen = computed(() => props.ranking.myRank <= 10)
 
-function getTrendLabel(trend?: RankingPlayer['trend']) {
-  return trend === 'up' ? '▲ 상승' : trend === 'down' ? '▼ 하락' : '— 유지'
+function getTrendInfo(trend?: RankingPlayer['trend']) {
+  if (trend === 'up') return { direction: 'up', label: '상승' } as const
+  if (trend === 'down') return { direction: 'down', label: '하락' } as const
+  return { direction: 'same', label: '유지' } as const
 }
 
 function getPlayerNickname(player: RankingPlayer) {
@@ -59,15 +62,27 @@ function getPlayerAvatar(player: RankingPlayer) {
           class="ranking-list__podium-card"
           :data-testid="`podium-rank-${player.rank}`"
         >
-          <span class="ranking-list__crown" aria-hidden="true">{{
-            player.rank === 1 ? '♛' : ''
-          }}</span>
+          <span
+            v-if="player.rank === 1"
+            class="ranking-list__crown"
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path
+                d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+                fill="var(--color-gold)"
+              />
+            </svg>
+          </span>
           <img
             :src="getPlayerAvatar(player)"
             :alt="`${getPlayerNickname(player)} 프로필`"
           />
           <strong>{{ getPlayerNickname(player) }}</strong>
-          <small>{{ player.score }}</small>
+          <small v-if="player.level" class="ranking-list__podium-level">{{
+            player.level
+          }}</small>
+          <small class="ranking-list__podium-score">{{ player.score }}</small>
           <b aria-label="순위">{{ player.rank }}위</b>
         </article>
       </section>
@@ -91,10 +106,41 @@ function getPlayerAvatar(player: RankingPlayer) {
             <div class="ranking-list__result">
               <strong class="ranking-list__score">{{ player.score }}</strong>
               <span
-                :class="`ranking-list__trend--${player.trend ?? 'same'}`"
+                :class="`ranking-list__trend--${getTrendInfo(player.trend).direction}`"
                 class="ranking-list__trend"
               >
-                {{ getTrendLabel(player.trend) }}
+                <svg
+                  v-if="getTrendInfo(player.trend).direction === 'up'"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M12 5l6 7h-4v7h-4v-7H6l6-7Z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <svg
+                  v-else-if="getTrendInfo(player.trend).direction === 'down'"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M12 19l-6-7h4V5h4v7h4l-6 7Z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M6 12h12"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                {{ getTrendInfo(player.trend).label }}
               </span>
             </div>
           </li>
@@ -123,14 +169,17 @@ function getPlayerAvatar(player: RankingPlayer) {
           <b>{{ currentUser?.score ?? ranking.myScore }}</b>
         </div>
       </footer>
+      <footer
+        v-else-if="!auth.isAuthenticated"
+        class="ranking-list__guest-prompt"
+        data-testid="ranking-guest-prompt"
+      >
+        로그인하면 내 순위를 확인할 수 있어요
+      </footer>
     </template>
 
-    <div
-      v-else
-      class="ranking-list__empty"
-      data-testid="ranking-empty"
-      role="status"
-    >
+    <div v-else class="ranking-list__empty" data-testid="ranking-empty">
+      <img :src="emptyMascotImage" alt="" />
       <strong>아직 등록된 랭킹이 없어요.</strong>
       <span>첫 번째 기록을 남겨 보세요.</span>
     </div>
@@ -169,45 +218,34 @@ function getPlayerAvatar(player: RankingPlayer) {
   min-width: 0;
   justify-items: center;
   padding: 18px 11px 13px;
-  border: 1px solid var(--color-line);
   border-radius: 15px 15px 9px 9px;
-  background: #fff;
   text-align: center;
-  cursor: default;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
+  transition: transform 0.18s ease;
 }
 .ranking-list__podium-card:hover {
-  box-shadow: var(--shadow-float);
-  transform: translateY(-6px) scale(1.02);
-}
-.ranking-list__podium-card:active {
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px) scale(0.99);
+  transform: translateY(-3px);
 }
 .ranking-list__podium-card--1 {
   min-height: 197px;
-  border-color: #dcdff6;
   background: #f3f4fd;
 }
 .ranking-list__podium-card--2 {
   min-height: 172px;
-  border-color: #f3e2bb;
   background: #fdf6ec;
 }
 .ranking-list__podium-card--3 {
   min-height: 154px;
-  border-color: #d4eede;
   background: #f4fbf6;
 }
 .ranking-list__crown {
   position: absolute;
   top: -25px;
-  color: #ddad28;
-  font-size: 28px;
-  line-height: 1;
+  width: 28px;
+  height: 28px;
+}
+.ranking-list__crown svg {
+  width: 100%;
+  height: 100%;
 }
 .ranking-list__podium-card img {
   width: 64px;
@@ -234,13 +272,19 @@ function getPlayerAvatar(player: RankingPlayer) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ranking-list__podium-card small {
+.ranking-list__podium-level {
+  margin-top: 2px;
+  color: var(--color-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ranking-list__podium-score {
   margin-top: 5px;
   color: var(--color-ink);
   font-size: 15px;
   font-weight: 800;
 }
-.ranking-list__podium-card--1 small {
+.ranking-list__podium-card--1 .ranking-list__podium-score {
   font-size: 17px;
 }
 .ranking-list__podium-card b {
@@ -269,48 +313,38 @@ function getPlayerAvatar(player: RankingPlayer) {
   background: #5fc492;
 }
 .ranking-list__cards {
-  padding: 18px 28px 24px;
+  padding: 6px 28px 24px;
+}
+.ranking-list ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .ranking-list li {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-}
-.ranking-list ol {
-  display: grid;
-  gap: 9px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.ranking-list li {
   min-height: 70px;
   padding: 10px 14px;
-  border: 1px solid var(--color-line);
-  border-radius: 13px;
+  border-bottom: 1px solid var(--color-line);
   color: var(--color-muted);
-  background: #fff;
+  background: transparent;
   font-size: 12px;
-  transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: background-color 0.18s ease;
+}
+.ranking-list li:last-child {
+  border-bottom: 0;
 }
 .ranking-list li:hover {
-  border-color: #d7e2ff;
-  background: #fafcff;
-  box-shadow: var(--shadow-card);
-  transform: translateY(-2px);
-}
-.ranking-list li:active {
-  box-shadow: none;
-  transform: translateY(0);
+  background: var(--color-surface-soft);
 }
 .ranking-list__row--current-user {
-  border-color: #cfdcff !important;
-  background: var(--color-blue-soft);
+  border-radius: 10px;
+  background: #eef3ff;
+  color: var(--color-ink);
 }
 .ranking-list__row--current-user:hover {
   background: #e6efff;
@@ -360,14 +394,21 @@ function getPlayerAvatar(player: RankingPlayer) {
   white-space: nowrap;
 }
 .ranking-list__trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 11px;
   white-space: nowrap;
 }
+.ranking-list__trend svg {
+  width: 11px;
+  height: 11px;
+}
 .ranking-list__trend--up {
-  color: #2eaa83;
+  color: var(--color-trend-up);
 }
 .ranking-list__trend--down {
-  color: #cc7181;
+  color: var(--color-trend-down);
 }
 .ranking-list__trend--same {
   color: var(--color-muted);
@@ -429,13 +470,28 @@ function getPlayerAvatar(player: RankingPlayer) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ranking-list__guest-prompt {
+  margin: -6px 28px 28px;
+  padding: 16px 19px;
+  border-radius: 13px;
+  background: var(--color-surface-soft);
+  color: var(--color-ink-soft);
+  font-size: 12px;
+  text-align: center;
+}
 .ranking-list__empty {
   display: grid;
   min-height: 265px;
   place-content: center;
+  justify-items: center;
   gap: 7px;
   color: var(--color-muted);
   text-align: center;
+}
+.ranking-list__empty img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
 }
 .ranking-list__empty strong {
   color: var(--color-ink);
