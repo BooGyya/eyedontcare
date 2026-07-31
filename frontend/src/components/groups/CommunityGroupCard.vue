@@ -37,7 +37,11 @@ function handleAction() {
     :data-testid="`community-group-${group.id}`"
   >
     <div class="community-group-card__image">
-      <img :src="group.image" :alt="`${group.name} 대표 이미지`" />
+      <img
+        :src="group.image"
+        :alt="`${group.name} 대표 이미지`"
+        loading="lazy"
+      />
       <span :class="`community-group-card__visibility--${group.visibility}`">
         {{ group.visibility === 'public' ? '공개' : '비공개' }}
       </span>
@@ -174,6 +178,10 @@ function handleAction() {
 }
 .community-group-card button:active:not(:disabled) {
   transform: translateY(1px);
+}
+.community-group-card button:focus-visible {
+  outline: 3px solid rgba(79, 116, 219, 0.5);
+  outline-offset: 2px;
 }
 .community-group-card button:disabled {
   border-color: var(--color-line);

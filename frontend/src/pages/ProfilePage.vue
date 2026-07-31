@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import gameEyeImage from '../assets/images/games/game-eye.png'
 import { useToast } from '../composables/useToast'
 import { gameResultRecords } from '../mocks/gameResults'
 import { profileData } from '../mocks/profile'
@@ -97,15 +98,6 @@ function getOutcomeLabel(outcome: GameOutcome) {
     LOSE: '패배',
     DRAW: '무승부',
     COMPLETED: '완료',
-  }[outcome]
-}
-
-function getOutcomeIcon(outcome: GameOutcome) {
-  return {
-    WIN: '🏆',
-    LOSE: '◌',
-    DRAW: '🤝',
-    COMPLETED: '✓',
   }[outcome]
 }
 
@@ -366,8 +358,88 @@ function handleConfirmWithdraw() {
           <span
             :class="`profile-page__record-icon--${getMyParticipant(record).outcome.toLowerCase()}`"
             aria-hidden="true"
-            >{{ getOutcomeIcon(getMyParticipant(record).outcome) }}</span
           >
+            <svg
+              v-if="getMyParticipant(record).outcome === 'WIN'"
+              viewBox="0 0 20 20"
+              fill="none"
+            >
+              <path
+                d="M6 3h8v2a4 4 0 0 1-4 4 4 4 0 0 1-4-4V3Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M6 4H4a2 2 0 0 0 2 3M14 4h2a2 2 0 0 1-2 3"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <path
+                d="M10 9v3M7 16h6M8 16v-2.3a2 2 0 0 1 4 0V16"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg
+              v-else-if="getMyParticipant(record).outcome === 'LOSE'"
+              viewBox="0 0 20 20"
+              fill="none"
+            >
+              <circle
+                cx="10"
+                cy="10"
+                r="7.25"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M7.5 7.5l5 5M12.5 7.5l-5 5"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+            <svg
+              v-else-if="getMyParticipant(record).outcome === 'DRAW'"
+              viewBox="0 0 20 20"
+              fill="none"
+            >
+              <circle
+                cx="8"
+                cy="10"
+                r="5"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <circle
+                cx="12"
+                cy="10"
+                r="5"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 20 20" fill="none">
+              <circle
+                cx="10"
+                cy="10"
+                r="7.25"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M7 10.2l2.2 2.2L13.5 8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
           <p>
             <b>{{ getSummary(record) }}</b
             ><small
@@ -376,10 +448,28 @@ function handleConfirmWithdraw() {
               {{ formatDuration(getDurationMs(record)) }} 플레이</small
             >
           </p>
-          <strong>{{ getMyParticipant(record).rank }}위</strong
-          ><span class="profile-page__record-arrow" aria-hidden="true">›</span>
+          <strong>{{ getMyParticipant(record).rank }}위</strong>
+          <span class="profile-page__record-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M9 6l6 6-6 6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
         </li>
       </ul>
+      <div v-else class="profile-page__records-empty">
+        <img :src="gameEyeImage" alt="" aria-hidden="true" />
+        <p>아직 경기 기록이 없어요</p>
+        <span>게임을 플레이하면 기록이 여기에 쌓여요</span>
+        <RouterLink class="profile-page__records-cta" to="/games"
+          >게임 하러 가기</RouterLink
+        >
+      </div>
     </section>
 
     <section class="profile-page__account" aria-label="계정 관리">
@@ -404,199 +494,294 @@ function handleConfirmWithdraw() {
   </section>
 
   <Teleport to="body">
-    <div
-      v-if="selectedRecord"
-      class="game-result-modal"
-      @click.self="handleCloseRecord"
-      @keydown.esc="handleCloseRecord"
-    >
-      <section
-        ref="modalDialog"
-        class="game-result-modal__dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="game-result-title"
-        @keydown.tab="handleModalTab"
+    <Transition name="dialog-pop" appear>
+      <div
+        v-if="selectedRecord"
+        class="game-result-modal"
+        @click.self="handleCloseRecord"
+        @keydown.esc="handleCloseRecord"
       >
-        <button
-          ref="closeButton"
-          class="game-result-modal__close"
-          type="button"
-          aria-label="경기 결과 닫기"
-          @click="handleCloseRecord"
+        <section
+          ref="modalDialog"
+          class="game-result-modal__dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="game-result-title"
+          @keydown.tab="handleModalTab"
         >
-          ×
-        </button>
-        <header>
-          <span>경기 결과</span>
-          <p>
-            {{ formatStartedAt(selectedRecord.startedAt) }} ·
-            {{ formatPlayMode(selectedRecord.playMode) }}
+          <button
+            ref="closeButton"
+            class="game-result-modal__close"
+            type="button"
+            aria-label="경기 결과 닫기"
+            @click="handleCloseRecord"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6 6 18"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <header>
+            <span>경기 결과</span>
+            <p>
+              {{ formatStartedAt(selectedRecord.startedAt) }} ·
+              {{ formatPlayMode(selectedRecord.playMode) }}
+            </p>
+            <h2 id="game-result-title">{{ selectedRecord.gameName }}</h2>
+          </header>
+          <div class="game-result-modal__outcome">
+            <span
+              :class="`profile-page__record-icon--${getMyParticipant(selectedRecord).outcome.toLowerCase()}`"
+              aria-hidden="true"
+            >
+              <svg
+                v-if="getMyParticipant(selectedRecord).outcome === 'WIN'"
+                viewBox="0 0 20 20"
+                fill="none"
+              >
+                <path
+                  d="M6 3h8v2a4 4 0 0 1-4 4 4 4 0 0 1-4-4V3Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M6 4H4a2 2 0 0 0 2 3M14 4h2a2 2 0 0 1-2 3"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M10 9v3M7 16h6M8 16v-2.3a2 2 0 0 1 4 0V16"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <svg
+                v-else-if="getMyParticipant(selectedRecord).outcome === 'LOSE'"
+                viewBox="0 0 20 20"
+                fill="none"
+              >
+                <circle
+                  cx="10"
+                  cy="10"
+                  r="7.25"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M7.5 7.5l5 5M12.5 7.5l-5 5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <svg
+                v-else-if="getMyParticipant(selectedRecord).outcome === 'DRAW'"
+                viewBox="0 0 20 20"
+                fill="none"
+              >
+                <circle
+                  cx="8"
+                  cy="10"
+                  r="5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <circle
+                  cx="12"
+                  cy="10"
+                  r="5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+              </svg>
+              <svg v-else viewBox="0 0 20 20" fill="none">
+                <circle
+                  cx="10"
+                  cy="10"
+                  r="7.25"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M7 10.2l2.2 2.2L13.5 8"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <strong
+              >{{ getOutcomeLabel(getMyParticipant(selectedRecord).outcome) }} ·
+              {{ getMyParticipant(selectedRecord).rank }}위</strong
+            >
+          </div>
+          <div class="game-result-modal__stats">
+            <article>
+              <span>점수</span
+              ><strong>{{ getMyParticipant(selectedRecord).score }}점</strong>
+            </article>
+            <article>
+              <span>생존 시간</span
+              ><strong>{{
+                formatDuration(
+                  selectedRecord.gameResult['1']?.survivalTimeMs ??
+                    getDurationMs(selectedRecord),
+                )
+              }}</strong>
+            </article>
+            <article>
+              <span>플레이 시간</span
+              ><strong>{{
+                formatDuration(getDurationMs(selectedRecord))
+              }}</strong>
+            </article>
+          </div>
+          <div class="game-result-modal__participants">
+            <div>
+              <span>플레이어</span><span>결과</span><span>순위</span
+              ><span>점수</span>
+            </div>
+            <div
+              v-for="participant in selectedRecord.participants"
+              :key="participant.slotNo"
+            >
+              <b>{{ participant.displayName }}</b
+              ><span>{{ getOutcomeLabel(participant.outcome) }}</span
+              ><span>{{ participant.rank }}위</span
+              ><span>{{ participant.score }}</span>
+            </div>
+          </div>
+          <button
+            class="game-result-modal__confirm"
+            type="button"
+            @click="handleCloseRecord"
+          >
+            확인
+          </button>
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="dialog-pop" appear>
+      <div
+        v-if="isPasswordDialogOpen"
+        class="profile-dialog"
+        @click.self="handleClosePasswordChange"
+        @keydown.esc="handleClosePasswordChange"
+      >
+        <section
+          class="profile-dialog__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="password-change-title"
+        >
+          <h2 id="password-change-title">비밀번호 변경</h2>
+          <label class="profile-page__field">
+            <span>현재 비밀번호</span>
+            <input
+              v-model="currentPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="현재 비밀번호를 입력해 주세요"
+            />
+          </label>
+          <label class="profile-page__field">
+            <span>새 비밀번호</span>
+            <input
+              v-model="changePassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="변경할 비밀번호를 입력해 주세요"
+            />
+          </label>
+          <label class="profile-page__field">
+            <span>새 비밀번호 확인</span>
+            <input
+              v-model="changePasswordConfirmation"
+              type="password"
+              autocomplete="new-password"
+              placeholder="비밀번호를 한 번 더 입력해 주세요"
+            />
+            <small
+              v-if="changePasswordConfirmation"
+              :class="
+                changePasswordsMatch
+                  ? 'profile-page__success'
+                  : 'profile-page__error'
+              "
+              >{{
+                changePasswordsMatch
+                  ? '비밀번호가 일치해요.'
+                  : '비밀번호가 일치하지 않아요.'
+              }}</small
+            >
+          </label>
+          <div class="profile-dialog__actions">
+            <button
+              class="profile-page__secondary-button"
+              type="button"
+              @click="handleClosePasswordChange"
+            >
+              취소
+            </button>
+            <button
+              class="profile-page__save-button"
+              type="button"
+              @click="handleSubmitPasswordChange"
+            >
+              변경하기
+            </button>
+          </div>
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="dialog-pop" appear>
+      <div
+        v-if="isWithdrawDialogOpen"
+        class="profile-dialog"
+        @click.self="isWithdrawDialogOpen = false"
+        @keydown.esc="isWithdrawDialogOpen = false"
+      >
+        <section
+          class="profile-dialog__card profile-dialog__card--narrow"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="withdraw-title"
+        >
+          <h2 id="withdraw-title">정말 탈퇴하시겠어요?</h2>
+          <p class="profile-dialog__warning">
+            탈퇴하면 게임 기록과 랭킹, 소모임 활동 내역이 모두 삭제되고 되돌릴
+            수 없어요.<br />그래도 정말 탈퇴하시겠어요?
           </p>
-          <h2 id="game-result-title">{{ selectedRecord.gameName }}</h2>
-        </header>
-        <div class="game-result-modal__outcome">
-          <span>{{
-            getOutcomeIcon(getMyParticipant(selectedRecord).outcome)
-          }}</span
-          ><strong
-            >{{ getOutcomeLabel(getMyParticipant(selectedRecord).outcome) }} ·
-            {{ getMyParticipant(selectedRecord).rank }}위</strong
-          >
-        </div>
-        <div class="game-result-modal__stats">
-          <article>
-            <span>점수</span
-            ><strong>{{ getMyParticipant(selectedRecord).score }}점</strong>
-          </article>
-          <article>
-            <span>생존 시간</span
-            ><strong>{{
-              formatDuration(
-                selectedRecord.gameResult['1']?.survivalTimeMs ??
-                  getDurationMs(selectedRecord),
-              )
-            }}</strong>
-          </article>
-          <article>
-            <span>플레이 시간</span
-            ><strong>{{
-              formatDuration(getDurationMs(selectedRecord))
-            }}</strong>
-          </article>
-        </div>
-        <div class="game-result-modal__participants">
-          <div>
-            <span>플레이어</span><span>결과</span><span>순위</span
-            ><span>점수</span>
+          <div class="profile-dialog__actions">
+            <button
+              class="profile-page__secondary-button"
+              type="button"
+              @click="isWithdrawDialogOpen = false"
+            >
+              취소
+            </button>
+            <button
+              class="profile-dialog__danger-button"
+              type="button"
+              @click="handleConfirmWithdraw"
+            >
+              탈퇴하기
+            </button>
           </div>
-          <div
-            v-for="participant in selectedRecord.participants"
-            :key="participant.slotNo"
-          >
-            <b>{{ participant.displayName }}</b
-            ><span>{{ getOutcomeLabel(participant.outcome) }}</span
-            ><span>{{ participant.rank }}위</span
-            ><span>{{ participant.score }}</span>
-          </div>
-        </div>
-        <button
-          class="game-result-modal__confirm"
-          type="button"
-          @click="handleCloseRecord"
-        >
-          확인
-        </button>
-      </section>
-    </div>
-
-    <div
-      v-if="isPasswordDialogOpen"
-      class="profile-dialog"
-      @click.self="handleClosePasswordChange"
-      @keydown.esc="handleClosePasswordChange"
-    >
-      <section
-        class="profile-dialog__card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="password-change-title"
-      >
-        <h2 id="password-change-title">비밀번호 변경</h2>
-        <label class="profile-page__field">
-          <span>현재 비밀번호</span>
-          <input
-            v-model="currentPassword"
-            type="password"
-            autocomplete="current-password"
-            placeholder="현재 비밀번호를 입력해 주세요"
-          />
-        </label>
-        <label class="profile-page__field">
-          <span>새 비밀번호</span>
-          <input
-            v-model="changePassword"
-            type="password"
-            autocomplete="new-password"
-            placeholder="변경할 비밀번호를 입력해 주세요"
-          />
-        </label>
-        <label class="profile-page__field">
-          <span>새 비밀번호 확인</span>
-          <input
-            v-model="changePasswordConfirmation"
-            type="password"
-            autocomplete="new-password"
-            placeholder="비밀번호를 한 번 더 입력해 주세요"
-          />
-          <small
-            v-if="changePasswordConfirmation"
-            :class="
-              changePasswordsMatch
-                ? 'profile-page__success'
-                : 'profile-page__error'
-            "
-            >{{
-              changePasswordsMatch
-                ? '비밀번호가 일치해요.'
-                : '비밀번호가 일치하지 않아요.'
-            }}</small
-          >
-        </label>
-        <div class="profile-dialog__actions">
-          <button
-            class="profile-page__secondary-button"
-            type="button"
-            @click="handleClosePasswordChange"
-          >
-            취소
-          </button>
-          <button
-            class="profile-page__save-button"
-            type="button"
-            @click="handleSubmitPasswordChange"
-          >
-            변경하기
-          </button>
-        </div>
-      </section>
-    </div>
-
-    <div
-      v-if="isWithdrawDialogOpen"
-      class="profile-dialog"
-      @click.self="isWithdrawDialogOpen = false"
-      @keydown.esc="isWithdrawDialogOpen = false"
-    >
-      <section
-        class="profile-dialog__card profile-dialog__card--narrow"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="withdraw-title"
-      >
-        <h2 id="withdraw-title">정말 탈퇴하시겠어요?</h2>
-        <p class="profile-dialog__warning">
-          탈퇴하면 게임 기록과 랭킹, 소모임 활동 내역이 모두 삭제되고 되돌릴 수
-          없어요.<br />그래도 정말 탈퇴하시겠어요?
-        </p>
-        <div class="profile-dialog__actions">
-          <button
-            class="profile-page__secondary-button"
-            type="button"
-            @click="isWithdrawDialogOpen = false"
-          >
-            취소
-          </button>
-          <button
-            class="profile-dialog__danger-button"
-            type="button"
-            @click="handleConfirmWithdraw"
-          >
-            탈퇴하기
-          </button>
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -612,7 +797,7 @@ function handleConfirmWithdraw() {
   padding: clamp(24px, 4vw, 42px);
   border: 1px solid var(--color-line);
   border-radius: 24px;
-  background: linear-gradient(135deg, var(--color-purple-soft), #fff);
+  background: #f7f4ff;
   box-shadow: var(--shadow-card);
 }
 .profile-page__avatar {
@@ -665,6 +850,12 @@ function handleConfirmWithdraw() {
   background: var(--color-primary);
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.profile-page__edit-button:hover,
+.profile-page__save-button:hover,
+.profile-page__field button:hover {
+  background: var(--color-primary-hover);
 }
 .profile-page__editor,
 .profile-page__records,
@@ -733,7 +924,7 @@ function handleConfirmWithdraw() {
   color: #27886c;
 }
 .profile-page__error {
-  color: #d55555;
+  color: var(--color-danger, #c2455a);
 }
 .profile-page__image-field {
   margin-top: 25px;
@@ -756,6 +947,12 @@ function handleConfirmWithdraw() {
   background: transparent;
   font-size: 11px;
   cursor: pointer;
+  transition:
+    border-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+.profile-page__avatar-picker button:hover {
+  transform: translateY(-2px);
 }
 .profile-page__avatar-picker img {
   width: 57px;
@@ -784,6 +981,15 @@ function handleConfirmWithdraw() {
   background: #fff;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.profile-page__secondary-button:hover {
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+  background: var(--color-surface-soft);
 }
 .profile-page__records ul {
   display: grid;
@@ -799,10 +1005,52 @@ function handleConfirmWithdraw() {
   padding: 15px 3px;
   border-top: 1px solid var(--color-line);
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-radius var(--duration-fast) ease;
 }
 .profile-page__records li:hover {
   border-radius: 12px;
   background: var(--color-surface-soft);
+}
+.profile-page__records-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.profile-page__records-empty img {
+  width: 96px;
+  height: 96px;
+  margin-bottom: 8px;
+  object-fit: contain;
+}
+.profile-page__records-empty p {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+.profile-page__records-empty span {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.profile-page__records-cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin-top: 14px;
+  padding: 0 22px;
+  border-radius: var(--radius-button);
+  color: #fff;
+  background: var(--color-primary);
+  font-weight: 800;
+  text-decoration: none;
+  transition: background-color var(--duration-fast) ease;
+}
+.profile-page__records-cta:hover {
+  background: var(--color-primary-hover);
 }
 .profile-page__records li:focus-visible {
   outline: 3px solid rgba(79, 116, 219, 0.5);
@@ -816,16 +1064,29 @@ function handleConfirmWithdraw() {
   display: grid;
   width: 37px;
   height: 37px;
+  flex: 0 0 37px;
   place-items: center;
   border-radius: 12px;
   font-weight: 800;
 }
+.profile-page__record-icon--win svg,
+.profile-page__record-icon--lose svg,
+.profile-page__record-icon--draw svg,
+.profile-page__record-icon--completed svg {
+  width: 20px;
+  height: 20px;
+}
 .profile-page__record-icon--win {
+  color: #8a6314;
   background: var(--color-purple-soft);
 }
 .profile-page__record-icon--lose {
   color: #657087;
   background: #f1f3f7;
+}
+.profile-page__record-icon--draw {
+  color: #9c7a1a;
+  background: var(--color-yellow-soft);
 }
 .profile-page__record-icon--completed {
   color: #2f9275;
@@ -851,8 +1112,12 @@ function handleConfirmWithdraw() {
   font-size: 14px;
 }
 .profile-page__record-arrow {
+  display: grid;
   color: var(--color-accent-blue);
-  font-size: 24px;
+}
+.profile-page__record-arrow svg {
+  width: 22px;
+  height: 22px;
 }
 .profile-page__account {
   align-items: center;
@@ -870,11 +1135,25 @@ function handleConfirmWithdraw() {
   background: #fff;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.profile-page__account-actions button:hover {
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+  background: var(--color-surface-soft);
 }
 .profile-page__account-actions .profile-page__withdraw-button {
-  border-color: #f1cbcb;
-  color: #c65151;
-  background: #fffafa;
+  border-color: color-mix(in srgb, var(--color-danger, #c2455a) 30%, white);
+  color: var(--color-danger, #c2455a);
+  background: color-mix(in srgb, var(--color-danger, #c2455a) 4%, white);
+}
+.profile-page__account-actions .profile-page__withdraw-button:hover {
+  border-color: var(--color-danger, #c2455a);
+  color: #fff;
+  background: var(--color-danger, #c2455a);
 }
 .game-result-modal {
   position: fixed;
@@ -899,13 +1178,25 @@ function handleConfirmWithdraw() {
   position: absolute;
   top: 18px;
   right: 18px;
+  display: grid;
   width: 34px;
   height: 34px;
+  place-items: center;
   border-radius: 50%;
   color: var(--color-muted);
   background: var(--color-surface-soft);
-  font-size: 25px;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.game-result-modal__close svg {
+  width: 18px;
+  height: 18px;
+}
+.game-result-modal__close:hover {
+  color: var(--color-ink);
+  background: var(--color-blue-soft);
 }
 .game-result-modal header {
   text-align: center;
@@ -932,9 +1223,6 @@ function handleConfirmWithdraw() {
   padding: 20px;
   border-radius: 18px;
   background: var(--color-purple-soft);
-}
-.game-result-modal__outcome span {
-  font-size: 29px;
 }
 .game-result-modal__outcome strong {
   color: var(--color-ink);
@@ -994,6 +1282,10 @@ function handleConfirmWithdraw() {
   background: var(--color-primary);
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.game-result-modal__confirm:hover {
+  background: var(--color-primary-hover);
 }
 .profile-dialog {
   position: fixed;
@@ -1039,13 +1331,14 @@ function handleConfirmWithdraw() {
   border: 0;
   border-radius: 11px;
   color: #fff;
-  background: #e05a5a;
+  background: var(--color-danger, #c2455a);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
 }
 .profile-dialog__danger-button:hover {
-  background: #c94b4b;
+  background: color-mix(in srgb, var(--color-danger, #c2455a) 82%, black);
 }
 @media (max-width: 760px) {
   .profile-page__hero {
@@ -1088,5 +1381,28 @@ function handleConfirmWithdraw() {
   .game-result-modal__dialog {
     padding: 30px 20px 20px;
   }
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: opacity 200ms ease;
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  opacity: 0;
+}
+.dialog-pop-enter-active .game-result-modal__dialog,
+.dialog-pop-leave-active .game-result-modal__dialog,
+.dialog-pop-enter-active .profile-dialog__card,
+.dialog-pop-leave-active .profile-dialog__card {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from .game-result-modal__dialog,
+.dialog-pop-leave-to .game-result-modal__dialog,
+.dialog-pop-enter-from .profile-dialog__card,
+.dialog-pop-leave-to .profile-dialog__card {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 </style>
