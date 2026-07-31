@@ -23,7 +23,18 @@ withDefaults(
     <span v-else-if="prompt === '고양이'" class="draw-prompt-icon__cat">
       <i /><i /><b /><em />
     </span>
-    <span v-else>✦</span>
+    <svg
+      v-else
+      viewBox="0 0 24 24"
+      width="28"
+      height="28"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        d="M12 2c.6 4.8 2.4 6.9 8 8-5.6 1.1-7.4 3.2-8 8-.6-4.8-2.4-6.9-8-8 5.6-1.1 7.4-3.2 8-8Z"
+      />
+    </svg>
   </span>
 </template>
 

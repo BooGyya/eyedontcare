@@ -34,6 +34,7 @@ defineProps<{
   position: relative;
   padding: 34px 0 52px;
   text-align: center;
+  animation: page-fade-up 0.4s var(--ease-out) both;
 }
 .result-shell > span {
   display: inline-block;
@@ -57,7 +58,6 @@ defineProps<{
   font-size: clamp(28px, 4vw, 42px);
   font-family: var(--font-display);
   letter-spacing: -0.06em;
-  transform: none;
 }
 .result-shell > p {
   margin: 10px 0 24px;

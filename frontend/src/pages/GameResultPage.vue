@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import opponentProfileImage from '../assets/images/profiles/profile-smile.png'
 import GameResultShell from '../components/games/GameResultShell.vue'
@@ -66,6 +66,79 @@ const drawTotalScore = computed(() =>
   drawRoundResults.reduce((total, round) => total + round.score, 0),
 )
 
+const soloScoreDisplay = ref('0')
+const drawScoreDisplay = ref(0)
+let soloCountFrame: number | undefined
+let drawCountFrame: number | undefined
+
+function prefersReducedMotion() {
+  return (
+    typeof globalThis.window !== 'undefined' &&
+    typeof globalThis.window.matchMedia === 'function' &&
+    globalThis.window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
+function formatCount(value: number, decimals: number) {
+  return value.toLocaleString('ko-KR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
+}
+
+function animateSoloScore(raw: string) {
+  const match = /^([\d,]+(?:\.\d+)?)/.exec(raw)
+  if (!match || prefersReducedMotion()) {
+    soloScoreDisplay.value = raw
+    return
+  }
+  const suffix = raw.slice(match[0].length)
+  const decimals = match[1].includes('.') ? match[1].split('.')[1].length : 0
+  const final = Number(match[1].replace(/,/g, ''))
+  const start = globalThis.performance.now()
+  const duration = 900
+
+  function tick(now: number) {
+    const progress = Math.min((now - start) / duration, 1)
+    const eased = 1 - (1 - progress) ** 3
+    soloScoreDisplay.value = `${formatCount(final * eased, decimals)}${suffix}`
+    if (progress < 1) soloCountFrame = globalThis.requestAnimationFrame(tick)
+  }
+  soloCountFrame = globalThis.requestAnimationFrame(tick)
+}
+
+function animateDrawScore(final: number) {
+  if (prefersReducedMotion()) {
+    drawScoreDisplay.value = final
+    return
+  }
+  const start = globalThis.performance.now()
+  const duration = 900
+
+  function tick(now: number) {
+    const progress = Math.min((now - start) / duration, 1)
+    const eased = 1 - (1 - progress) ** 3
+    drawScoreDisplay.value = Math.round(final * eased)
+    if (progress < 1) drawCountFrame = globalThis.requestAnimationFrame(tick)
+  }
+  drawCountFrame = globalThis.requestAnimationFrame(tick)
+}
+
+onMounted(() => {
+  if (isDrawResult.value) {
+    animateDrawScore(drawTotalScore.value)
+  } else if (!isCompetitive.value && result.value) {
+    animateSoloScore(result.value.score)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (soloCountFrame !== undefined)
+    globalThis.cancelAnimationFrame(soloCountFrame)
+  if (drawCountFrame !== undefined)
+    globalThis.cancelAnimationFrame(drawCountFrame)
+})
+
 function replay() {
   if (game.value)
     router.push({
@@ -105,30 +178,73 @@ function goToGames() {
           <span
             class="draw-final-hero__sparkle draw-final-hero__sparkle--left"
             aria-hidden="true"
-            >✦</span
           >
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M12 2c0 5 1.3 8.5 4 11-2.7 2.5-4 6-4 11-.1-5-1.4-8.5-4-11 2.6-2.5 3.9-6 4-11z"
+                fill="currentColor"
+              />
+            </svg>
+          </span>
           <span
             class="draw-final-hero__sparkle draw-final-hero__sparkle--right"
             aria-hidden="true"
-            >✧</span
           >
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M12 2c0 5 1.3 8.5 4 11-2.7 2.5-4 6-4 11-.1-5-1.4-8.5-4-11 2.6-2.5 3.9-6 4-11z"
+                fill="currentColor"
+              />
+            </svg>
+          </span>
           <h1>
-            <span class="draw-final-hero__deco" aria-hidden="true">🎉</span>
+            <span class="draw-final-hero__deco" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 2c0 5 1.3 8.5 4 11-2.7 2.5-4 6-4 11-.1-5-1.4-8.5-4-11 2.6-2.5 3.9-6 4-11z"
+                  fill="#c0a9ff"
+                />
+              </svg>
+            </span>
             게임이 종료되었습니다!
             <span
               class="draw-final-hero__deco draw-final-hero__deco--tail"
               aria-hidden="true"
-              >🎊</span
             >
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 2c0 5 1.3 8.5 4 11-2.7 2.5-4 6-4 11-.1-5-1.4-8.5-4-11 2.6-2.5 3.9-6 4-11z"
+                  fill="var(--color-gold)"
+                />
+              </svg>
+            </span>
           </h1>
           <p>3개 라운드의 그림 인식 결과를 확인해보세요.</p>
         </header>
 
         <section class="draw-total-card" aria-label="최종 총점">
           <p class="draw-total-card__label">
-            <span aria-hidden="true">🏆</span> 최종 총점
+            <span class="draw-total-card__label-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="var(--color-gold)" />
+                <path
+                  d="M7 5H4a3 3 0 0 0 3 5M17 5h3a3 3 0 0 1-3 5"
+                  fill="none"
+                  stroke="var(--color-gold)"
+                  stroke-width="1.6"
+                />
+                <path d="M11 13h2v3h-2z" fill="var(--color-gold)" />
+                <path
+                  d="M8 19c0-1.8 1.8-2.7 4-2.7s4 .9 4 2.7v1H8z"
+                  fill="var(--color-gold)"
+                />
+              </svg>
+            </span>
+            최종 총점
           </p>
-          <strong class="draw-total-card__score">{{ drawTotalScore }}점</strong>
+          <strong class="draw-total-card__score"
+            >{{ drawScoreDisplay }}점</strong
+          >
           <p class="draw-total-card__message">신기록을 달성했어요!</p>
           <p class="draw-total-card__meta">
             <b>NEW RECORD</b>
@@ -194,11 +310,46 @@ function goToGames() {
         <section class="draw-ranking" aria-label="랭킹 결과">
           <div class="draw-ranking__heading">
             <h2>랭킹 결과</h2>
-            <button type="button" @click="viewRanking">전체 랭킹 보기 →</button>
+            <button type="button" @click="viewRanking">
+              전체 랭킹 보기
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M5 12h14M13 6l6 6-6 6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
           </div>
           <div class="draw-ranking__panel">
             <div class="draw-ranking__highlight">
-              <span aria-hidden="true">🥈</span>
+              <span class="draw-ranking__medal" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M8 2L5 9l4 2 2-5z" fill="#aeb6c2" />
+                  <path d="M16 2l3 7-4 2-2-5z" fill="#aeb6c2" />
+                  <circle
+                    cx="12"
+                    cy="15"
+                    r="7"
+                    fill="#aeb6c2"
+                    stroke="#8f97a6"
+                    stroke-width="1"
+                  />
+                  <text
+                    x="12"
+                    y="18.5"
+                    text-anchor="middle"
+                    font-size="9"
+                    font-weight="800"
+                    fill="#fff"
+                  >
+                    2
+                  </text>
+                </svg>
+              </span>
               <p>내 순위 <strong>2위</strong> <small>/ 154명</small></p>
               <b>상위 1.3%</b>
             </div>
@@ -220,7 +371,27 @@ function goToGames() {
             class="draw-final-footer__replay"
             @click="replay"
           >
-            <span aria-hidden="true">↻</span> 다시 플레이
+            <span aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M20 11A8 8 0 1 0 18 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M20 5v6h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            다시 플레이
           </button>
           <button
             type="button"
@@ -241,7 +412,7 @@ function goToGames() {
           />
           <div class="score-block">
             <span>{{ result.scoreLabel }}</span
-            ><strong>{{ result.score }}</strong>
+            ><strong>{{ soloScoreDisplay }}</strong>
           </div>
         </article>
 
@@ -309,7 +480,25 @@ function goToGames() {
               </div>
             </dl>
             <button type="button" class="primary" @click="replay">
-              ↻ 다시 플레이
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20 11A8 8 0 1 0 18 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M20 5v6h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              다시 플레이
             </button>
           </div>
           <dl v-if="!isCompetitive">
@@ -334,7 +523,25 @@ function goToGames() {
       aria-label="결과 화면 동작"
     >
       <button type="button" class="primary" @click="replay">
-        ↻ 다시 플레이</button
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M20 11A8 8 0 1 0 18 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M20 5v6h-6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        다시 플레이</button
       ><button type="button" @click="viewRanking">랭킹 보기</button
       ><RouterLink to="/games">게임 목록</RouterLink>
     </nav>
@@ -346,6 +553,46 @@ function goToGames() {
 </template>
 
 <style scoped>
+@keyframes result-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes result-enter-hero {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes result-enter-card {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 .result-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
@@ -367,7 +614,8 @@ function goToGames() {
   grid-template-rows: auto minmax(0, 1fr) auto;
   place-items: center;
   overflow: hidden;
-  background: linear-gradient(145deg, #f1efff, #fff);
+  background: #f5f3ff;
+  animation: result-enter 0.5s var(--ease-out) both;
 }
 .result-hero img {
   width: min(62%, 300px);
@@ -397,12 +645,15 @@ function goToGames() {
   font-family: inherit;
   font-size: clamp(36px, 5vw, 58px);
   line-height: 1.05;
+  font-variant-numeric: tabular-nums;
 }
 .result-summary {
   display: grid;
   align-content: center;
   gap: 18px;
   padding: 28px;
+  animation: result-enter 0.5s var(--ease-out) both;
+  animation-delay: 0.12s;
 }
 .result-summary__eyebrow {
   margin: 0;
@@ -426,6 +677,8 @@ function goToGames() {
   background: #fff0bd;
   font-size: 11px;
   font-weight: 900;
+  animation: badge-pop 0.35s var(--ease-out) both;
+  animation-delay: 0.5s;
 }
 .result-summary h3 {
   margin: -10px 0 0;
@@ -488,6 +741,7 @@ function goToGames() {
 .versus-hero {
   padding: 0 0 2px;
   text-align: center;
+  animation: result-enter-hero 0.5s var(--ease-out) both;
 }
 .versus-hero > span {
   display: inline-block;
@@ -518,6 +772,8 @@ function goToGames() {
   min-height: 330px;
   padding: 18px;
   overflow: hidden;
+  animation: result-enter 0.5s var(--ease-out) both;
+  animation-delay: 0.15s;
 }
 .player-result {
   display: grid;
@@ -626,6 +882,8 @@ function goToGames() {
   border: 1px solid #e0e3f1;
   border-radius: 16px;
   background: #f5f4ff;
+  animation: result-enter 0.5s var(--ease-out) both;
+  animation-delay: 0.3s;
 }
 .versus-summary > div {
   display: grid;
@@ -657,12 +915,25 @@ function goToGames() {
   font-weight: 900;
 }
 .versus-summary button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 48px;
   border: 0;
   border-radius: 10px;
   color: #fff;
+  background: var(--color-accent-blue);
   font-weight: 900;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.versus-summary button svg {
+  width: 16px;
+  height: 16px;
+}
+.versus-summary button:hover {
+  background: #4064c9;
 }
 .result-actions {
   display: flex;
@@ -672,6 +943,10 @@ function goToGames() {
 }
 .result-actions button,
 .result-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 46px;
   padding: 0 20px;
   border: 1px solid var(--color-line);
@@ -679,9 +954,17 @@ function goToGames() {
   color: var(--color-ink);
   background: #fff;
   font-weight: 900;
-  line-height: 44px;
   text-decoration: none;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+.result-actions button svg,
+.result-actions a svg {
+  width: 16px;
+  height: 16px;
 }
 .result-actions .primary {
   border-color: var(--color-accent-blue);
@@ -706,6 +989,7 @@ function goToGames() {
 .draw-final-hero {
   position: relative;
   text-align: center;
+  animation: result-enter 0.5s var(--ease-out) both;
 }
 .draw-final-hero h1 {
   position: relative;
@@ -722,8 +1006,12 @@ function goToGames() {
   font-size: 16px;
 }
 .draw-final-hero__deco {
-  font-size: 0.72em;
+  display: inline-flex;
   transform: rotate(-10deg) translateY(-4px);
+}
+.draw-final-hero__deco svg {
+  width: 0.72em;
+  height: 0.72em;
 }
 .draw-final-hero__deco--tail {
   transform: rotate(10deg) translateY(-4px);
@@ -732,7 +1020,10 @@ function goToGames() {
   position: absolute;
   top: 4px;
   color: #c0a9ff;
-  font-size: 20px;
+}
+.draw-final-hero__sparkle svg {
+  width: 20px;
+  height: 20px;
 }
 .draw-final-hero__sparkle--left {
   left: 18%;
@@ -742,7 +1033,10 @@ function goToGames() {
   right: 18%;
   bottom: 4px;
   color: #8fd8b2;
-  font-size: 16px;
+}
+.draw-final-hero__sparkle--right svg {
+  width: 16px;
+  height: 16px;
 }
 .draw-total-card {
   display: grid;
@@ -752,15 +1046,25 @@ function goToGames() {
   padding: 34px 24px 28px;
   border: 1px solid #e5e2fa;
   border-radius: 24px;
-  background: linear-gradient(135deg, #fbfaff, #f3f0fe);
+  background: #f7f4fe;
   box-shadow: var(--shadow-card);
   text-align: center;
+  animation: result-enter-card 0.5s var(--ease-out) both;
+  animation-delay: 0.12s;
 }
 .draw-total-card__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   margin: 0;
   color: var(--color-ink);
   font-size: 17px;
   font-weight: 700;
+}
+.draw-total-card__label-icon svg {
+  width: 20px;
+  height: 20px;
 }
 .draw-total-card__score {
   color: #6b46e5;
@@ -768,6 +1072,7 @@ function goToGames() {
   font-size: clamp(52px, 6vw, 72px);
   line-height: 1.1;
   text-shadow: 0 6px 24px rgba(107, 70, 229, 0.25);
+  font-variant-numeric: tabular-nums;
 }
 .draw-total-card__message {
   margin: 0;
@@ -789,9 +1094,14 @@ function goToGames() {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.05em;
+  display: inline-block;
+  animation: badge-pop 0.35s var(--ease-out) both;
+  animation-delay: 0.5s;
 }
 .draw-rounds {
   margin-top: 30px;
+  animation: result-enter 0.5s var(--ease-out) both;
+  animation-delay: 0.24s;
 }
 .draw-rounds h2 {
   margin: 0 0 14px;
@@ -939,6 +1249,8 @@ function goToGames() {
 }
 .draw-ranking {
   margin-top: 30px;
+  animation: result-enter 0.5s var(--ease-out) both;
+  animation-delay: 0.36s;
 }
 .draw-ranking__heading {
   display: flex;
@@ -952,6 +1264,9 @@ function goToGames() {
   font-size: 22px;
 }
 .draw-ranking__heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 8px 13px;
   border: 0;
   border-radius: 9px;
@@ -960,6 +1275,11 @@ function goToGames() {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.draw-ranking__heading button svg {
+  width: 15px;
+  height: 15px;
 }
 .draw-ranking__heading button:hover {
   background: var(--color-blue-soft);
@@ -979,10 +1299,11 @@ function goToGames() {
   align-items: center;
   padding: 14px 18px;
   border-radius: 14px;
-  background: linear-gradient(135deg, #fbfaff, #f3f0fe);
+  background: #f7f4fe;
 }
-.draw-ranking__highlight span {
-  font-size: 26px;
+.draw-ranking__medal svg {
+  width: 26px;
+  height: 26px;
 }
 .draw-ranking__highlight p {
   margin: 0;
@@ -1054,6 +1375,8 @@ function goToGames() {
   gap: 14px;
   justify-content: center;
   margin-top: 34px;
+  animation: result-enter 0.5s var(--ease-out) both;
+  animation-delay: 0.44s;
 }
 .draw-final-footer__replay {
   display: inline-flex;
@@ -1068,6 +1391,11 @@ function goToGames() {
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.draw-final-footer__replay svg {
+  width: 18px;
+  height: 18px;
 }
 .draw-final-footer__replay:hover {
   background: #6a70d6;
@@ -1081,6 +1409,10 @@ function goToGames() {
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 .draw-final-footer__list:hover {
   border-color: #7b81e3;

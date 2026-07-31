@@ -94,6 +94,18 @@ const isRhythmDuel = computed(
   () =>
     game.value?.id === 'rhythm' && ['friends', 'random'].includes(mode.value),
 )
+const colorSwatchNames: Record<string, string> = {
+  '#161c2d': '검정',
+  '#e84d59': '빨강',
+  '#2864df': '파랑',
+  '#35a968': '초록',
+  '#f2b11e': '노랑',
+}
+
+function heartStates(count: number) {
+  return Array.from({ length: 5 }, (_, index) => index < count)
+}
+
 const currentDrawResult = computed(() => drawRoundResults[drawRound.value - 1])
 const drawAccumulatedScore = computed(() =>
   drawRoundResults
@@ -205,7 +217,19 @@ function advanceDrawRound() {
           </li>
         </ol>
         <section class="draw-tip" aria-label="그리기 팁">
-          <p><span aria-hidden="true">💡</span> TIP</p>
+          <p>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.46 1 .96 1.1 1.6l.1.6h5l.1-.6c.1-.64.5-1.14 1.1-1.6A6 6 0 0 0 12 3z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            TIP
+          </p>
           <span>Space 키를 눌러 그림 그리기를 일시정지할 수 있어요!</span>
           <kbd>Space</kbd>
           <small>일시정지 / 다시 시작</small>
@@ -213,7 +237,7 @@ function advanceDrawRound() {
       </aside>
 
       <aside v-else-if="game.id === 'hold'" class="info-panel eye-see-info">
-        <p class="eyebrow">● 나</p>
+        <p class="eyebrow">나</p>
         <div class="eye-see-camera">
           <video
             aria-label="향후 내 웹캠 영상이 표시될 영역"
@@ -240,7 +264,27 @@ function advanceDrawRound() {
           ><strong>{{ session.opponentScore }}</strong>
         </div>
         <div class="air-time">
-          <span>◷ 남은 시간</span><strong>{{ session.timeLabel }}</strong>
+          <span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle
+                cx="12"
+                cy="12"
+                r="8.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M12 7.5V12l3.2 2.2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+            남은 시간
+          </span>
+          <strong>{{ session.timeLabel }}</strong>
         </div>
         <p class="air-tip">
           <b>TIP</b> 시선으로 패들을 움직여 퍽을 상대 골대에 넣어보세요.
@@ -279,8 +323,18 @@ function advanceDrawRound() {
           <div class="rhythm-player-stats__hearts">
             <span>체력</span>
             <b aria-label="내 남은 체력">
-              {{ '♥'.repeat(rhythmMine.hearts)
-              }}<i>{{ '♥'.repeat(5 - rhythmMine.hearts) }}</i>
+              <svg
+                v-for="(filled, index) in heartStates(rhythmMine.hearts)"
+                :key="index"
+                viewBox="0 0 24 24"
+                :class="{ 'heart-empty': !filled }"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 21c-4.7-3-9-6.6-9-11a4.6 4.6 0 0 1 9-1.8A4.6 4.6 0 0 1 21 10c0 4.4-4.3 8-9 11z"
+                  fill="currentColor"
+                />
+              </svg>
             </b>
           </div>
         </section>
@@ -296,8 +350,18 @@ function advanceDrawRound() {
         <p>Combo</p>
         <b>{{ rhythmMine.combo }} 콤보!</b>
         <div class="hearts" aria-label="남은 체력">
-          {{ '♥'.repeat(rhythmMine.hearts)
-          }}<i>{{ '♥'.repeat(5 - rhythmMine.hearts) }}</i>
+          <svg
+            v-for="(filled, index) in heartStates(rhythmMine.hearts)"
+            :key="index"
+            viewBox="0 0 24 24"
+            :class="{ 'heart-empty': !filled }"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 21c-4.7-3-9-6.6-9-11a4.6 4.6 0 0 1 9-1.8A4.6 4.6 0 0 1 21 10c0 4.4-4.3 8-9 11z"
+              fill="currentColor"
+            />
+          </svg>
         </div>
       </aside>
 
@@ -362,7 +426,7 @@ function advanceDrawRound() {
               ]"
               :key="color"
               type="button"
-              :aria-label="`색상 선택 ${color}`"
+              :aria-label="`색상 선택 ${colorSwatchNames[color] ?? color}`"
               :class="{ selected: selectedColor === color }"
               :style="{ background: color }"
               @click="selectedColor = color"
@@ -554,8 +618,18 @@ function advanceDrawRound() {
           <div class="rhythm-player-stats__hearts">
             <span>체력</span>
             <b aria-label="상대 남은 체력">
-              {{ '♥'.repeat(rhythmOpponent.hearts)
-              }}<i>{{ '♥'.repeat(5 - rhythmOpponent.hearts) }}</i>
+              <svg
+                v-for="(filled, index) in heartStates(rhythmOpponent.hearts)"
+                :key="index"
+                viewBox="0 0 24 24"
+                :class="{ 'heart-empty': !filled }"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 21c-4.7-3-9-6.6-9-11a4.6 4.6 0 0 1 9-1.8A4.6 4.6 0 0 1 21 10c0 4.4-4.3 8-9 11z"
+                  fill="currentColor"
+                />
+              </svg>
             </b>
           </div>
         </section>
@@ -577,7 +651,7 @@ function advanceDrawRound() {
             draggable="false"
           />
         </div>
-        <p class="camera-state">● 카메라 상태 확인 필요</p>
+        <p class="camera-state">카메라 상태 확인 필요</p>
         <p v-if="game.id === 'rhythm'" class="tip">
           분홍 노트는 왼쪽, 파랑 노트는 오른쪽 눈 입력입니다.
         </p>
@@ -623,7 +697,7 @@ function advanceDrawRound() {
       </aside>
       <aside v-else-if="isCompetitive" class="info-panel opponent-panel">
         <template v-if="game.id === 'hold'">
-          <p class="eyebrow">● 친구</p>
+          <p class="eyebrow">친구</p>
           <div class="eye-see-camera eye-see-camera--friend">
             <video
               aria-label="향후 친구 웹캠 영상이 표시될 영역"
@@ -658,141 +732,212 @@ function advanceDrawRound() {
     </button>
 
     <Teleport to="body"
-      ><div
-        v-if="drawScoreOpen"
-        class="score-backdrop"
-        @click.self="drawScoreOpen = false"
-      >
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="draw-score-title"
+      ><Transition name="dialog-pop"
+        ><div
+          v-if="drawScoreOpen"
+          class="score-backdrop"
+          @click.self="drawScoreOpen = false"
         >
-          <button
-            class="dialog-close"
-            type="button"
-            aria-label="채점 결과 닫기"
-            @click="drawScoreOpen = false"
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="draw-score-title"
           >
-            ×
-          </button>
-          <header class="draw-score-heading">
-            <div>
-              <p class="eyebrow">AI 채점 결과 · mock</p>
-              <h2 id="draw-score-title">이번 라운드 그림을 분석했어요!</h2>
-            </div>
-          </header>
-
-          <div class="draw-score-columns">
-            <section class="draw-submission-card" aria-label="제출한 그림">
-              <p>제시어</p>
-              <strong>{{ currentDrawResult.prompt }}</strong>
-              <DrawPromptIcon
-                :prompt="currentDrawResult.prompt"
-                size="medium"
-              />
-              <div
-                class="draw-score-sketch"
-                aria-label="mock으로 표현한 제출 그림"
-              >
-                <i /><i /><i /><i />
+            <button
+              class="dialog-close"
+              type="button"
+              aria-label="채점 결과 닫기"
+              @click="drawScoreOpen = false"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <header class="draw-score-heading">
+              <div>
+                <p class="eyebrow">AI 채점 결과 · mock</p>
+                <h2 id="draw-score-title">이번 라운드 그림을 분석했어요!</h2>
               </div>
-              <p class="draw-correct">
-                ✓ 정답입니다! {{ currentDrawResult.prompt }}을 맞혔어요!
-              </p>
-            </section>
+            </header>
 
-            <section class="draw-score-detail" aria-label="라운드 점수 상세">
-              <span class="draw-score-ribbon">ROUND {{ drawRound }} 점수</span>
-              <strong class="draw-round-total"
-                >{{ currentDrawResult.score }}점</strong
-              >
-              <dl class="draw-score-breakdown">
-                <div>
-                  <dt>
-                    <b>◎</b
-                    ><span
-                      >기본 점수<small
-                        >정답을 맞혀 기본 점수를 획득했어요!</small
-                      ></span
-                    >
-                  </dt>
-                  <dd>100점</dd>
-                </div>
-                <div>
-                  <dt>
-                    <b>◷</b
-                    ><span
-                      >시간 보너스<small
-                        >남은 시간에 따른 보너스 점수예요.</small
-                      ></span
-                    >
-                  </dt>
-                  <dd>+{{ currentDrawResult.timeBonus }}점</dd>
-                </div>
-                <div>
-                  <dt>
-                    <b>✦</b
-                    ><span
-                      >AI Confidence 보너스<small
-                        >mock 분석 결과에 따른 보너스예요.</small
-                      ></span
-                    >
-                  </dt>
-                  <dd>+{{ currentDrawResult.confidenceBonus }}점</dd>
-                </div>
-              </dl>
-              <div class="draw-round-sum">
-                <span>ROUND {{ drawRound }} 총점</span>
-                <b>{{ currentDrawResult.score }}점</b>
-              </div>
-              <p class="draw-confidence">
-                ⓘ AI Confidence: <b>{{ currentDrawResult.confidence }}</b> (높은
-                확신)
-              </p>
-            </section>
-          </div>
-
-          <section class="draw-cumulative" aria-label="누적 점수 현황">
-            <h3>전체 점수 현황</h3>
-            <div class="draw-score-equation">
-              <template
-                v-for="(round, index) in drawRoundResults.slice(0, drawRound)"
-                :key="round.prompt"
-              >
-                <article :class="{ current: index + 1 === drawRound }">
-                  <span>ROUND {{ index + 1 }}</span>
-                  <strong>{{ round.score }}점</strong>
-                </article>
-                <b
-                  v-if="index < drawRound - 1"
-                  class="equation-sign"
-                  aria-hidden="true"
-                  >+</b
+            <div class="draw-score-columns">
+              <section class="draw-submission-card" aria-label="제출한 그림">
+                <p>제시어</p>
+                <strong>{{ currentDrawResult.prompt }}</strong>
+                <DrawPromptIcon
+                  :prompt="currentDrawResult.prompt"
+                  size="medium"
+                />
+                <div
+                  class="draw-score-sketch"
+                  aria-label="mock으로 표현한 제출 그림"
                 >
-              </template>
-              <b class="equation-sign" aria-hidden="true">=</b>
-              <article class="total">
-                <span>누적 총점</span>
-                <strong>{{ drawAccumulatedScore }}점</strong>
-              </article>
-            </div>
-          </section>
+                  <i /><i /><i /><i />
+                </div>
+                <p class="draw-correct">
+                  정답입니다! {{ currentDrawResult.prompt }}을 맞혔어요!
+                </p>
+              </section>
 
-          <button
-            type="button"
-            class="primary dialog-action"
-            @click="advanceDrawRound"
-          >
-            {{
-              drawRound < drawRoundResults.length
-                ? '다음 라운드로 이동 →'
-                : '최종 결과 보기 →'
-            }}
-          </button>
-        </section>
-      </div></Teleport
-    >
+              <section class="draw-score-detail" aria-label="라운드 점수 상세">
+                <span class="draw-score-ribbon"
+                  >ROUND {{ drawRound }} 점수</span
+                >
+                <strong class="draw-round-total"
+                  >{{ currentDrawResult.score }}점</strong
+                >
+                <dl class="draw-score-breakdown">
+                  <div>
+                    <dt>
+                      <b aria-hidden="true"
+                        ><svg viewBox="0 0 24 24">
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="8"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                          />
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="3"
+                            fill="currentColor"
+                          /></svg></b
+                      ><span
+                        >기본 점수<small
+                          >정답을 맞혀 기본 점수를 획득했어요!</small
+                        ></span
+                      >
+                    </dt>
+                    <dd>100점</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <b aria-hidden="true"
+                        ><svg viewBox="0 0 24 24">
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="8.5"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                          />
+                          <path
+                            d="M12 7.5V12l3.2 2.2"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                            stroke-linecap="round"
+                          /></svg></b
+                      ><span
+                        >시간 보너스<small
+                          >남은 시간에 따른 보너스 점수예요.</small
+                        ></span
+                      >
+                    </dt>
+                    <dd>+{{ currentDrawResult.timeBonus }}점</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <b aria-hidden="true"
+                        ><svg viewBox="0 0 24 24">
+                          <path
+                            d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4-6.2-4.6-6.2 4.6 2.4-7.4L2 9.4h7.6z"
+                            fill="currentColor"
+                          /></svg></b
+                      ><span
+                        >AI Confidence 보너스<small
+                          >mock 분석 결과에 따른 보너스예요.</small
+                        ></span
+                      >
+                    </dt>
+                    <dd>+{{ currentDrawResult.confidenceBonus }}점</dd>
+                  </div>
+                </dl>
+                <div class="draw-round-sum">
+                  <span>ROUND {{ drawRound }} 총점</span>
+                  <b>{{ currentDrawResult.score }}점</b>
+                </div>
+                <p class="draw-confidence">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="9"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                    />
+                    <path
+                      d="M12 8h.01M12 11.5V16"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                  AI Confidence: <b>{{ currentDrawResult.confidence }}</b> (높은
+                  확신)
+                </p>
+              </section>
+            </div>
+
+            <section class="draw-cumulative" aria-label="누적 점수 현황">
+              <h3>전체 점수 현황</h3>
+              <div class="draw-score-equation">
+                <template
+                  v-for="(round, index) in drawRoundResults.slice(0, drawRound)"
+                  :key="round.prompt"
+                >
+                  <article :class="{ current: index + 1 === drawRound }">
+                    <span>ROUND {{ index + 1 }}</span>
+                    <strong>{{ round.score }}점</strong>
+                  </article>
+                  <b
+                    v-if="index < drawRound - 1"
+                    class="equation-sign"
+                    aria-hidden="true"
+                    >+</b
+                  >
+                </template>
+                <b class="equation-sign" aria-hidden="true">=</b>
+                <article class="total">
+                  <span>누적 총점</span>
+                  <strong>{{ drawAccumulatedScore }}점</strong>
+                </article>
+              </div>
+            </section>
+
+            <button
+              type="button"
+              class="primary dialog-action"
+              @click="advanceDrawRound"
+            >
+              {{
+                drawRound < drawRoundResults.length
+                  ? '다음 라운드로 이동'
+                  : '최종 결과 보기'
+              }}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M5 12h14M13 6l6 6-6 6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </section></div></Transition
+    ></Teleport>
   </GamePlayShell>
   <section v-else class="missing">
     <h1>게임을 찾을 수 없어요.</h1>
@@ -833,7 +978,7 @@ function advanceDrawRound() {
   font-weight: 900;
 }
 .info-panel > .eyebrow {
-  font-family: var(--font-hand);
+  font-family: var(--font-display);
   font-size: 17px;
   transform: rotate(-1deg);
 }
@@ -850,7 +995,7 @@ function advanceDrawRound() {
   overflow: hidden;
   border: 0;
   border-radius: 14px;
-  background: linear-gradient(135deg, #f3efff, #fff);
+  background: #f7f5ff;
 }
 .video-placeholder video {
   position: absolute;
@@ -921,7 +1066,8 @@ function advanceDrawRound() {
   font-size: 12px;
 }
 .draw-info li.active {
-  border-left: 4px solid var(--color-accent-blue);
+  border: 1px solid var(--color-accent-blue);
+  background: var(--color-blue-soft);
 }
 .draw-info b {
   color: #278957;
@@ -1050,12 +1196,20 @@ function advanceDrawRound() {
   background: #fff;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 .draw-tools button[aria-label^='색상'] {
   width: 30px;
   min-height: 30px;
   padding: 0;
   border-radius: 50%;
+}
+.draw-tools button[aria-label^='색상']:focus-visible {
+  outline: 3px solid rgba(79, 116, 219, 0.5);
+  outline-offset: 2px;
 }
 .draw-tools button.selected {
   outline: 3px solid var(--color-ink);
@@ -1074,6 +1228,7 @@ function advanceDrawRound() {
   display: block;
   color: var(--color-accent-blue);
   font-size: 42px;
+  font-variant-numeric: tabular-nums;
 }
 .rhythm-score-panel b {
   color: #e44576;
@@ -1096,10 +1251,10 @@ function advanceDrawRound() {
   padding: 16px;
 }
 .rhythm-duel-player--mine {
-  background: linear-gradient(180deg, #f7f6ff 0%, #fff 34%) !important;
+  background: #fbfaff !important;
 }
 .rhythm-duel-player--opponent {
-  background: linear-gradient(180deg, #fff8fb 0%, #fff 34%) !important;
+  background: #fffbfd !important;
 }
 .rhythm-duel-player__label {
   margin: 0;
@@ -1213,25 +1368,32 @@ function advanceDrawRound() {
 .rhythm-player-stats strong {
   color: var(--color-accent-blue);
   font-size: 18px;
+  font-variant-numeric: tabular-nums;
 }
 .rhythm-player-stats__hearts b {
+  display: inline-flex;
+  gap: 2px;
   color: #e44576;
-  font-size: 19px;
-  letter-spacing: 1px;
 }
-.rhythm-player-stats__hearts i {
+.rhythm-player-stats__hearts b svg {
+  width: 15px;
+  height: 15px;
+}
+.rhythm-player-stats__hearts b svg.heart-empty {
   color: #e5e8ee;
-  font-style: normal;
 }
 .hearts {
+  display: inline-flex;
+  gap: 3px;
   margin-top: 18px;
   color: #e44576;
-  font-size: 27px;
-  letter-spacing: 2px;
 }
-.hearts i {
+.hearts svg {
+  width: 22px;
+  height: 22px;
+}
+.hearts svg.heart-empty {
   color: #e5e8ee;
-  font-style: normal;
 }
 .rhythm-stage {
   position: relative;
@@ -1242,7 +1404,7 @@ function advanceDrawRound() {
   border: 0;
   border-radius: 16px;
   color: #fff;
-  background: radial-gradient(circle at 50% 0, #25206d, #0d133c 65%);
+  background: #151b4d;
 }
 .gameplay-layout--rhythm .gameplay-board {
   display: flex;
@@ -1289,11 +1451,30 @@ function advanceDrawRound() {
   color: #e84d98;
   background: #ffd3ea;
   box-shadow: 0 0 12px #fd5dab;
+  animation: rhythm-note-glow 1.8s ease-in-out infinite;
+}
+.rhythm-lane i:nth-of-type(2) {
+  animation-delay: 0.15s;
+}
+.rhythm-lane i:nth-of-type(3) {
+  animation-delay: 0.3s;
+}
+.rhythm-lane i:nth-of-type(4) {
+  animation-delay: 0.45s;
 }
 .rhythm-lane:last-child i {
   color: #396ad5;
   background: #c9dcff;
   box-shadow: 0 0 12px #609aff;
+}
+@keyframes rhythm-note-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .hit-zone {
   position: absolute;
@@ -1465,6 +1646,7 @@ function advanceDrawRound() {
   color: #5046df;
   font-size: clamp(56px, 7vw, 78px);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .blink-duel-timer > div {
   width: min(100%, 380px);
@@ -1586,6 +1768,7 @@ function advanceDrawRound() {
   color: var(--color-accent-blue);
   font-size: clamp(52px, 7vw, 78px);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .blink-stage__metrics small {
   margin-top: -4px;
@@ -1664,6 +1847,10 @@ function advanceDrawRound() {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 .blink-stage__footer button:hover,
 .blink-stage__footer button:focus-visible {
@@ -1780,7 +1967,7 @@ function advanceDrawRound() {
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
-  background: linear-gradient(145deg, #f2f1ff, #fff);
+  background: #f6f5ff;
 }
 .eye-see-camera video {
   position: absolute;
@@ -1797,7 +1984,7 @@ function advanceDrawRound() {
   object-fit: contain;
 }
 .eye-see-camera--friend {
-  background: linear-gradient(145deg, #fff3f3, #fff);
+  background: #fff6f6;
 }
 .eye-see-status {
   display: grid;
@@ -1827,7 +2014,7 @@ function advanceDrawRound() {
   overflow: hidden;
   border: 1px solid #e2e6f4;
   border-radius: 18px;
-  background: radial-gradient(circle at center, #fbfbff 0 38%, #f2f3ff 100%);
+  background: #f7f8fe;
 }
 .eye-see-stage__video {
   position: absolute;
@@ -1910,6 +2097,7 @@ function advanceDrawRound() {
   color: #4d51dc;
   font-size: 55px;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .air-score-line.opponent span,
 .air-score-line.opponent strong {
@@ -2048,6 +2236,15 @@ function advanceDrawRound() {
   width: 44px;
   height: 44px;
   background: #182138;
+  animation: puck-drift 3s ease-in-out infinite alternate;
+}
+@keyframes puck-drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(2px, -2px);
+  }
 }
 .paddle {
   width: clamp(48px, 5vw, 55px);
@@ -2140,13 +2337,22 @@ function advanceDrawRound() {
 .finish {
   border: 1.5px solid #68748c;
   border-radius: 14px 20px 15px 18px;
-  font-family: var(--font-hand);
+  font-family: var(--font-display);
   font-size: 19px;
+}
+.finish,
+.draw-tools .primary {
+  transition:
+    transform var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 .finish:hover,
 .draw-tools .primary:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 3px 3px 0 #7a8499;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-float);
 }
 .score-backdrop {
   position: fixed;
@@ -2191,7 +2397,7 @@ function advanceDrawRound() {
 .draw-cumulative {
   border: 1px solid #e1e4f3;
   border-radius: 16px;
-  background: linear-gradient(145deg, #fff, #fbfbff);
+  background: #fcfcff;
 }
 .draw-submission-card {
   display: flex;
@@ -2278,6 +2484,7 @@ function advanceDrawRound() {
   color: #4539ed;
   font-size: clamp(54px, 7vw, 76px);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .draw-score-breakdown {
   display: grid;
@@ -2310,6 +2517,10 @@ function advanceDrawRound() {
   border-radius: 50%;
   color: #5144ec;
   background: #f0efff;
+}
+.draw-score-breakdown dt > b svg {
+  width: 16px;
+  height: 16px;
 }
 .draw-score-breakdown dt span {
   display: grid;
@@ -2344,9 +2555,17 @@ function advanceDrawRound() {
   font-size: 24px;
 }
 .draw-confidence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 13px 0 0;
   color: #65708c;
   font-size: 13px;
+}
+.draw-confidence svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
 }
 .draw-confidence b {
   color: #4539ed;
@@ -2397,7 +2616,10 @@ function advanceDrawRound() {
   font-size: 25px;
 }
 .dialog-action {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-width: 280px;
   min-height: 52px;
   margin: 18px auto 0;
@@ -2407,20 +2629,55 @@ function advanceDrawRound() {
   font-size: 17px;
   font-weight: 900;
 }
+.dialog-action svg {
+  width: 18px;
+  height: 18px;
+}
 .dialog-close {
   position: absolute;
   top: 18px;
   right: 20px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
   border: 0;
+  border-radius: 50%;
   color: #27345e;
   background: transparent;
-  font-size: 35px;
   line-height: 1;
   cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.dialog-close svg {
+  width: 20px;
+  height: 20px;
+}
+.dialog-close:hover {
+  background: var(--color-surface-soft);
 }
 .missing {
   padding: 60px;
   text-align: center;
+}
+.dialog-pop-enter-active,
+.dialog-pop-leave-active {
+  transition: background-color 200ms ease;
+}
+.dialog-pop-enter-active section,
+.dialog-pop-leave-active section {
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 240ms var(--ease-out);
+}
+.dialog-pop-enter-from,
+.dialog-pop-leave-to {
+  background-color: rgba(13, 26, 56, 0);
+}
+.dialog-pop-enter-from section,
+.dialog-pop-leave-to section {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
 }
 @media (max-width: 1000px) {
   .gameplay-layout {

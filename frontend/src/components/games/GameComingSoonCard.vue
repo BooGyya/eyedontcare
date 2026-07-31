@@ -12,12 +12,8 @@ import comingSoonImage from '../../assets/images/games/game-plus-transparent.png
       <span>NEXT GAME</span>
       <h2>새로운 게임 준비 중!</h2>
       <p>새로운 눈 운동 게임을 열심히 만들고 있어요. 조금만 기대해 주세요!</p>
-      <div
-        class="coming-soon-card__loading"
-        role="status"
-        aria-label="새 게임 준비 중"
-      >
-        <i></i><i></i><i></i>
+      <div class="coming-soon-card__loading" aria-label="새 게임 준비 중">
+        <span></span><span></span><span></span>
         <b>곧 만나요</b>
       </div>
     </div>
@@ -29,7 +25,7 @@ import comingSoonImage from '../../assets/images/games/game-plus-transparent.png
   overflow: hidden;
   border: 1.5px dashed #c2c8ee;
   border-radius: var(--radius-card);
-  background: #fbfbff;
+  background: var(--color-surface-soft);
 }
 
 .coming-soon-card__image {
@@ -52,7 +48,7 @@ import comingSoonImage from '../../assets/images/games/game-plus-transparent.png
   padding: 5px 9px;
   border-radius: var(--radius-button);
   color: #6b7cf5;
-  background: #e7e9fc;
+  background: var(--color-purple-soft);
   font-size: 11px;
   font-weight: 800;
 }
@@ -96,28 +92,25 @@ import comingSoonImage from '../../assets/images/games/game-plus-transparent.png
   font-size: 14px;
   font-weight: 800;
 }
-.coming-soon-card__loading i {
+.coming-soon-card__loading span {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #8f9bf0;
-  animation: coming-soon-bounce 1.2s ease-in-out infinite;
+  animation: coming-soon-pulse 1.2s ease-in-out infinite;
 }
-.coming-soon-card__loading i:nth-child(2) {
+.coming-soon-card__loading span:nth-child(2) {
   animation-delay: 0.15s;
 }
-.coming-soon-card__loading i:nth-child(3) {
+.coming-soon-card__loading span:nth-child(3) {
   animation-delay: 0.3s;
 }
-@keyframes coming-soon-bounce {
+@keyframes coming-soon-pulse {
   0%,
-  60%,
   100% {
-    transform: translateY(0);
-    opacity: 0.55;
+    opacity: 0.35;
   }
-  30% {
-    transform: translateY(-6px);
+  50% {
     opacity: 1;
   }
 }
