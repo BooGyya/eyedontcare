@@ -1,13 +1,25 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import type { RankingRecord, WeeklyRankingGame } from '../../types/home'
 
 const props = defineProps<{
   game: WeeklyRankingGame
 }>()
 
+const isReady = ref(false)
+
+onMounted(() => {
+  void nextTick(() => {
+    globalThis.requestAnimationFrame(() => {
+      isReady.value = true
+    })
+  })
+})
+
 const highestValue = computed(() =>
-  Math.max(...props.game.records.map((record) => record.value)),
+  props.game.records.length
+    ? Math.max(...props.game.records.map((record) => record.value))
+    : 0,
 )
 
 function getPodiumHeight(record: RankingRecord) {
@@ -30,9 +42,7 @@ function getPodiumHeight(record: RankingRecord) {
   >
     <header class="weekly-ranking-card__header">
       <img :src="game.image" :alt="`${game.title} 캐릭터`" draggable="false" />
-      <div>
-        <h3>{{ game.title }}</h3>
-      </div>
+      <h3>{{ game.title }}</h3>
     </header>
 
     <div
@@ -40,7 +50,7 @@ function getPodiumHeight(record: RankingRecord) {
       :aria-label="`${game.title} 이번 주 상위 3명 포디움`"
     >
       <div
-        v-for="record in game.records"
+        v-for="(record, index) in game.records"
         :key="record.rank"
         class="weekly-ranking-card__record"
         :class="`weekly-ranking-card__record--${record.rank}`"
@@ -65,7 +75,11 @@ function getPodiumHeight(record: RankingRecord) {
               record.nickname
             }}</strong>
           </div>
-          <i class="weekly-ranking-card__bar" />
+          <i
+            class="weekly-ranking-card__bar"
+            :class="{ 'is-ready': isReady }"
+            :style="{ transitionDelay: `${index * 0.08}s` }"
+          />
         </div>
       </div>
     </div>
@@ -77,12 +91,20 @@ function getPodiumHeight(record: RankingRecord) {
   display: grid;
   min-width: 0;
   min-height: 334px;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   padding: 18px;
   border: 1px solid var(--card-line, #dadbf9);
   border-radius: 18px;
-  background: linear-gradient(145deg, var(--card-background, #fbfbff), #fff);
+  background: var(--card-background, #fbfbff);
   box-shadow: 0 7px 19px rgba(39, 51, 93, 0.05);
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.weekly-ranking-card:hover {
+  box-shadow: var(--shadow-float);
+  transform: translateY(-4px);
 }
 
 .weekly-ranking-card--purple {
@@ -130,12 +152,6 @@ function getPodiumHeight(record: RankingRecord) {
   width: 76px;
   height: 58px;
   object-fit: contain;
-}
-
-.weekly-ranking-card__header div {
-  display: grid;
-  min-width: 0;
-  align-items: center;
 }
 
 .weekly-ranking-card__header h3 {
@@ -235,9 +251,14 @@ function getPodiumHeight(record: RankingRecord) {
   left: 16%;
   display: block;
   width: 68%;
-  height: var(--podium-height);
+  height: 0;
   border-radius: 7px 7px 0 0;
   background: var(--bar-color);
+  transition: height 0.7s var(--ease-out);
+}
+
+.weekly-ranking-card__bar.is-ready {
+  height: var(--podium-height);
 }
 
 .weekly-ranking-card__record--1 .weekly-ranking-card__avatar {
