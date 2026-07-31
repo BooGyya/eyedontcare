@@ -22,6 +22,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.ErrorCode;
+import org.ssafy.b102.backend.global.openvidu.LiveKitTokenService;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.global.security.SecurityErrorCode;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
@@ -57,6 +58,7 @@ public class WaitingRoomWebSocketService {
 	private final WaitingRoomWebSocketSessionRegistry registry;
 	private final WaitingRoomCountdownCoordinator countdownCoordinator;
 	private final JwtTokenProvider jwtTokenProvider;
+	private final LiveKitTokenService liveKitTokenService;
 	private final JsonMapper jsonMapper;
 	private final WaitingRoomWebSocketProperties properties;
 	private final TaskScheduler taskScheduler;
@@ -74,6 +76,7 @@ public class WaitingRoomWebSocketService {
 		WaitingRoomWebSocketSessionRegistry registry,
 		WaitingRoomCountdownCoordinator countdownCoordinator,
 		JwtTokenProvider jwtTokenProvider,
+		LiveKitTokenService liveKitTokenService,
 		JsonMapper jsonMapper,
 		WaitingRoomWebSocketProperties properties,
 		@Qualifier("waitingRoomWebSocketTaskScheduler")
@@ -88,6 +91,7 @@ public class WaitingRoomWebSocketService {
 			registry,
 			countdownCoordinator,
 			jwtTokenProvider,
+			liveKitTokenService,
 			jsonMapper,
 			properties,
 			taskScheduler,
@@ -116,6 +120,7 @@ public class WaitingRoomWebSocketService {
 			registry,
 			countdownCoordinator,
 			jwtTokenProvider,
+			null,
 			jsonMapper,
 			properties,
 			taskScheduler,
@@ -132,6 +137,7 @@ public class WaitingRoomWebSocketService {
 		WaitingRoomWebSocketSessionRegistry registry,
 		WaitingRoomCountdownCoordinator countdownCoordinator,
 		JwtTokenProvider jwtTokenProvider,
+		LiveKitTokenService liveKitTokenService,
 		JsonMapper jsonMapper,
 		WaitingRoomWebSocketProperties properties,
 		TaskScheduler taskScheduler,
@@ -145,6 +151,7 @@ public class WaitingRoomWebSocketService {
 		this.registry = registry;
 		this.countdownCoordinator = countdownCoordinator;
 		this.jwtTokenProvider = jwtTokenProvider;
+		this.liveKitTokenService = liveKitTokenService;
 		this.jsonMapper = jsonMapper;
 		this.properties = properties;
 		this.taskScheduler = taskScheduler;
@@ -808,31 +815,60 @@ public class WaitingRoomWebSocketService {
 	}
 
 	private void sendGameStartAndClose(WaitingRoomSnapshot snapshot) {
-		WaitingRoomWebSocketEvent<WaitingRoomGameStart> event =
-			WaitingRoomWebSocketEvent.gameStart(
-				new WaitingRoomGameStart(
-					snapshot.room().roomId(),
-					snapshot.room().gameName(),
-					clock.instant()
-				)
-			);
+		UUID roomId = snapshot.room().roomId();
+		String mediaUrl = liveKitTokenService == null ? null : liveKitTokenService.url();
 		for (
 			WaitingRoomConnectionContext context :
-				registry.findByRoomId(snapshot.room().roomId())
+				registry.findByRoomId(roomId)
 		) {
 			try {
-				send(context.session(), event);
+				send(context.session(), gameStartEvent(snapshot, context, mediaUrl));
 			} catch (RuntimeException exception) {
-				log.warn(
-					"대기방 GAME_START 전송에 실패했습니다. roomId={}",
-					snapshot.room().roomId()
-				);
+				log.warn("대기방 GAME_START 전송에 실패했습니다. roomId={}", roomId);
 			} finally {
 				registry.markSuppressLeave(context.sessionId());
 				registry.unregister(context.sessionId());
 				close(context.session(), CloseStatus.NORMAL);
 			}
 		}
+	}
+
+	/**
+	 * 참가자별 GAME_START 이벤트를 만든다. WebRTC 미디어 토큰은 참가자 identity마다 달라야 하므로
+	 * 수신자별로 새로 발급한다. 미디어 서비스가 없는 테스트 경로에서는 토큰 없이 이벤트만 만든다.
+	 */
+	private WaitingRoomWebSocketEvent<WaitingRoomGameStart> gameStartEvent(
+		WaitingRoomSnapshot snapshot,
+		WaitingRoomConnectionContext context,
+		String mediaUrl
+	) {
+		String token = liveKitTokenService == null
+			? null
+			: liveKitTokenService.issueToken(
+				context.participantKey(),
+				resolveDisplayName(snapshot, context.participantKey()),
+				snapshot.room().roomId().toString()
+			);
+		return WaitingRoomWebSocketEvent.gameStart(
+			new WaitingRoomGameStart(
+				snapshot.room().roomId(),
+				snapshot.room().gameName(),
+				clock.instant(),
+				mediaUrl,
+				token
+			)
+		);
+	}
+
+	private String resolveDisplayName(
+		WaitingRoomSnapshot snapshot,
+		String participantKey
+	) {
+		return snapshot.participants().stream()
+			.filter(participant -> participant.participantKey().equals(participantKey))
+			.map(WaitingRoomParticipant::displayName)
+			.findFirst()
+			.orElse(participantKey);
 	}
 
 	private void closeRoomWithInternalError(UUID roomId) {

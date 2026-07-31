@@ -365,6 +365,7 @@ class WaitingRoomWebSocketServiceTest {
 			registry,
 			countdownCoordinator,
 			jwtTokenProvider,
+			null,
 			JsonMapper.builder().findAndAddModules().build(),
 			new WaitingRoomWebSocketProperties(
 				Duration.ofSeconds(5),

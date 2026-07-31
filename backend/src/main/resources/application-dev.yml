@@ -10,6 +10,14 @@ kakao:
   client-secret: ${KAKAO_CLIENT_SECRET:local-kakao-client-secret}
   redirect-uri: ${KAKAO_REDIRECT_URI:http://localhost:5173/auth/kakao/callback}
 
+openvidu:
+  # WebRTC 미디어 서버(OpenVidu 3.x = LiveKit). url은 브라우저가 접속할 WSS 주소.
+  # api-key/api-secret은 미디어 접속 토큰 서명 키로, 실제 값은 .env(미추적)로 주입한다.
+  # 기본값은 OpenVidu local-deployment 기본 키라 EC2 검증은 통과하지 못한다(로컬 개발용 placeholder).
+  url: ${OPENVIDU_URL:wss://localhost:7443}
+  api-key: ${LIVEKIT_API_KEY:devkey}
+  api-secret: ${LIVEKIT_API_SECRET:secret}
+
 spring:
   data:
     redis:
