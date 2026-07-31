@@ -43,17 +43,11 @@ const isMultiplayer = computed(() => ['friends', 'random'].includes(mode.value))
 const isFriendRoom = computed(() => mode.value === 'friends')
 const isRandomRoom = computed(() => mode.value === 'random')
 const isHost = computed(() => isFriendRoom.value && role.value === 'host')
-const displayName = computed(
-  () =>
-    (game.value?.title ?? '').match(/\(([^)]+)\)/)?.[1] ??
-    game.value?.title ??
-    '게임',
-)
 const roomTitle = computed(() => {
-  if (isRandomRoom.value) return '랜덤 매칭 대기방'
-  if (isFriendRoom.value) return '친구와 대결 대기방'
-  if (mode.value === 'ai') return `${displayName.value} AI 준비`
-  return `${displayName.value} 준비`
+  if (isRandomRoom.value) return '랜덤 매칭 준비방'
+  if (isFriendRoom.value) return '친구와 대결 준비방'
+  if (mode.value === 'ai') return 'AI 대결 준비방'
+  return '혼자하기 준비방'
 })
 const roomDescription = computed(() => {
   if (isRandomRoom.value)
