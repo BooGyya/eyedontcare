@@ -2,6 +2,7 @@ package org.ssafy.b102.backend.matchmaking.service;
 
 import java.util.UUID;
 import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 
 /**
  * 매칭 성사를 참가자에게 알린다. 도메인이 전송 수단을 모르도록 두는 포트다.
@@ -13,4 +14,8 @@ import org.ssafy.b102.backend.game.entity.GameName;
 public interface MatchNotifier {
 
 	void notifyMatched(String participantKey, UUID roomId, GameName gameType);
+
+	void notifyRequeued(String participantKey, GameName gameType);
+
+	void notifyError(String participantKey, MatchmakingErrorCode errorCode);
 }

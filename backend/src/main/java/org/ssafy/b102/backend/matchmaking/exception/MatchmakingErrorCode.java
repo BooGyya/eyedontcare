@@ -48,6 +48,18 @@ public enum MatchmakingErrorCode implements ErrorCode {
 		HttpStatus.BAD_REQUEST,
 		"MATCHMAKING-005",
 		"참가자 키 형식이 올바르지 않습니다."
+	),
+
+	REMATCH_PARTICIPANT_INVALID(
+		HttpStatus.BAD_REQUEST,
+		"MATCHMAKING-006",
+		"자동 재매칭 대상이 유효하지 않습니다."
+	),
+
+	REMATCH_FAILED(
+		HttpStatus.INTERNAL_SERVER_ERROR,
+		"MATCHMAKING-007",
+		"자동 재매칭 요청을 처리하지 못했습니다."
 	);
 
 	private final HttpStatus status;

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.service.MatchNotifier;
 
 /**
@@ -21,6 +22,14 @@ public class RecordingMatchNotifier implements MatchNotifier {
 	@Override
 	public void notifyMatched(String participantKey, UUID roomId, GameName gameType) {
 		notified.add(new Notified(participantKey, roomId, gameType));
+	}
+
+	@Override
+	public void notifyRequeued(String participantKey, GameName gameType) {
+	}
+
+	@Override
+	public void notifyError(String participantKey, MatchmakingErrorCode errorCode) {
 	}
 
 	public List<Notified> notified() {

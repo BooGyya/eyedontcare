@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.service.MatchNotifier;
 import org.ssafy.b102.testfixture.websocket.StubWebSocketSession;
 import tools.jackson.databind.json.JsonMapper;
@@ -52,6 +53,33 @@ class WebSocketMatchNotifierTest {
 	void doesNothingWhenParticipantHasNoSession() {
 		assertThatCode(() -> notifier.notifyMatched(PARTICIPANT_KEY, UUID.randomUUID(), GameName.HOCKEY))
 			.doesNotThrowAnyException();
+	}
+
+	@Test
+	void sendsMatchRequeuedFrame() {
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+		registry.register(PARTICIPANT_KEY, session);
+
+		notifier.notifyRequeued(PARTICIPANT_KEY, GameName.HOCKEY);
+
+		Map<String, Object> frame = jsonMapper.readValue(session.lastSentPayload(), Map.class);
+		assertThat(frame).containsOnlyKeys("type", "gameType");
+		assertThat(frame.get("type")).isEqualTo("MATCH_REQUEUED");
+		assertThat(frame.get("gameType")).isEqualTo("HOCKEY");
+	}
+
+	@Test
+	void sendsMatchErrorFrame() {
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+		registry.register(PARTICIPANT_KEY, session);
+
+		notifier.notifyError(PARTICIPANT_KEY, MatchmakingErrorCode.REMATCH_FAILED);
+
+		Map<String, Object> frame = jsonMapper.readValue(session.lastSentPayload(), Map.class);
+		assertThat(frame).containsOnlyKeys("type", "code", "message");
+		assertThat(frame.get("type")).isEqualTo("MATCH_ERROR");
+		assertThat(frame.get("code")).isEqualTo("MATCHMAKING-007");
+		assertThat(frame.get("message")).isEqualTo("자동 재매칭 요청을 처리하지 못했습니다.");
 	}
 
 	/**
