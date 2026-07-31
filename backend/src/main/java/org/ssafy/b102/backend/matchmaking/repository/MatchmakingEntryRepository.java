@@ -11,8 +11,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations.TypedTuple;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Repository;
 import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.global.common.redis.RedisKeyBuilder;
@@ -37,6 +40,9 @@ public class MatchmakingEntryRepository {
 	private static final String DOMAIN = "matchmaking";
 	private static final String QUEUE_RESOURCE = "queue";
 	private static final String ENTRY_RESOURCE = "entry";
+	private static final String REMATCH_RESOURCE = "rematch";
+	private static final DefaultRedisScript<Long> REQUEUE_REMAINING_SCRIPT =
+		longScript("redis/matchmaking/requeue-remaining.lua");
 
 	private static final String FIELD_PARTICIPANT_KEY = "participantKey";
 	private static final String FIELD_GAME_TYPE = "gameType";
@@ -255,6 +261,36 @@ public class MatchmakingEntryRepository {
 		return true;
 	}
 
+	public RematchRegistrationResult requeueRemaining(
+		UUID previousRoomId,
+		GameName gameType,
+		String participantKey,
+		Instant now
+	) {
+		long epochMilli = now.toEpochMilli();
+		Long result = redisTemplate.execute(
+			REQUEUE_REMAINING_SCRIPT,
+			List.of(
+				entryKey(participantKey),
+				queueKey(gameType),
+				rematchKey(participantKey, previousRoomId)
+			),
+			previousRoomId.toString(),
+			gameType.name(),
+			String.valueOf(epochMilli),
+			String.valueOf(entryTtl.toMillis()),
+			participantKey
+		);
+
+		if (Long.valueOf(1L).equals(result)) {
+			return RematchRegistrationResult.REQUEUED;
+		}
+		if (Long.valueOf(2L).equals(result)) {
+			return RematchRegistrationResult.ALREADY_REQUEUED;
+		}
+		return RematchRegistrationResult.STALE;
+	}
+
 	/**
 	 * 대기방 입장 확인. {@code ENTERING_ROOM} 참가자를 {@code IN_WAITING_ROOM}으로 전환한다.
 	 *
@@ -349,5 +385,21 @@ public class MatchmakingEntryRepository {
 
 	private String entryKey(String participantKey) {
 		return redisKeyBuilder.build(DOMAIN, ENTRY_RESOURCE, participantKey);
+	}
+
+	private String rematchKey(String participantKey, UUID previousRoomId) {
+		return redisKeyBuilder.build(
+			DOMAIN,
+			REMATCH_RESOURCE,
+			participantKey,
+			previousRoomId.toString()
+		);
+	}
+
+	private static DefaultRedisScript<Long> longScript(String path) {
+		DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+		script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
+		script.setResultType(Long.class);
+		return script;
 	}
 }

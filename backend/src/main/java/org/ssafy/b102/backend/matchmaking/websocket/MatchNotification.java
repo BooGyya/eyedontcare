@@ -1,7 +1,9 @@
 package org.ssafy.b102.backend.matchmaking.websocket;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.UUID;
 import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 
 /**
  * 클라이언트로 내보내는 매칭 이벤트 프레임.
@@ -10,11 +12,40 @@ import org.ssafy.b102.backend.game.entity.GameName;
  * STOMP가 아니라 raw WebSocket을 쓰는 이유가 이 형태를 그대로 내보내기 위해서다.
  * STOMP를 쓰면 프레임에 STOMP 헤더가 붙어 명세와 달라진다.
  */
-public record MatchNotification(String type, String roomId, String gameType) {
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record MatchNotification(
+	String type,
+	String roomId,
+	String gameType,
+	String code,
+	String message
+) {
 
 	private static final String MATCH_SUCCESS = "MATCH_SUCCESS";
+	private static final String MATCH_REQUEUED = "MATCH_REQUEUED";
+	private static final String MATCH_ERROR = "MATCH_ERROR";
 
 	public static MatchNotification matchSuccess(UUID roomId, GameName gameType) {
-		return new MatchNotification(MATCH_SUCCESS, roomId.toString(), gameType.name());
+		return new MatchNotification(
+			MATCH_SUCCESS,
+			roomId.toString(),
+			gameType.name(),
+			null,
+			null
+		);
+	}
+
+	public static MatchNotification matchRequeued(GameName gameType) {
+		return new MatchNotification(MATCH_REQUEUED, null, gameType.name(), null, null);
+	}
+
+	public static MatchNotification matchError(MatchmakingErrorCode errorCode) {
+		return new MatchNotification(
+			MATCH_ERROR,
+			null,
+			null,
+			errorCode.code(),
+			errorCode.message()
+		);
 	}
 }

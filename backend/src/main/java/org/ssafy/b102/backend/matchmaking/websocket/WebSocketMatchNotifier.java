@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.ssafy.b102.backend.game.entity.GameName;
+import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.service.MatchNotifier;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -38,6 +39,28 @@ public class WebSocketMatchNotifier implements MatchNotifier {
 		registry.find(participantKey)
 			.filter(WebSocketSession::isOpen)
 			.ifPresent(session -> send(session, participantKey, MatchNotification.matchSuccess(roomId, gameType)));
+	}
+
+	@Override
+	public void notifyRequeued(String participantKey, GameName gameType) {
+		registry.find(participantKey)
+			.filter(WebSocketSession::isOpen)
+			.ifPresent(session -> send(
+				session,
+				participantKey,
+				MatchNotification.matchRequeued(gameType)
+			));
+	}
+
+	@Override
+	public void notifyError(String participantKey, MatchmakingErrorCode errorCode) {
+		registry.find(participantKey)
+			.filter(WebSocketSession::isOpen)
+			.ifPresent(session -> send(
+				session,
+				participantKey,
+				MatchNotification.matchError(errorCode)
+			));
 	}
 
 	private void send(WebSocketSession session, String participantKey, MatchNotification notification) {
