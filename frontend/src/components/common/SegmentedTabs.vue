@@ -83,11 +83,24 @@ function handleKeydown(
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+.segmented-tabs button:hover {
+  color: var(--color-ink);
+  background: var(--color-surface-soft);
 }
 
 .segmented-tabs .segmented-tabs__button--active {
   color: #fff;
   background: var(--color-accent-blue);
-  box-shadow: 0 4px 10px rgba(79, 116, 219, 0.2);
+  box-shadow: var(--shadow-accent);
+}
+
+.segmented-tabs .segmented-tabs__button--active:hover {
+  color: #fff;
+  background: var(--color-accent-blue);
 }
 </style>

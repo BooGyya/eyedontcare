@@ -28,14 +28,14 @@ const auth = useAuthStore()
             type="button"
             @click="auth.openSignup"
           >
-            &#xD68C;&#xC6D0;&#xAC00;&#xC785;
+            회원가입
           </button>
           <button
             class="app-header__auth-button"
             type="button"
             @click="auth.openLogin"
           >
-            &#xB85C;&#xADF8;&#xC778;
+            로그인
           </button>
         </template>
       </div>
@@ -51,6 +51,7 @@ const auth = useAuthStore()
   height: 118px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--color-line);
 }
 .app-header__inner {
   display: flex;
@@ -62,6 +63,11 @@ const auth = useAuthStore()
 }
 .app-header__brand {
   flex: 0 0 178px;
+  transform-origin: left center;
+  transition: transform var(--duration-fast) ease;
+}
+.app-header__brand:hover {
+  transform: scale(1.03);
 }
 .app-header__brand img {
   width: 154px;
@@ -85,15 +91,24 @@ const auth = useAuthStore()
   font-weight: 800;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
 .app-header__auth-button:hover {
   color: #fff;
   background: var(--color-accent-blue);
+  transform: translateY(-1px);
+}
+.app-header__auth-button:active {
+  transform: translateY(0);
 }
 .app-header__auth-button--quiet {
   color: var(--color-muted);
 }
 .app-header__auth-button--quiet:hover {
+  color: #fff;
   background: var(--color-muted);
 }
 @media (max-width: 1100px) {

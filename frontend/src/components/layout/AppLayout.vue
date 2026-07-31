@@ -23,13 +23,13 @@ const { isVisible, message } = useToast()
 <style scoped>
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  min-height: 100dvh;
   flex-direction: column;
 }
 
 .app-layout__content {
   flex: 1;
-  width: min(var(--content-width), calc(100% - 120px));
+  width: var(--layout-inline);
   margin: 0 auto;
 }
 
