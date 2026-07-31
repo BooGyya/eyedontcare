@@ -27,6 +27,7 @@ describe('GameReadyPage', () => {
     expect(globalThis.document.body.textContent).toContain(
       '게임 준비를 위해 웹캠을 켜주세요',
     )
+    expect(wrapper.text()).toContain('혼자하기 준비방')
     expect(wrapper.findAll('.participant-card')).toHaveLength(1)
     expect(wrapper.find('.room-code').exists()).toBe(false)
     wrapper.unmount()
@@ -42,6 +43,7 @@ describe('GameReadyPage', () => {
     expect(wrapper.find('.room-code').text()).toContain('4827')
     expect(wrapper.findAll('.participant-card')).toHaveLength(2)
     expect(wrapper.find('.participant-card--me').text()).toContain('PLAYER')
+    expect(wrapper.text()).toContain('친구와 대결 준비방')
     wrapper.unmount()
   })
 
@@ -54,7 +56,19 @@ describe('GameReadyPage', () => {
 
     expect(wrapper.find('.room-code').exists()).toBe(false)
     expect(wrapper.findAll('.participant-card')).toHaveLength(2)
-    expect(wrapper.text()).toContain('랜덤 매칭 대기방')
+    expect(wrapper.text()).toContain('랜덤 매칭 준비방')
+    wrapper.unmount()
+  })
+
+  it('uses the AI preparation title without a game name', async () => {
+    const router = createReadyRouter()
+    await router.push('/games/hold/ready?mode=ai')
+    await router.isReady()
+
+    const wrapper = mount(GameReadyPage, { global: { plugins: [router] } })
+
+    expect(wrapper.text()).toContain('AI 대결 준비방')
+    expect(wrapper.text()).not.toContain('눈싸움 AI 준비')
     wrapper.unmount()
   })
 })
