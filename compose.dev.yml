@@ -6,9 +6,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.dev
     image: i15b102-frontend:dev
-    env_file:
-      - path: ./frontend/.env
-        required: false
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
       VITE_PROXY_TARGET: http://backend:8080
@@ -41,9 +38,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     image: i15b102-backend:dev
-    env_file:
-      - path: ./backend/.env
-        required: false
     environment:
       SPRING_PROFILES_ACTIVE: dev
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-backend}
@@ -51,6 +45,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-backend-local-password}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-local-kakao-client-id}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-local-kakao-client-secret}
+      KAKAO_REDIRECT_URI: ${KAKAO_REDIRECT_URI:-http://localhost:3102/auth/kakao/callback}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3102}
       SERVER_PORT: "8080"
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8102}:8080"

@@ -4,13 +4,13 @@ Spring Boot와 PostgreSQL을 사용하는 백엔드 애플리케이션입니다.
 
 ## 기술 구성
 
-| 항목 | 버전 또는 구성 |
-| --- | --- |
-| Java | 25 |
-| Spring Boot | 4.1.0 |
-| Gradle | 9.5.1 |
-| PostgreSQL | 15 |
-| 컨테이너 | Docker, Docker Compose |
+| 항목        | 버전 또는 구성         |
+| ----------- | ---------------------- |
+| Java        | 25                     |
+| Spring Boot | 4.1.0                  |
+| Gradle      | 9.5.1                  |
+| PostgreSQL  | 15                     |
+| 컨테이너    | Docker, Docker Compose |
 
 ## 개발 참고 API
 
@@ -29,15 +29,9 @@ Docker Compose로 전체 환경을 실행하려면 다음 도구가 필요합니
 
 ## 개발 환경 빠른 시작
 
-모든 명령은 저장소의 `backend/` 디렉터리에서 실행합니다.
+전체 로컬 서비스는 저장소 루트의 `compose.dev.yml`로 실행합니다. 모든 명령은 저장소 루트에서 실행합니다.
 
-```bash
-cd backend
-```
-
-저장소 루트에서 `docker compose -f compose.yml ...`을 실행하면 `compose.yml`을 찾지 못합니다.
-
-### 1. 로컬 환경변수 파일 생성
+### 1. 루트 환경변수 파일 생성
 
 Git Bash, macOS, Linux:
 
@@ -51,144 +45,76 @@ Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-`.env`는 Git에서 제외됩니다. `.env.example`에는 로컬 개발용 예시값만 있으며, 운영 환경에서 예시 비밀번호를 재사용하면 안 됩니다.
+루트 `.env`는 Git에서 제외됩니다. `JWT_SECRET_KEY`에는 디코딩했을 때 32바이트 이상인 Base64 값을 설정합니다. 실제 Secret은 `.env.example`에 작성하지 않습니다.
 
-### 2. Spring Boot와 PostgreSQL 실행
+### 2. 전체 서비스 실행
 
-```bash
-docker compose -f compose.yml up --build -d
+```powershell
+docker compose -f compose.dev.yml up --build
 ```
 
-최초 실행 시 Java 이미지, PostgreSQL 15 이미지, Gradle 의존성을 내려받기 때문에 시간이 걸릴 수 있습니다.
+최초 실행 시 Java, Node.js, PostgreSQL, Redis 이미지와 의존성을 내려받기 때문에 시간이 걸릴 수 있습니다.
 
-### 3. 실행 상태 확인
+### 3. 상태와 로그 확인
 
-```bash
-docker compose -f compose.yml ps
+```powershell
+docker compose -f compose.dev.yml ps
+docker compose -f compose.dev.yml logs -f backend
 ```
 
 정상 상태에서는 다음 서비스를 확인할 수 있습니다.
 
-- `app`: Spring Boot, 기본 포트 `8080`
-- `postgres`: PostgreSQL 15, 기본 포트 `5432`, 상태 `healthy`
+- `frontend`: Vite, 브라우저 접속 `http://localhost:3102`
+- `backend`: Spring Boot, 직접 확인 `http://localhost:8102`
+- `postgres`: PostgreSQL 15, 내부 주소 `postgres:5432`
+- `redis`: Redis 7, 내부 주소 `redis:6379`
 
-Spring Boot 로그 확인:
-
-```bash
-docker compose -f compose.yml logs -f app
-```
-
-PostgreSQL 로그 확인:
-
-```bash
-docker compose -f compose.yml logs -f postgres
-```
-
-`Ctrl+C`는 로그 출력을 종료할 뿐 컨테이너를 중지하지 않습니다.
-
-기본 접속 주소:
-
-- Spring Boot: `http://localhost:8080`
-- PostgreSQL: `localhost:5432`
-
-현재 프로젝트에는 API Controller가 없으므로 브라우저에서 루트 주소에 접속했을 때 `404`가 반환될 수 있습니다. 컨테이너 상태와 `Started BackendApplication` 로그로 기동 여부를 확인하세요.
+브라우저의 `/api`와 `/ws` 요청은 Vite가 `backend:8080`으로 프록시합니다. `backend:8080`은 Compose 네트워크 내부 주소이므로 브라우저 코드에서 직접 사용하지 않습니다.
 
 ## 개발 환경 제어
 
-중지된 컨테이너 시작:
+모든 명령은 저장소 루트에서 실행합니다.
 
-```bash
-docker compose -f compose.yml start
+```powershell
+docker compose -f compose.dev.yml start
+docker compose -f compose.dev.yml restart backend
+docker compose -f compose.dev.yml up --build -d
+docker compose -f compose.dev.yml stop
+docker compose -f compose.dev.yml down
 ```
 
-애플리케이션만 재시작:
-
-```bash
-docker compose -f compose.yml restart app
-```
-
-이미지를 다시 빌드하여 실행:
-
-```bash
-docker compose -f compose.yml up --build -d
-```
-
-컨테이너를 제거하지 않고 중지:
-
-```bash
-docker compose -f compose.yml stop
-```
-
-컨테이너와 Compose 네트워크를 제거하고 종료:
-
-```bash
-docker compose -f compose.yml down
-```
-
-`down`은 named volume과 Docker 이미지를 삭제하지 않으므로 PostgreSQL 데이터는 유지됩니다.
-
-> 주의: 다음 명령은 PostgreSQL named volume과 모든 로컬 데이터를 삭제합니다. 데이터 초기화가 필요한 경우에만 사용하세요.
-
-```bash
-docker compose -f compose.yml down -v
-```
+`down`은 named volume을 삭제하지 않으므로 PostgreSQL 데이터는 유지됩니다. `down -v`는 로컬 데이터베이스 데이터를 삭제하므로 데이터 초기화가 명확히 필요한 경우에만 사용합니다.
 
 ## 호스트에서 Spring Boot 실행
 
-IDE 또는 호스트의 Gradle을 사용하려면 PostgreSQL만 Docker로 실행합니다.
-
-```bash
-docker compose -f compose.yml up -d postgres
-```
-
-Git Bash, macOS, Linux:
-
-```bash
-./gradlew bootRun
-```
-
-Windows PowerShell 또는 명령 프롬프트:
+IDE 또는 호스트의 Gradle을 사용하려면 저장소 루트에서 PostgreSQL과 Redis만 실행합니다.
 
 ```powershell
+docker compose -f compose.dev.yml up -d postgres redis
+Set-Location backend
 .\gradlew.bat bootRun
 ```
 
-기본 `dev` 프로필은 다음 값으로 `localhost:5432`에 접속합니다.
-
-```text
-database: backend
-username: backend
-password: backend-local-password
-```
-
-`.env`의 데이터베이스 값을 변경했다면 호스트에서 실행하는 Spring Boot에도 `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`를 동일하게 설정해야 합니다. `.env`는 Docker Compose가 읽는 파일이며 Gradle이 자동으로 읽지는 않습니다.
+Git Bash, macOS, Linux에서는 `./gradlew bootRun`을 사용합니다. 호스트에서 실행하는 Spring Boot는 Docker Compose의 루트 `.env`를 자동으로 읽지 않으므로 데이터베이스, Redis, JWT, Kakao 환경변수가 필요하면 IDE 실행 설정이나 셸에 별도로 주입합니다.
 
 ## 테스트 실행
 
-현재 context test는 PostgreSQL 연결이 필요합니다. 먼저 개발용 PostgreSQL을 실행하세요.
-
-```bash
-docker compose -f compose.yml up -d postgres
-```
-
-Git Bash, macOS, Linux:
-
-```bash
-./gradlew test
-```
-
-Windows PowerShell 또는 명령 프롬프트:
+백엔드 전체 테스트는 PostgreSQL과 Redis 연결이 필요합니다.
 
 ```powershell
+docker compose -f compose.dev.yml up -d postgres redis
+Set-Location backend
 .\gradlew.bat test
 ```
 
+Git Bash, macOS, Linux에서는 `./gradlew test`를 사용합니다.
+
 ## Spring Profile 구성
 
-| 프로필 | 데이터베이스 연결 | JPA 스키마 처리 | SQL 출력 | 용도 |
-| --- | --- | --- | --- | --- |
-| `dev` | 로컬 기본값 또는 환경변수 | `update` | 활성화 | 로컬 개발 |
-| `prod` | 필수 환경변수 | `validate` | 비활성화 | 배포 |
+| 프로필 | 데이터베이스 연결         | JPA 스키마 처리 | SQL 출력 | 용도      |
+| ------ | ------------------------- | --------------- | -------- | --------- |
+| `dev`  | 로컬 기본값 또는 환경변수 | `update`        | 활성화   | 로컬 개발 |
+| `prod` | 필수 환경변수             | `validate`      | 비활성화 | 배포      |
 
 공통 설정은 `application.yml`, 개발 설정은 `application-dev.yml`, 운영 설정은 `application-prod.yml`에 있습니다. 프로필을 지정하지 않으면 `dev`가 기본값입니다.
 
@@ -196,21 +122,24 @@ Windows PowerShell 또는 명령 프롬프트:
 
 ## 환경변수
 
-| 환경변수 | 개발 기본값 | 운영 환경 | 용도 |
-| --- | --- | --- | --- |
-| `POSTGRES_DB` | `backend` | 필수 | 데이터베이스 이름 |
-| `POSTGRES_USER` | `backend` | 필수 | 데이터베이스 사용자 |
-| `POSTGRES_PASSWORD` | 로컬 예시값 | 필수 Secret | 데이터베이스 비밀번호 |
-| `POSTGRES_PORT` | `5432` | 호스트에 공개하지 않음 | 개발용 PostgreSQL 포트 |
-| `APP_PORT` | `8080` | 선택, 기본값 `8080` | Spring Boot 호스트 포트 |
+로컬 전체 스택의 환경변수 기준 파일은 저장소 루트의 `.env`입니다.
 
-Spring Boot 컨테이너에는 Compose가 다음 환경변수를 자동으로 전달합니다.
+| 환경변수                   | 개발 기본값                                 | 용도                               |
+| -------------------------- | ------------------------------------------- | ---------------------------------- |
+| `FRONTEND_HOST_PORT`       | `3102`                                      | Vite 호스트 포트                   |
+| `BACKEND_HOST_PORT`        | `8102`                                      | Spring Boot 호스트 포트            |
+| `POSTGRES_DB`              | `backend`                                   | 데이터베이스 이름                  |
+| `POSTGRES_USER`            | `backend`                                   | 데이터베이스 사용자                |
+| `POSTGRES_PASSWORD`        | 로컬 예시값                                 | 데이터베이스 비밀번호              |
+| `POSTGRES_PORT`            | `5432`                                      | PostgreSQL 호스트 포트             |
+| `REDIS_PORT`               | `6379`                                      | Redis 호스트 포트                  |
+| `JWT_SECRET_KEY`           | 필수                                        | Base64 인코딩된 JWT HMAC 키        |
+| `KAKAO_CLIENT_ID`          | 로컬 대체값                                 | Kakao REST API 키                  |
+| `KAKAO_CLIENT_SECRET`      | 로컬 대체값                                 | Kakao client secret                |
+| `KAKAO_REDIRECT_URI`       | `http://localhost:3102/auth/kakao/callback` | Kakao callback 주소                |
+| `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:3102`                     | HTTP 및 WebSocket origin 허용 목록 |
 
-- `SPRING_PROFILES_ACTIVE`
-- `SPRING_DATASOURCE_URL`
-- `SPRING_DATASOURCE_USERNAME`
-- `SPRING_DATASOURCE_PASSWORD`
-- `SERVER_PORT`
+Compose는 백엔드 컨테이너에 Spring datasource, Redis, JWT, Kakao, CORS 설정을 명시적으로 전달합니다. 루트 `.env` 전체를 컨테이너에 주입하지 않으며 프런트엔드에는 `VITE_API_BASE_URL`과 내부 프록시 대상만 전달합니다.
 
 ## 운영 환경 실행
 
@@ -265,90 +194,73 @@ docker compose --env-file .env.prod -f compose.prod.yml down
 
 ## 설정 파일
 
-| 파일 | 역할 |
-| --- | --- |
-| `application.yml` | 애플리케이션 이름, 기본 프로필, 서버 포트 등 공통 설정 |
-| `application-dev.yml` | 개발용 PostgreSQL과 JPA 설정 |
-| `application-prod.yml` | 환경변수 기반 운영용 PostgreSQL과 JPA 설정 |
-| `Dockerfile.dev` | Java 25 JDK와 Gradle `bootRun`을 사용하는 개발 이미지 |
-| `Dockerfile.prod` | 멀티 스테이지 빌드와 JRE/non-root 사용자를 적용한 운영 이미지 |
-| `compose.yml` | Spring Boot와 PostgreSQL 15 개발 환경 |
-| `compose.prod.yml` | Spring Boot와 PostgreSQL 15 운영 환경 |
-| `.env.example` | 로컬 환경변수 템플릿 |
-| `.gitignore` | `.env`, Secret, 빌드·IDE 파일 제외 |
-| `.dockerignore` | Docker 빌드 컨텍스트에서 불필요하거나 민감한 파일 제외 |
+| 파일                   | 역할                                                          |
+| ---------------------- | ------------------------------------------------------------- |
+| `application.yml`      | 애플리케이션 이름, 기본 프로필, 서버 포트 등 공통 설정        |
+| `application-dev.yml`  | 개발용 PostgreSQL과 JPA 설정                                  |
+| `application-prod.yml` | 환경변수 기반 운영용 PostgreSQL과 JPA 설정                    |
+| `Dockerfile.dev`       | Java 25 JDK와 Gradle `bootRun`을 사용하는 개발 이미지         |
+| `Dockerfile.prod`      | 멀티 스테이지 빌드와 JRE/non-root 사용자를 적용한 운영 이미지 |
+| `../compose.dev.yml`   | 프런트엔드, 백엔드, PostgreSQL, Redis 통합 개발 환경          |
+| `compose.prod.yml`     | Spring Boot와 PostgreSQL 15 운영 환경                         |
+| `../.env.example`      | 통합 로컬 환경변수 템플릿                                     |
+| `.gitignore`           | `.env`, Secret, 빌드·IDE 파일 제외                            |
+| `.dockerignore`        | Docker 빌드 컨텍스트에서 불필요하거나 민감한 파일 제외        |
 
 ## 문제 해결
 
-### `compose.yml`을 찾을 수 없음
+### `compose.dev.yml`을 찾을 수 없음
 
-다음과 같은 오류는 저장소 루트에서 명령을 실행했을 때 발생합니다.
+통합 Compose 명령은 저장소 루트에서 실행합니다.
 
-```text
-open .../compose.yml: The system cannot find the file specified.
-```
-
-`backend/`로 이동한 뒤 다시 실행하세요.
-
-```bash
-cd backend
-docker compose -f compose.yml ps
+```powershell
+Set-Location ..
+docker compose -f compose.dev.yml ps
 ```
 
 ### Docker daemon에 연결할 수 없음
 
-Docker Desktop 또는 Docker Engine을 실행한 뒤 확인하세요.
+Docker Desktop 또는 Docker Engine을 실행한 뒤 확인합니다.
 
-```bash
+```powershell
 docker info
 ```
 
-### `8080` 또는 `5432` 포트를 이미 사용 중
+### 호스트 포트를 이미 사용 중
 
-`.env`에서 호스트 포트를 변경할 수 있습니다.
+루트 `.env`에서 호스트 포트만 변경합니다.
 
 ```dotenv
-APP_PORT=8081
+FRONTEND_HOST_PORT=3103
+BACKEND_HOST_PORT=8103
 POSTGRES_PORT=5433
+REDIS_PORT=6380
 ```
 
-컨테이너 내부 포트는 변경되지 않습니다.
+컨테이너 내부 주소인 `frontend:5173`, `backend:8080`, `postgres:5432`, `redis:6379`는 변경하지 않습니다.
 
-### `.env`의 PostgreSQL 계정 정보를 바꿨지만 적용되지 않음
+### PostgreSQL 계정 변경이 적용되지 않음
 
-PostgreSQL의 초기 계정과 데이터베이스는 named volume이 처음 생성될 때만 초기화됩니다. 기존 볼륨이 있으면 `.env`를 변경해도 이미 생성된 계정은 바뀌지 않습니다.
+PostgreSQL 초기 계정은 named volume이 처음 생성될 때만 적용됩니다. 기존 데이터가 필요하면 볼륨을 삭제하지 말고 PostgreSQL에서 계정을 직접 변경합니다.
 
-> 주의: 다음 초기화 명령은 모든 로컬 데이터베이스 데이터를 삭제합니다.
+### 백엔드가 PostgreSQL 또는 Redis에 연결하지 못함
 
-```bash
-docker compose -f compose.yml down -v
-docker compose -f compose.yml up --build -d
+```powershell
+docker compose -f compose.dev.yml ps
+docker compose -f compose.dev.yml logs postgres redis backend
 ```
 
-데이터가 필요하면 볼륨을 삭제하지 말고 PostgreSQL에서 사용자와 비밀번호를 직접 변경하세요.
+PostgreSQL과 Redis가 `healthy` 상태인지 먼저 확인합니다.
 
-### Spring Boot가 PostgreSQL에 연결하지 못함
+### 코드 변경이 컨테이너에 반영되지 않음
 
-PostgreSQL 상태와 로그를 확인하세요.
+기본 `up` 명령은 이미지를 빌드한 시점의 코드를 사용합니다. Compose watch를 사용하려면 저장소 루트에서 다음 명령을 실행합니다.
 
-```bash
-docker compose -f compose.yml ps
-docker compose -f compose.yml logs postgres
+```powershell
+docker compose -f compose.dev.yml up --build --watch
 ```
 
-`postgres`가 `healthy` 상태가 된 뒤 애플리케이션 로그를 확인합니다.
-
-```bash
-docker compose -f compose.yml logs app
-```
-
-### 코드 변경 후 애플리케이션이 재시작되지 않음
-
-Spring Boot DevTools는 컴파일된 클래스 변경을 감지합니다. IDE 빌드 또는 Gradle 컴파일이 수행되어야 재시작됩니다. `build.gradle`이나 의존성을 변경했다면 개발 이미지를 다시 빌드하세요.
-
-```bash
-docker compose -f compose.yml up --build -d app
-```
+의존성 파일을 변경한 경우 해당 이미지가 다시 빌드됩니다.
 
 ## 후속 권장사항
 
