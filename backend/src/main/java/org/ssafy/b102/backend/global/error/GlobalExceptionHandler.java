@@ -26,6 +26,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.ssafy.b102.backend.global.common.response.ApiResponse;
 import org.ssafy.b102.backend.global.common.response.ValidationError;
+import org.ssafy.b102.backend.global.common.response.ValidationErrorResponse;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
@@ -40,19 +41,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return ResponseEntity.status(errorCode.status()).body(ApiResponse.error(errorCode));
 	}
 
-	@ExceptionHandler(ConstraintViolationException.class)
-	protected ResponseEntity<ApiResponse<Void>> handleConstraintViolationException(
-		ConstraintViolationException exception
-	) {
-		List<ValidationError> errors = exception.getConstraintViolations().stream()
-			.map(violation -> new ValidationError(
-				violation.getPropertyPath().toString(),
-				violation.getMessage()
-			))
-			.toList();
+    @ExceptionHandler(ConstraintViolationException.class)
+    protected ResponseEntity<ApiResponse<ValidationErrorResponse>>
+    handleConstraintViolationException(
+        ConstraintViolationException exception
+    ) {
+        List<ValidationError> errors = exception.getConstraintViolations().stream()
+            .map(violation -> new ValidationError(
+                violation.getPropertyPath().toString(),
+                violation.getMessage()
+            ))
+            .toList();
 
-		return ResponseEntity.badRequest().body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors));
-	}
+        return ResponseEntity.badRequest().body(
+            ApiResponse.error(
+                CommonErrorCode.INVALID_INPUT,
+                new ValidationErrorResponse(errors)
+            )
+        );
+    }
 
 	@ExceptionHandler(Exception.class)
 	protected ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
@@ -62,47 +69,68 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 			.body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
 	}
 
-	@Override
-	protected ResponseEntity<Object> handleMethodArgumentNotValid(
-		MethodArgumentNotValidException exception,
-		HttpHeaders headers,
-		HttpStatusCode status,
-		WebRequest request
-	) {
-		List<ValidationError> errors = exception.getBindingResult().getFieldErrors().stream()
-			.map(error -> new ValidationError(error.getField(), error.getDefaultMessage()))
-			.toList();
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+        MethodArgumentNotValidException exception,
+        HttpHeaders headers,
+        HttpStatusCode status,
+        WebRequest request
+    ) {
+        List<ValidationError> errors = exception.getBindingResult()
+            .getFieldErrors()
+            .stream()
+            .map(error -> new ValidationError(
+                error.getField(),
+                error.getDefaultMessage()
+            ))
+            .toList();
 
-		return handleExceptionInternal(
-			exception,
-			ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors),
-			headers,
-			status,
-			request
-		);
-	}
+        return handleExceptionInternal(
+            exception,
+            ApiResponse.error(
+                CommonErrorCode.INVALID_INPUT,
+                new ValidationErrorResponse(errors)
+            ),
+            headers,
+            status,
+            request
+        );
+    }
 
-	@Override
-	protected ResponseEntity<Object> handleHandlerMethodValidationException(
-		HandlerMethodValidationException exception,
-		HttpHeaders headers,
-		HttpStatusCode status,
-		WebRequest request
-	) {
-		Stream<ValidationError> parameterErrors = exception.getParameterValidationResults().stream()
-			.flatMap(this::toValidationErrors);
-		Stream<ValidationError> crossParameterErrors = exception.getCrossParameterValidationResults().stream()
-			.map(error -> new ValidationError("request", resolveMessage(error)));
-		List<ValidationError> errors = Stream.concat(parameterErrors, crossParameterErrors).toList();
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(
+        HandlerMethodValidationException exception,
+        HttpHeaders headers,
+        HttpStatusCode status,
+        WebRequest request
+    ) {
+        Stream<ValidationError> parameterErrors =
+            exception.getParameterValidationResults().stream()
+                .flatMap(this::toValidationErrors);
 
-		return handleExceptionInternal(
-			exception,
-			ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors),
-			headers,
-			status,
-			request
-		);
-	}
+        Stream<ValidationError> crossParameterErrors =
+            exception.getCrossParameterValidationResults().stream()
+                .map(error -> new ValidationError(
+                    "request",
+                    resolveMessage(error)
+                ));
+
+        List<ValidationError> errors = Stream.concat(
+            parameterErrors,
+            crossParameterErrors
+        ).toList();
+
+        return handleExceptionInternal(
+            exception,
+            ApiResponse.error(
+                CommonErrorCode.INVALID_INPUT,
+                new ValidationErrorResponse(errors)
+            ),
+            headers,
+            status,
+            request
+        );
+    }
 
 	@Override
 	protected ResponseEntity<Object> handleHttpMessageNotReadable(

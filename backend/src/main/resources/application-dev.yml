@@ -1,9 +1,26 @@
+app:
+  cors:
+    allowed-origins: http://localhost:5173
+
+jwt:
+  secret-key: ${JWT_SECRET_KEY}
+
+kakao:
+  client-id: ${KAKAO_CLIENT_ID:local-kakao-client-id}
+  client-secret: ${KAKAO_CLIENT_SECRET:local-kakao-client-secret}
+  redirect-uri: ${KAKAO_REDIRECT_URI:http://localhost:5173/auth/kakao/callback}
+
 spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${SPRING_DATASOURCE_USERNAME:backend}
     password: ${SPRING_DATASOURCE_PASSWORD:backend-local-password}
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: update
     open-in-view: false
@@ -11,3 +28,6 @@ spring:
       hibernate:
         format_sql: true
     show-sql: true
+  sql:
+    init:
+      mode: always

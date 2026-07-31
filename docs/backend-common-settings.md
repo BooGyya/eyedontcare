@@ -5,7 +5,9 @@
 ## 적용 범위
 
 - 일반 JSON 성공 응답은 `ApiResponse<T>`로 감쌉니다.
-- 일반 JSON 오류 응답도 `ApiResponse<Void>`로 반환합니다.
+- 일반 JSON 오류 응답도 `ApiResponse<T>` 형식으로 반환합니다.
+- 추가 응답 데이터가 없는 경우 `data`는 JSON에서 생략합니다.
+- 필드 검증 오류는 `data.fieldErrors`에 포함합니다.
 - 응답 본문을 감싸더라도 상황에 맞는 HTTP 상태 코드를 사용합니다.
 - 서비스 계층은 HTTP 응답 타입에 의존하지 않습니다.
 - JPA 엔티티의 생성·수정 시간은 `BaseTimeEntity`로 관리합니다.
@@ -29,7 +31,8 @@ org.ssafy.b102.backend.global
 │   │   └── BaseTimeEntity
 │   └── response
 │       ├── ApiResponse
-│       └── ValidationError
+│       ├── ValidationError
+│       └── ValidationErrorResponse
 ├── config
 │   └── JpaAuditingConfig
 └── error
@@ -70,19 +73,19 @@ flowchart TD
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `success` | `boolean` | 요청 성공 여부 |
 | `code` | `String` | 클라이언트가 분기 처리할 응답 코드 |
 | `message` | `String` | 사용자에게 제공할 안전한 메시지 |
-| `data` | `T` | 성공 응답 데이터 |
-| `errors` | `List<ValidationError>` | 필드별 검증 오류 |
+| `data` | `T` | 추가 응답 데이터. 값이 `null`이면 JSON에서 생략 |
 
-`data`와 `errors`가 비어 있으면 JSON에서 생략됩니다.
+`code`와 `message`는 일반 JSON 응답에 항상 포함합니다.
+`data`는 전달할 추가 정보가 있을 때만 포함합니다.
+
+`204 No Content`는 공통 응답 객체를 반환하지 않고 응답 본문 자체를 비웁니다.
 
 ### 성공 응답
 
 ```json
 {
-  "success": true,
   "code": "SUCCESS",
   "message": "요청에 성공했습니다.",
   "data": {
@@ -123,31 +126,32 @@ ApiResponse.success("회원 생성에 성공했습니다.", response);
 
 ```json
 {
-  "success": false,
   "code": "MEMBER-001",
   "message": "회원을 찾을 수 없습니다."
 }
 ```
 
-오류 응답을 커스텀 형식으로 반환하더라도 오류를 `200 OK`로 반환하지 않습니다. 위 예시에서 회원이 존재하지 않으면 HTTP 상태는 `404 Not Found`입니다.
+오류 응답을 커스텀 형식으로 반환하더라도 오류를 `200 OK`로 반환하지 않습니다.
 
 ### 검증 오류 응답
 
 ```json
 {
-  "success": false,
   "code": "COMMON-001",
   "message": "요청 값이 올바르지 않습니다.",
-  "errors": [
-    {
-      "field": "email",
-      "reason": "이메일 형식이 올바르지 않습니다."
-    }
-  ]
+  "data": {
+    "fieldErrors": [
+      {
+        "field": "email",
+        "reason": "이메일 형식이 올바르지 않습니다."
+      }
+    ]
+  }
 }
 ```
 
-보안상 사용자가 입력한 `rejectedValue`는 응답에 포함하지 않습니다. 비밀번호, 인증 코드, 토큰과 같은 값이 노출될 수 있기 때문입니다.
+여러 입력 필드의 검증 오류는 `data.fieldErrors`에 포함합니다.
+보안상 사용자가 입력한 `rejectedValue`는 응답에 포함하지 않습니다.
 
 ## HTTP 상태 사용 규칙
 
