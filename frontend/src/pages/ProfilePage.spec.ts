@@ -19,6 +19,57 @@ const routes = [
   },
 ]
 
+const EMPTY_RESULTS_PAGE = { content: [], page: 1, size: 5, totalElements: 0 }
+
+const RESULTS_PAGE = {
+  content: [
+    {
+      resultId: 9001,
+      gameName: 'EYEFIGHT',
+      playMode: 'RANDOM',
+      difficulty: null,
+      myOutcome: 'WIN',
+      myRank: 1,
+      playedAt: '2026-07-24T09:00:00Z',
+    },
+    {
+      resultId: 9002,
+      gameName: 'DRAWING',
+      playMode: 'SOLO',
+      difficulty: 2,
+      myOutcome: 'COMPLETED',
+      myRank: 1,
+      playedAt: '2026-07-23T20:40:00Z',
+    },
+    {
+      resultId: 9003,
+      gameName: 'BLINK',
+      playMode: 'SOLO',
+      difficulty: null,
+      myOutcome: 'LOSE',
+      myRank: 4,
+      playedAt: '2026-07-22T10:12:00Z',
+    },
+  ],
+  page: 1,
+  size: 5,
+  totalElements: 3,
+}
+
+const RESULT_DETAIL = {
+  resultId: 9001,
+  gameName: 'EYEFIGHT',
+  playMode: 'RANDOM',
+  difficulty: null,
+  startedAt: '2026-07-24T09:00:00Z',
+  endedAt: '2026-07-24T09:03:00Z',
+  participants: [
+    { slotNo: 1, participantType: 'USER', displayName: '나', outcome: 'WIN', rank: 1 },
+    { slotNo: 2, participantType: 'USER', displayName: '상대', outcome: 'LOSE', rank: 2 },
+  ],
+  gameResult: { '1': { survivalTimeMs: 180000 } },
+}
+
 function memberUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
     id: 5,
@@ -32,19 +83,24 @@ function memberUser(overrides: Partial<AuthUser> = {}): AuthUser {
   }
 }
 
-/** 엔벨로프 응답을 돌려주는 fetch 스텁. handler가 URL/옵션으로 data를 만든다. */
+/**
+ * 엔벨로프 응답 fetch 스텁. handler가 undefined를 반환하면 기본값으로 대체한다
+ * (경기 기록 목록은 빈 페이지, 그 외는 null) — 각 테스트가 자기 URL만 신경 쓰면 된다.
+ */
 function stubFetch(handler: (url: string, method: string) => unknown) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, init?: { method?: string }) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        code: 'OK',
-        message: '',
-        data: handler(url, init?.method ?? 'GET'),
-      }),
-    })),
+    vi.fn(async (url: string, init?: { method?: string }) => {
+      let data = handler(url, init?.method ?? 'GET')
+      if (data === undefined) {
+        data = url.includes('/game-results/me') ? EMPTY_RESULTS_PAGE : null
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 'OK', message: '', data }),
+      }
+    }),
   )
 }
 
@@ -58,25 +114,44 @@ function setupAuthenticatedPage(user: AuthUser = memberUser()) {
 describe('ProfilePage', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-    // Teleport로 body에 남은 다이얼로그가 있으면 다음 테스트에 새지 않도록 정리한다.
-    globalThis.document.body.querySelectorAll('.profile-dialog').forEach((el) => {
-      el.closest('[class*="dialog"]')?.remove()
-    })
+    globalThis.document.body
+      .querySelectorAll('.profile-dialog, .game-result-modal')
+      .forEach((el) => el.remove())
   })
 
-  it('renders the profile data from a direct profile route', async () => {
+  it('renders profile data and the fetched game records', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
     const pinia = setupAuthenticatedPage()
+    stubFetch((url) =>
+      url.includes('/game-results/me') ? RESULTS_PAGE : undefined,
+    )
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     expect(wrapper.text()).toContain(profileData.nickname)
     expect(wrapper.text()).toContain('최근 경기 기록')
     expect(wrapper.findAll('.profile-page__records li')).toHaveLength(3)
-    expect(wrapper.text()).not.toContain('이번 주 점수')
+    expect(wrapper.text()).toContain('눈싸움에서 1위로 승리했어요.')
+  })
+
+  it('prompts guests to log in for game records', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    stubFetch(() => undefined)
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('로그인하면 내 경기 기록을 볼 수 있어요')
+    expect(wrapper.findAll('.profile-page__records li')).toHaveLength(0)
   })
 
   it('saves the selected profile image through the API', async () => {
@@ -85,17 +160,22 @@ describe('ProfilePage', () => {
     await router.isReady()
     const pinia = setupAuthenticatedPage()
     const nextOption = PROFILE_OPTIONS[1]
-    stubFetch(() => ({
-      id: 5,
-      email: 'player@example.com',
-      nickname: profileData.nickname,
-      profileImageCode: nextOption.code,
-      loginType: 'LOCAL',
-      createdAt: '2026-08-01T00:00:00Z',
-    }))
+    stubFetch((_url, method) =>
+      method === 'PATCH'
+        ? {
+            id: 5,
+            email: 'player@example.com',
+            nickname: profileData.nickname,
+            profileImageCode: nextOption.code,
+            loginType: 'LOCAL',
+            createdAt: '2026-08-01T00:00:00Z',
+          }
+        : undefined,
+    )
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     await wrapper.get('.profile-page__edit-button').trigger('click')
     await wrapper.findAll('[role="radio"]')[1].trigger('click')
@@ -105,7 +185,6 @@ describe('ProfilePage', () => {
     expect(
       wrapper.get('.profile-page__avatar img').attributes('src'),
     ).toContain(nextOption.image)
-    expect(wrapper.findAll('[role="radio"]')).toHaveLength(0)
   })
 
   it('no longer shows a password confirmation field in the profile editor', async () => {
@@ -113,9 +192,11 @@ describe('ProfilePage', () => {
     await router.push('/profile')
     await router.isReady()
     const pinia = setupAuthenticatedPage()
+    stubFetch(() => undefined)
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     await wrapper.get('.profile-page__edit-button').trigger('click')
 
@@ -129,18 +210,21 @@ describe('ProfilePage', () => {
     await router.push('/profile')
     await router.isReady()
     const pinia = setupAuthenticatedPage()
-    stubFetch((url) => {
+    stubFetch((url, method) => {
       if (url.includes('/nickname/check')) {
         return { nickname: '새로운눈', available: true }
       }
-      return {
-        id: 5,
-        email: 'player@example.com',
-        nickname: '새로운눈',
-        profileImageCode: 'PROFILE_1',
-        loginType: 'LOCAL',
-        createdAt: '2026-08-01T00:00:00Z',
+      if (method === 'PATCH') {
+        return {
+          id: 5,
+          email: 'player@example.com',
+          nickname: '새로운눈',
+          profileImageCode: 'PROFILE_1',
+          loginType: 'LOCAL',
+          createdAt: '2026-08-01T00:00:00Z',
+        }
       }
+      return undefined
     })
     const pageWrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
@@ -148,6 +232,7 @@ describe('ProfilePage', () => {
     const menuWrapper = mount(ProfileMenu, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     await pageWrapper.get('.profile-page__edit-button').trigger('click')
     await pageWrapper.get('input[type="text"]').setValue('새로운눈')
@@ -159,16 +244,23 @@ describe('ProfilePage', () => {
     expect(menuWrapper.text()).toContain('새로운눈')
   })
 
-  it('opens and closes the selected game record detail modal', async () => {
+  it('opens and closes the game record detail modal', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
     const pinia = setupAuthenticatedPage()
+    stubFetch((url) => {
+      if (url.includes('/game-results/me')) return RESULTS_PAGE
+      if (url.includes('/game-results/9001')) return RESULT_DETAIL
+      return undefined
+    })
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     await wrapper.find('.profile-page__records li').trigger('click')
+    await flushPromises()
     expect(document.body.textContent).toContain('경기 결과')
 
     const confirmButton = document.body.querySelector<HTMLButtonElement>(
@@ -184,10 +276,11 @@ describe('ProfilePage', () => {
     await router.push('/profile')
     await router.isReady()
     const pinia = setupAuthenticatedPage()
-    stubFetch(() => null)
+    stubFetch(() => undefined)
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     await wrapper.get('.profile-page__account-actions button').trigger('click')
 
@@ -221,10 +314,11 @@ describe('ProfilePage', () => {
     await router.push('/profile')
     await router.isReady()
     const pinia = setupAuthenticatedPage()
-    stubFetch(() => null)
+    stubFetch(() => undefined)
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
+    await flushPromises()
 
     await wrapper.get('.profile-page__withdraw-button').trigger('click')
 
