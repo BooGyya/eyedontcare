@@ -7,6 +7,7 @@ import GamePlayPage from '../pages/GamePlayPage.vue'
 import GameResultPage from '../pages/GameResultPage.vue'
 import GamesPage from '../pages/GamesPage.vue'
 import HomePage from '../pages/HomePage.vue'
+import KakaoCallbackPage from '../pages/KakaoCallbackPage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import RankingPage from '../pages/RankingPage.vue'
 
@@ -34,6 +35,11 @@ const router = createRouter({
       path: '/games/:gameId(air|hold|draw|rhythm|blink)/result',
       name: 'game-result',
       component: GameResultPage,
+    },
+    {
+      path: '/auth/kakao/callback',
+      name: 'kakao-callback',
+      component: KakaoCallbackPage,
     },
     { path: '/ranking', name: 'ranking', component: RankingPage },
     { path: '/community', name: 'community', component: CommunityPage },
