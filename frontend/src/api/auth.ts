@@ -40,3 +40,8 @@ export async function loginWithKakao(
 export async function logout(): Promise<void> {
   await apiRequest<null>('/auth/logout', { method: 'POST' })
 }
+
+/** 회원 탈퇴(소프트 삭제). 이후 클라는 토큰을 폐기하고 게스트로 돌아간다. */
+export async function withdraw(): Promise<void> {
+  await apiRequest<null>('/auth/withdraw', { method: 'DELETE' })
+}

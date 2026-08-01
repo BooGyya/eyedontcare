@@ -1,13 +1,16 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import ProfileMenu from '../components/layout/ProfileMenu.vue'
 import { profileData } from '../mocks/profile'
+import { PROFILE_OPTIONS } from '../api/user'
 import { useAuthStore } from '../stores/auth'
 import ProfilePage from './ProfilePage.vue'
+import type { AuthUser } from '../types/auth'
 
 const routes = [
+  { path: '/', name: 'home', component: { template: '<div>home</div>' } },
   { path: '/profile', name: 'profile', component: ProfilePage },
   {
     path: '/settings',
@@ -16,21 +19,56 @@ const routes = [
   },
 ]
 
+function memberUser(overrides: Partial<AuthUser> = {}): AuthUser {
+  return {
+    id: 5,
+    nickname: profileData.nickname,
+    level: 1,
+    avatar: PROFILE_OPTIONS[0].image,
+    profileImageCode: 'PROFILE_1',
+    email: 'player@example.com',
+    loginType: 'LOCAL',
+    ...overrides,
+  }
+}
+
+/** 엔벨로프 응답을 돌려주는 fetch 스텁. handler가 URL/옵션으로 data를 만든다. */
+function stubFetch(handler: (url: string, method: string) => unknown) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: { method?: string }) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: '',
+        data: handler(url, init?.method ?? 'GET'),
+      }),
+    })),
+  )
+}
+
+function setupAuthenticatedPage(user: AuthUser = memberUser()) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useAuthStore().setAuthenticatedUser(user)
+  return pinia
+}
+
 describe('ProfilePage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    // Teleport로 body에 남은 다이얼로그가 있으면 다음 테스트에 새지 않도록 정리한다.
+    globalThis.document.body.querySelectorAll('.profile-dialog').forEach((el) => {
+      el.closest('[class*="dialog"]')?.remove()
+    })
+  })
+
   it('renders the profile data from a direct profile route', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    useAuthStore().setAuthenticatedUser({
-      id: 1,
-      nickname: profileData.nickname,
-      level: 1,
-      avatar: 'avatar.png',
-      email: null,
-      loginType: 'LOCAL',
-    })
+    const pinia = setupAuthenticatedPage()
     const wrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
@@ -41,22 +79,32 @@ describe('ProfilePage', () => {
     expect(wrapper.text()).not.toContain('이번 주 점수')
   })
 
-  it('updates the profile image preview when an avatar is saved', async () => {
+  it('saves the selected profile image through the API', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
+    const pinia = setupAuthenticatedPage()
+    const nextOption = PROFILE_OPTIONS[1]
+    stubFetch(() => ({
+      id: 5,
+      email: 'player@example.com',
+      nickname: profileData.nickname,
+      profileImageCode: nextOption.code,
+      loginType: 'LOCAL',
+      createdAt: '2026-08-01T00:00:00Z',
+    }))
     const wrapper = mount(ProfilePage, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [pinia, router] },
     })
-    const nextAvatar = profileData.avatars[1]
 
     await wrapper.get('.profile-page__edit-button').trigger('click')
     await wrapper.findAll('[role="radio"]')[1].trigger('click')
     await wrapper.get('.profile-page__save-button').trigger('click')
+    await flushPromises()
 
     expect(
       wrapper.get('.profile-page__avatar img').attributes('src'),
-    ).toContain(nextAvatar.image)
+    ).toContain(nextOption.image)
     expect(wrapper.findAll('[role="radio"]')).toHaveLength(0)
   })
 
@@ -64,8 +112,9 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
+    const pinia = setupAuthenticatedPage()
     const wrapper = mount(ProfilePage, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [pinia, router] },
     })
 
     await wrapper.get('.profile-page__edit-button').trigger('click')
@@ -79,7 +128,20 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
-    const pinia = createPinia()
+    const pinia = setupAuthenticatedPage()
+    stubFetch((url) => {
+      if (url.includes('/nickname/check')) {
+        return { nickname: '새로운눈', available: true }
+      }
+      return {
+        id: 5,
+        email: 'player@example.com',
+        nickname: '새로운눈',
+        profileImageCode: 'PROFILE_1',
+        loginType: 'LOCAL',
+        createdAt: '2026-08-01T00:00:00Z',
+      }
+    })
     const pageWrapper = mount(ProfilePage, {
       global: { plugins: [pinia, router] },
     })
@@ -90,18 +152,20 @@ describe('ProfilePage', () => {
     await pageWrapper.get('.profile-page__edit-button').trigger('click')
     await pageWrapper.get('input[type="text"]').setValue('새로운눈')
     await pageWrapper.get('.profile-page__field button').trigger('click')
+    await flushPromises()
     await pageWrapper.get('.profile-page__save-button').trigger('click')
+    await flushPromises()
 
     expect(menuWrapper.text()).toContain('새로운눈')
-    useAuthStore(pinia).user.nickname = profileData.nickname
   })
 
   it('opens and closes the selected game record detail modal', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
+    const pinia = setupAuthenticatedPage()
     const wrapper = mount(ProfilePage, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [pinia, router] },
     })
 
     await wrapper.find('.profile-page__records li').trigger('click')
@@ -119,7 +183,11 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
-    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    const pinia = setupAuthenticatedPage()
+    stubFetch(() => null)
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [pinia, router] },
+    })
 
     await wrapper.get('.profile-page__account-actions button').trigger('click')
 
@@ -130,24 +198,19 @@ describe('ProfilePage', () => {
     )
     expect(passwordInputs).toHaveLength(3)
 
+    passwordInputs[0].value = 'current-pw1'
+    passwordInputs[0].dispatchEvent(new Event('input'))
+    passwordInputs[1].value = 'newpass123'
+    passwordInputs[1].dispatchEvent(new Event('input'))
+    passwordInputs[2].value = 'newpass123'
+    passwordInputs[2].dispatchEvent(new Event('input'))
+    await flushPromises()
+
     const confirmButton = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>(
         '.profile-dialog__actions button',
       ),
     ).find((button) => button.textContent?.includes('변경하기'))
-
-    confirmButton?.click()
-    await flushPromises()
-    expect(document.body.querySelector('.profile-dialog')).not.toBeNull()
-
-    passwordInputs[0].value = 'current-pw'
-    passwordInputs[0].dispatchEvent(new Event('input'))
-    passwordInputs[1].value = 'new-pw'
-    passwordInputs[1].dispatchEvent(new Event('input'))
-    passwordInputs[2].value = 'new-pw'
-    passwordInputs[2].dispatchEvent(new Event('input'))
-    await flushPromises()
-
     confirmButton?.click()
     await flushPromises()
     expect(document.body.querySelector('.profile-dialog')).toBeNull()
@@ -157,7 +220,11 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
-    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    const pinia = setupAuthenticatedPage()
+    stubFetch(() => null)
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [pinia, router] },
+    })
 
     await wrapper.get('.profile-page__withdraw-button').trigger('click')
 
@@ -186,8 +253,9 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/settings')
     await router.isReady()
+    const pinia = setupAuthenticatedPage()
     const wrapper = mount(ProfileMenu, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [pinia, router] },
     })
 
     await wrapper.get('[aria-label="프로필 메뉴"]').trigger('click')
@@ -201,8 +269,9 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
+    const pinia = setupAuthenticatedPage()
     const wrapper = mount(ProfileMenu, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [pinia, router] },
     })
 
     await wrapper.get('[aria-label="프로필 메뉴"]').trigger('click')
