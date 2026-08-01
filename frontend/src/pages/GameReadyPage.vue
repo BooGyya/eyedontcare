@@ -15,6 +15,7 @@ import { useWaitingRoomSocket } from '../composables/useWaitingRoomSocket'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
 import { createInviteRoom, joinInviteRoom } from '../api/waitingRoom'
 import { ApiError } from '../api/http'
+import { currentAccessToken, resolveIdentity } from '../api/identity'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
 import type {
   WaitingRoomGameStartData,
@@ -33,7 +34,6 @@ const { showToast } = useToast()
 const permissionStatus = ref<CameraPermissionStatus>('idle')
 const isCalibrated = ref(false)
 const isReady = ref(false)
-const mockOpponentReady = ref(false)
 const isWebcamGuideOpen = ref(true)
 const isCalibrationOpen = ref(false)
 const isCameraErrorOpen = ref(false)
@@ -84,12 +84,18 @@ const liveOpponent = computed<WaitingRoomParticipant | null>(
       (participant) => participant.roomRole !== myRoomRole.value,
     ) ?? null,
 )
-const isOpponentReady = computed(() =>
-  isLiveSession.value
-    ? (liveOpponent.value?.isReady ?? false)
-    : mockOpponentReady.value,
-)
+const isOpponentReady = computed(() => liveOpponent.value?.isReady ?? false)
 const displayRoomCode = computed(() => liveRoomCode.value ?? roomCode.value)
+
+// 서버 ROOM_STATE 기준 준비 현황(가이드의 "N/2명 준비 완료" 표시에 사용).
+const readyCount = computed(
+  () =>
+    waitingSocket.roomState.value?.participants.filter((p) => p.isReady)
+      .length ?? 0,
+)
+const participantCount = computed(
+  () => waitingSocket.roomState.value?.participants.length ?? 2,
+)
 
 // 대기방 미디어(피어 웹캠): 방 참가 시 받은 토큰으로 OpenVidu에 연결해 상대 웹캠을 구독하고,
 // 내 카메라가 준비되면 내 트랙을 송출한다. 내 웹캠은 아래 getUserMedia 프리뷰로 이미 보여준다.
@@ -154,15 +160,21 @@ const actionDisabled = computed(() => {
 const actionReason = computed(() => {
   if (!isCameraConnected.value)
     return '카메라 연결 후 다음 단계를 진행할 수 있어요.'
-  if (!isCalibrated.value) return '캘리브레이션을 완료하면 준비할 수 있어요.'
-  if (isHost.value && !canStartGame.value)
-    return '다른 참가자의 준비를 기다리고 있어요.'
-  if (isRandomRoom.value && isReady.value && !isOpponentReady.value)
-    return '상대방의 준비를 기다리고 있어요.'
+  if (!isCalibrated.value)
+    return isHost.value
+      ? '게임을 시작하려면 캘리브레이션을 완료해 주세요.'
+      : '캘리브레이션을 완료하면 준비할 수 있어요.'
+  if (isHost.value)
+    return canStartGame.value
+      ? '모든 참가자가 준비되었어요.'
+      : `다른 참가자의 준비를 기다리고 있어요. ${readyCount.value}/${participantCount.value}명 준비 완료`
+  if (isRandomRoom.value && isReady.value)
+    return isOpponentReady.value
+      ? '모든 참가자가 준비되었어요. 잠시 후 게임이 시작됩니다.'
+      : '상대방의 준비를 기다리고 있어요.'
   if (isFriendRoom.value && !isHost.value && isReady.value)
     return '방장이 게임을 시작할 때까지 기다려 주세요.'
-  if (!isMultiplayer.value && isReady.value)
-    return '준비가 완료되었습니다. 게임 시작 기능을 연결할 예정이에요.'
+  if (!isMultiplayer.value && isReady.value) return '준비가 완료되었습니다.'
   return ''
 })
 
@@ -196,6 +208,27 @@ function openGameStartDialog() {
     }
     countdown.value -= 1
   }, 1000)
+}
+
+// 실시간 세션(초대/랜덤): 서버가 방을 COUNTDOWN으로 바꾸고 종료 시각을 주면 그에 맞춰 3-2-1을
+// 그린다. 화면 전환은 서버의 GAME_START 수신 시에만 일어난다(handleGameStart).
+function openServerCountdown(endsAtIso: string) {
+  clearGameStartCountdown()
+  const endsAt = new Date(endsAtIso).getTime()
+  const sync = () => {
+    const remaining = Math.ceil((endsAt - Date.now()) / 1000)
+    countdown.value = Math.min(3, Math.max(1, remaining))
+  }
+  sync()
+  isGamePlaybackPending.value = false
+  isGameStartDialogOpen.value = true
+  countdownTimer = globalThis.setInterval(() => {
+    if (Date.now() >= endsAt) {
+      clearGameStartCountdown()
+      return
+    }
+    sync()
+  }, 250)
 }
 
 function closeGameStartDialog() {
@@ -280,10 +313,6 @@ function handleCalibrationBack() {
   else isCalibrationOpen.value = false
 }
 
-function handleToggleOpponentReady() {
-  mockOpponentReady.value = !mockOpponentReady.value
-}
-
 function handleGameStart(data: WaitingRoomGameStartData) {
   if (data.openviduUrl && data.token) {
     mediaSession.setCredentials({
@@ -304,14 +333,12 @@ function handleGameStart(data: WaitingRoomGameStartData) {
 async function initInviteSession() {
   if (!isFriendRoom.value || !game.value) return
   try {
+    const token = currentAccessToken()
     const gameName = GAME_NAME_BY_ID[game.value.id]
     if (isHost.value) {
-      const created = await createInviteRoom(gameName)
+      const created = await createInviteRoom(gameName, token)
       liveRoomId.value = created.roomId
       liveRoomCode.value = created.roomCode
-      liveIdentity.value = created.guestSessionId
-        ? { guestSessionId: created.guestSessionId }
-        : null
       if (created.openviduUrl && created.token) {
         mediaSession.setCredentials({
           openviduUrl: created.openviduUrl,
@@ -320,11 +347,8 @@ async function initInviteSession() {
       }
     } else {
       if (!roomCode.value) return
-      const joined = await joinInviteRoom(roomCode.value)
+      const joined = await joinInviteRoom(roomCode.value, token)
       liveRoomId.value = joined.roomId
-      liveIdentity.value = joined.guestSessionId
-        ? { guestSessionId: joined.guestSessionId }
-        : null
       if (joined.openviduUrl && joined.token) {
         mediaSession.setCredentials({
           openviduUrl: joined.openviduUrl,
@@ -332,13 +356,15 @@ async function initInviteSession() {
         })
       }
     }
+    // REST 응답에서 게스트 세션이 저장됐으므로, 신원을 공통 helper로 만든다(회원=토큰/게스트=세션).
+    liveIdentity.value = resolveIdentity()
     if (liveRoomId.value && liveIdentity.value) {
       waitingSocket.connect(liveRoomId.value, liveIdentity.value)
     } else {
       liveRoomId.value = null
     }
   } catch (error) {
-    // 실패 시 mock 준비 화면은 유지하되, 원인을 사용자에게 알린다(조용히 삼키지 않는다).
+    // 실패 시 준비 화면은 유지하되, 원인을 사용자에게 알린다(조용히 삼키지 않는다).
     liveRoomId.value = null
     const message =
       error instanceof ApiError
@@ -346,6 +372,19 @@ async function initInviteSession() {
         : '대기방 연결에 실패했어요. 잠시 후 다시 시도해 주세요.'
     showToast(message)
   }
+}
+
+// 랜덤방: 매칭이 성사되면 방 멤버십이 이미 성립돼 있으므로 REST join 없이 roomId로 바로 접속한다.
+// roomId는 GameRoomDialog의 매칭 결과가 쿼리(roomId)로 전달한다. 미디어 토큰은 GAME_START로만 온다.
+function initRandomSession() {
+  if (!isRandomRoom.value || !game.value) return
+  const roomId = String(route.query.roomId ?? '')
+  if (!roomId) return
+  const identity = resolveIdentity()
+  if (!identity) return
+  liveRoomId.value = roomId
+  liveIdentity.value = identity
+  waitingSocket.connect(roomId, identity)
 }
 
 function handleDialogBackdrop(event: globalThis.MouseEvent, close: () => void) {
@@ -425,15 +464,23 @@ watch(isCalibrationOpen, (isOpen) => {
   if (isOpen) void attachPreviewStream()
 })
 
-watch(areAllPlayersReady, (isReady) => {
-  if (isReady && isRandomRoom.value) openGameStartDialog()
-})
+// 실시간 세션의 자동/수동 시작은 모두 서버가 방을 COUNTDOWN으로 바꾸면서 시작된다.
+watch(
+  () => waitingSocket.roomState.value?.roomStatus,
+  (roomStatus) => {
+    const state = waitingSocket.roomState.value
+    if (roomStatus === 'COUNTDOWN' && state?.countdownEndsAt) {
+      openServerCountdown(state.countdownEndsAt)
+    }
+  },
+)
 
 if (typeof globalThis.window !== 'undefined')
   globalThis.window.addEventListener('keydown', handleKeydown)
 
 onMounted(() => {
-  void initInviteSession()
+  if (isRandomRoom.value) initRandomSession()
+  else void initInviteSession()
 })
 
 onBeforeUnmount(() => {
@@ -743,13 +790,6 @@ onBeforeUnmount(() => {
               : `${opponentName}의 준비 상태를 기다리고 있어요.`
           }}
         </p>
-        <button
-          class="mock-toggle"
-          type="button"
-          @click="handleToggleOpponentReady"
-        >
-          mock: 상대 준비 {{ isOpponentReady ? '취소' : '완료' }}
-        </button>
       </article>
     </section>
   </section>
@@ -1060,8 +1100,7 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 .room-header__actions > button,
-.secondary,
-.mock-toggle {
+.secondary {
   min-height: 40px;
   padding: 0 14px;
   border: 1px solid var(--color-line);
@@ -1072,8 +1111,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .room-header__actions > button:hover,
-.secondary:hover,
-.mock-toggle:hover {
+.secondary:hover {
   border-color: var(--color-accent-blue);
   color: var(--color-accent-blue);
 }
@@ -1319,13 +1357,6 @@ onBeforeUnmount(() => {
   color: var(--color-muted);
   font-size: 12px;
   line-height: 1.45;
-}
-.mock-toggle {
-  min-height: 32px;
-  margin-top: 9px;
-  padding: 0 10px;
-  color: var(--color-muted);
-  font-size: 11px;
 }
 .ready-dialog-backdrop {
   position: fixed;
