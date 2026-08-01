@@ -32,13 +32,14 @@ export interface ApiEnvelope<T> {
 
 /** REST 호출 실패. 백엔드 공통 에러 코드/메시지를 그대로 담는다. */
 export class ApiError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly status: number,
-  ) {
+  readonly code: string
+  readonly status: number
+
+  constructor(code: string, message: string, status: number) {
     super(message)
     this.name = 'ApiError'
+    this.code = code
+    this.status = status
   }
 }
 
