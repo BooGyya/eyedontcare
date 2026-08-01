@@ -82,7 +82,8 @@ function toTokens(text: string) {
 }
 function handleEnterRoom(payload: {
   mode: 'friends' | 'random'
-  roomCode: string
+  roomCode?: string
+  roomId?: string
   role?: 'host' | 'player'
 }) {
   if (!game.value) return
@@ -92,7 +93,9 @@ function handleEnterRoom(payload: {
     params: { gameId: game.value.id },
     query: {
       mode: payload.mode,
-      room: payload.roomCode,
+      // 초대방은 4자리 방 코드, 랜덤방은 매칭으로 받은 실제 roomId(UUID)를 넘긴다.
+      ...(payload.roomCode ? { room: payload.roomCode } : {}),
+      ...(payload.roomId ? { roomId: payload.roomId } : {}),
       ...(payload.role ? { role: payload.role } : {}),
     },
   })
@@ -1386,6 +1389,7 @@ onBeforeUnmount(() => {
 
     <GameRoomDialog
       :open="isRoomDialogOpen"
+      :game-id="game.id"
       :game-title="game.title"
       :flow="roomFlow"
       @close="isRoomDialogOpen = false"

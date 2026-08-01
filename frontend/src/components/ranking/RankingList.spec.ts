@@ -10,7 +10,14 @@ function mountRankingList(ranking: GameRanking, authenticated = false) {
   const pinia = createPinia()
   setActivePinia(pinia)
   if (authenticated) {
-    useAuthStore().signInWithMockKakao()
+    useAuthStore().setAuthenticatedUser({
+      id: 7,
+      nickname: '눈썹 최강자',
+      level: 12,
+      avatar: 'avatar.png',
+      email: null,
+      loginType: 'LOCAL',
+    })
   }
 
   return mount(RankingList, {

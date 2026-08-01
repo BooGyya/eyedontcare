@@ -1634,7 +1634,9 @@ class SecurityIntegrationTest {
             java.util.UUID.fromString(
                 "7e329e72-e8da-4c62-8282-754e7b5c0864"
             ),
-            "guest"
+            "guest",
+            null,
+            null
         );
     }
 
@@ -1649,7 +1651,9 @@ class SecurityIntegrationTest {
             List.of(created.participant()),
             created.createdAt(),
             created.guestSessionId(),
-            created.guestNickname()
+            created.guestNickname(),
+            created.openviduUrl(),
+            created.token()
         );
     }
 

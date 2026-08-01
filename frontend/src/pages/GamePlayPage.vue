@@ -6,6 +6,10 @@ import GamePlayShell from '../components/games/GamePlayShell.vue'
 import { createMockSession, gameModeLabels } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
+import { useLiveKitRoom } from '../composables/useLiveKitRoom'
+import { useLocalCamera } from '../composables/useLocalCamera'
+import { useGameResultSubmission } from '../composables/useGameResultSubmission'
+import { useMediaSessionStore } from '../stores/mediaSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,12 +33,24 @@ const holdElapsedLabel = computed(() => {
 
 let holdTimer: ReturnType<typeof globalThis.setInterval> | undefined
 
-onMounted(() => {
-  if (game.value?.id !== 'hold') return
+async function initMedia() {
+  // 내 웹캠은 항상 표시한다(솔로 포함).
+  const stream = await startLocalCamera()
+  // 대결(친구/랜덤)이고 대기방에서 받은 접속 정보가 있으면 내 트랙을 송출하고 상대 웹캠을 구독한다.
+  if (showsOpponentCamera.value && mediaSession.credentials) {
+    await connectMedia(mediaSession.credentials, {
+      localTrack: stream?.getVideoTracks()[0] ?? null,
+    })
+  }
+}
 
-  holdTimer = globalThis.setInterval(() => {
-    holdElapsedTenths.value += 1
-  }, 100)
+onMounted(() => {
+  if (usesLocalCamera.value) void initMedia()
+  if (game.value?.id === 'hold') {
+    holdTimer = globalThis.setInterval(() => {
+      holdElapsedTenths.value += 1
+    }, 100)
+  }
 })
 
 onUnmounted(() => {
@@ -94,6 +110,33 @@ const isRhythmDuel = computed(
   () =>
     game.value?.id === 'rhythm' && ['friends', 'random'].includes(mode.value),
 )
+
+// 눈싸움(hold) 대결: 상대 웹캠을 실제 미디어 서버로 주고받는다.
+const mediaSession = useMediaSessionStore()
+const {
+  remoteVideoRef,
+  hasRemoteVideo,
+  connect: connectMedia,
+} = useLiveKitRoom()
+const hasPeerCamera = computed(() => hasRemoteVideo.value)
+
+// 내 웹캠(로컬 셀프뷰)은 미디어 서버와 무관하게 getUserMedia로 항상 보여준다(솔로 포함).
+const {
+  videoRef: localCameraVideoRef,
+  isActive: isLocalCameraActive,
+  start: startLocalCamera,
+} = useLocalCamera()
+
+// 웹캠을 쓰는 게임.
+const usesLocalCamera = computed(() =>
+  ['hold', 'rhythm', 'draw', 'blink', 'air'].includes(game.value?.id ?? ''),
+)
+// 상대 웹캠까지 주고받는 게임(대결 모드 한정).
+const showsOpponentCamera = computed(
+  () =>
+    ['hold', 'rhythm', 'blink', 'air'].includes(game.value?.id ?? '') &&
+    ['friends', 'random'].includes(mode.value),
+)
 const colorSwatchNames: Record<string, string> = {
   '#161c2d': '검정',
   '#e84d59': '빨강',
@@ -113,8 +156,18 @@ const drawAccumulatedScore = computed(() =>
     .reduce((total, result) => total + result.score, 0),
 )
 
+// 게임 종료 시 결과를 저장하는 파이프라인(지금은 mock 값). 실패해도 화면 전환은 막지 않는다.
+const { submitPlayedResult } = useGameResultSubmission()
+const playStartedAt = new Date().toISOString()
+
 function toResult() {
   if (!game.value) return
+  void submitPlayedResult({
+    gameSlug: game.value.id,
+    mode: mode.value,
+    startedAt: playStartedAt,
+    score: session.value?.score ?? 0,
+  })
   router.push({
     name: 'game-result',
     params: { gameId: game.value.id },
@@ -240,17 +293,27 @@ function advanceDrawRound() {
         <p class="eyebrow">나</p>
         <div class="eye-see-camera">
           <video
-            aria-label="향후 내 웹캠 영상이 표시될 영역"
+            ref="localCameraVideoRef"
+            class="eye-see-camera__self"
+            aria-label="내 웹캠 영상"
+            autoplay
             muted
             playsinline
           ></video>
           <img
+            v-if="!isLocalCameraActive"
             :src="game.mascotImage"
             alt="내 카메라 준비 마스코트"
             draggable="false"
           />
         </div>
-        <p class="camera-state">내 카메라 프리뷰는 게임 연동 후 표시됩니다.</p>
+        <p class="camera-state">
+          {{
+            isLocalCameraActive
+              ? '내 카메라가 연결되었습니다.'
+              : '내 카메라를 준비하고 있어요.'
+          }}
+        </p>
       </aside>
 
       <aside v-else-if="game.id === 'air'" class="air-score-panel">
@@ -298,11 +361,15 @@ function advanceDrawRound() {
         <p class="rhythm-duel-player__label">나 · PLAYER 1</p>
         <div class="rhythm-duel-player__camera">
           <video
-            aria-label="향후 내 웹캠 영상이 표시될 영역"
+            ref="localCameraVideoRef"
+            class="self-camera"
+            aria-label="내 웹캠 영상"
+            autoplay
             muted
             playsinline
           ></video>
           <img
+            v-if="!isLocalCameraActive"
             :src="game.mascotImage"
             alt="내 웹캠 대기 마스코트"
             draggable="false"
@@ -310,7 +377,11 @@ function advanceDrawRound() {
           <span>내 웹캠</span>
         </div>
         <p class="rhythm-duel-player__camera-note">
-          카메라 영상은 게임 연동 후 표시됩니다.
+          {{
+            isLocalCameraActive
+              ? '내 카메라가 연결되었습니다.'
+              : '카메라를 준비하고 있어요.'
+          }}
         </p>
         <section class="rhythm-player-stats" aria-label="내 리듬 게임 상태">
           <div>
@@ -375,11 +446,16 @@ function advanceDrawRound() {
         </div>
         <div class="blink-duel-player__camera">
           <video
-            aria-label="향후 내 웹캠 영상이 표시될 영역"
+            ref="localCameraVideoRef"
+            class="self-camera"
+            aria-label="내 웹캠 영상"
+            autoplay
             muted
             playsinline
           ></video>
-          <p>내 카메라 영상은 게임 연동 후 표시됩니다.</p>
+          <p v-if="!isLocalCameraActive">
+            내 카메라를 준비하고 있어요.
+          </p>
         </div>
         <small>눈이 감지되면 카운터가 올라가요!</small>
       </aside>
@@ -512,13 +588,15 @@ function advanceDrawRound() {
         <template v-else-if="game.id === 'blink'">
           <section class="blink-stage" aria-label="눈 깜빡이기 플레이 영역">
             <video
-              class="blink-stage__camera"
-              aria-label="향후 내 웹캠 영상이 표시될 영역"
+              ref="localCameraVideoRef"
+              class="blink-stage__camera self-camera"
+              aria-label="내 웹캠 영상"
+              autoplay
               muted
               playsinline
             ></video>
-            <p class="blink-stage__camera-placeholder">
-              카메라 영상은 게임 연동 후 표시됩니다.
+            <p v-if="!isLocalCameraActive" class="blink-stage__camera-placeholder">
+              내 카메라를 준비하고 있어요.
             </p>
 
             <section class="blink-stage__metrics" aria-label="게임 진행 현황">
@@ -588,11 +666,13 @@ function advanceDrawRound() {
         </p>
         <div class="rhythm-duel-player__camera">
           <video
-            aria-label="향후 상대 웹캠 영상이 표시될 영역"
-            muted
+            ref="remoteVideoRef"
+            aria-label="상대 웹캠 영상"
+            autoplay
             playsinline
           ></video>
           <img
+            v-if="!hasPeerCamera"
             :src="game.mascotImage"
             alt="상대 웹캠 대기 마스코트"
             draggable="false"
@@ -641,17 +721,23 @@ function advanceDrawRound() {
         <p class="eyebrow">나의 웹캠</p>
         <div class="video-placeholder">
           <video
-            aria-label="향후 내 웹캠 영상이 표시될 영역"
+            ref="localCameraVideoRef"
+            class="self-camera"
+            aria-label="내 웹캠 영상"
+            autoplay
             muted
             playsinline
           ></video
           ><img
+            v-if="!isLocalCameraActive"
             :src="game.mascotImage"
             alt="웹캠 대기 마스코트"
             draggable="false"
           />
         </div>
-        <p class="camera-state">카메라 상태 확인 필요</p>
+        <p class="camera-state">
+          {{ isLocalCameraActive ? '카메라 연결됨' : '카메라 준비 중' }}
+        </p>
         <p v-if="game.id === 'rhythm'" class="tip">
           분홍 노트는 왼쪽, 파랑 노트는 오른쪽 눈 입력입니다.
         </p>
@@ -662,19 +748,39 @@ function advanceDrawRound() {
             <strong>{{ mode === 'ai' ? 'AI' : '상대' }}</strong
             ><span>OPPONENT</span>
           </div>
-          <img
-            :src="game.image"
-            alt="상대 플레이어 안내 이미지"
-            draggable="false"
-          />
+          <div class="air-player-card__camera">
+            <video
+              ref="remoteVideoRef"
+              aria-label="상대 웹캠 영상"
+              autoplay
+              playsinline
+            ></video>
+            <img
+              v-if="!hasPeerCamera"
+              :src="game.image"
+              alt="상대 플레이어 안내 이미지"
+              draggable="false"
+            />
+          </div>
         </article>
         <article class="air-player-card you">
           <div><strong>나</strong><span>YOU</span></div>
-          <img
-            :src="game.mascotImage"
-            alt="내 플레이어 마스코트"
-            draggable="false"
-          />
+          <div class="air-player-card__camera">
+            <video
+              ref="localCameraVideoRef"
+              class="self-camera"
+              aria-label="내 웹캠 영상"
+              autoplay
+              muted
+              playsinline
+            ></video>
+            <img
+              v-if="!isLocalCameraActive"
+              :src="game.mascotImage"
+              alt="내 플레이어 마스코트"
+              draggable="false"
+            />
+          </div>
         </article>
       </aside>
       <aside
@@ -687,11 +793,12 @@ function advanceDrawRound() {
         </div>
         <div class="blink-duel-player__camera">
           <video
-            aria-label="향후 상대방 웹캠 영상이 표시될 영역"
-            muted
+            ref="remoteVideoRef"
+            aria-label="상대 웹캠 영상"
+            autoplay
             playsinline
           ></video>
-          <p>상대 카메라 영상은 게임 연동 후 표시됩니다.</p>
+          <p v-if="!hasPeerCamera">상대 카메라를 기다리고 있어요.</p>
         </div>
         <small>상대보다 더 많이 깜빡여 보세요!</small>
       </aside>
@@ -700,18 +807,24 @@ function advanceDrawRound() {
           <p class="eyebrow">친구</p>
           <div class="eye-see-camera eye-see-camera--friend">
             <video
-              aria-label="향후 친구 웹캠 영상이 표시될 영역"
-              muted
+              ref="remoteVideoRef"
+              aria-label="친구 웹캠 영상"
+              autoplay
               playsinline
             ></video>
             <img
+              v-if="!hasPeerCamera"
               :src="game.image"
               alt="친구 카메라 준비 안내 이미지"
               draggable="false"
             />
           </div>
           <p class="camera-state">
-            친구 카메라 프리뷰는 게임 연동 후 표시됩니다.
+            {{
+              hasPeerCamera
+                ? '친구 카메라가 연결되었습니다.'
+                : '친구 카메라를 기다리고 있어요.'
+            }}
           </p>
         </template>
         <template v-else>
@@ -1976,6 +2089,10 @@ function advanceDrawRound() {
   height: 100%;
   object-fit: cover;
 }
+.eye-see-camera__self,
+.self-camera {
+  transform: scaleX(-1);
+}
 .eye-see-camera img {
   position: relative;
   z-index: 1;
@@ -2318,6 +2435,22 @@ function advanceDrawRound() {
   margin-top: auto;
   object-fit: contain;
   object-position: center bottom;
+}
+.air-player-card__camera {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 235px;
+  flex: 1;
+  place-items: center;
+  overflow: hidden;
+}
+.air-player-card__camera video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .opponent-panel {
   text-align: center;

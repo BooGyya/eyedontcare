@@ -1,26 +1,63 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
+import { useRouter } from 'vue-router'
 import gameEyeImage from '../assets/images/games/game-eye.png'
 import { useToast } from '../composables/useToast'
-import { gameResultRecords } from '../mocks/gameResults'
 import { profileData } from '../mocks/profile'
 import { useAuthStore } from '../stores/auth'
-import type { GameOutcome, GameResultDetail } from '../types/gameResult'
+import { PROFILE_OPTIONS, checkNickname as apiCheckNickname } from '../api/user'
+import { getMyResults, getResult } from '../api/gameResult'
+import { ApiError } from '../api/http'
+import { GAME_DISPLAY_NAME } from '../types/waitingRoom'
+import type { ProfileImageCode } from '../types/auth'
+import type {
+  GameOutcome,
+  GameResultDetailResponse,
+  GameResultPlayMode,
+  MyGameResult,
+} from '../types/gameResult'
+
+/** 백엔드 닉네임 규칙: 공백 없이 한글/영문/숫자 2~10자. */
+const NICKNAME_PATTERN = /^[가-힣A-Za-z0-9]{2,10}$/
 
 const { showToast } = useToast()
+const router = useRouter()
 const auth = useAuthStore()
 const isEditing = ref(false)
 const nickname = ref(auth.user.nickname)
 const draftNickname = ref(auth.user.nickname)
-const selectedAvatarId = ref(profileData.avatars[0]?.id ?? '')
-const draftAvatarId = ref(selectedAvatarId.value)
+const selectedAvatarId = ref<ProfileImageCode>(
+  auth.user.profileImageCode ?? 'PROFILE_1',
+)
+const draftAvatarId = ref<ProfileImageCode>(selectedAvatarId.value)
 const isNicknameChecked = ref(false)
 const isPasswordDialogOpen = ref(false)
 const currentPassword = ref('')
 const changePassword = ref('')
 const changePasswordConfirmation = ref('')
 const isWithdrawDialogOpen = ref(false)
-const selectedRecord = ref<GameResultDetail | null>(null)
+
+// 최근 경기 기록(회원 전용). 목록은 요약만, 상세는 클릭 시 조회한다.
+const RECORDS_PAGE_SIZE = 5
+const records = ref<MyGameResult[]>([])
+const recordsPage = ref(1)
+const recordsTotal = ref(0)
+const isLoadingRecords = ref(false)
+const totalRecordPages = computed(() =>
+  Math.max(1, Math.ceil(recordsTotal.value / RECORDS_PAGE_SIZE)),
+)
+
+const selectedRecord = ref<GameResultDetailResponse | null>(null)
+// 상세 응답은 본인을 식별하지 못하므로, 목록에서 클릭한 항목의 내 결과를 함께 보관한다.
+const selectedMyOutcome = ref<GameOutcome>('COMPLETED')
+const selectedMyRank = ref(1)
 const closeButton = ref<globalThis.HTMLButtonElement | null>(null)
 const modalDialog = ref<globalThis.HTMLElement | null>(null)
 let lastFocusedElement: globalThis.HTMLElement | null = null
@@ -28,9 +65,18 @@ let previousBodyOverflow = ''
 
 const selectedAvatar = computed(
   () =>
-    profileData.avatars.find(
-      (avatar) => avatar.id === selectedAvatarId.value,
-    ) ?? profileData.avatars[0],
+    PROFILE_OPTIONS.find((option) => option.code === selectedAvatarId.value) ??
+    PROFILE_OPTIONS[0],
+)
+
+// 로그인/프로필 갱신으로 스토어 user가 바뀌면(편집 중이 아닐 때) 표시값을 동기화한다.
+watch(
+  () => auth.user,
+  (nextUser) => {
+    if (isEditing.value) return
+    nickname.value = nextUser.nickname
+    selectedAvatarId.value = nextUser.profileImageCode ?? 'PROFILE_1'
+  },
 )
 
 const changePasswordsMatch = computed(
@@ -55,15 +101,7 @@ onBeforeUnmount(() => {
   globalThis.document.body.style.overflow = previousBodyOverflow
 })
 
-function getMyParticipant(record: GameResultDetail) {
-  return (
-    record.participants.find(
-      (participant) => participant.participantType === 'USER',
-    ) ?? record.participants[0]
-  )
-}
-
-function getDurationMs(record: GameResultDetail) {
+function getDurationMs(record: GameResultDetailResponse) {
   return (
     new Date(record.endedAt).getTime() - new Date(record.startedAt).getTime()
   )
@@ -88,8 +126,10 @@ function formatStartedAt(startedAt: string) {
   }).format(date)
 }
 
-function formatPlayMode(playMode: GameResultDetail['playMode']) {
-  return playMode === 'MULTI' ? '멀티플레이' : '싱글플레이'
+function formatPlayMode(playMode: GameResultPlayMode) {
+  return playMode === 'INVITE' || playMode === 'RANDOM'
+    ? '멀티플레이'
+    : '싱글플레이'
 }
 
 function getOutcomeLabel(outcome: GameOutcome) {
@@ -101,19 +141,67 @@ function getOutcomeLabel(outcome: GameOutcome) {
   }[outcome]
 }
 
-function getSummary(record: GameResultDetail) {
-  const participant = getMyParticipant(record)
+function getSummary(record: MyGameResult) {
+  const name = GAME_DISPLAY_NAME[record.gameName]
 
-  if (participant.outcome === 'COMPLETED') {
-    return `${record.gameName}를 완료했어요.`
+  if (record.myOutcome === 'COMPLETED') {
+    return `${name}를 완료했어요.`
   }
-
-  if (participant.outcome === 'WIN') {
-    return `${record.gameName}에서 ${participant.rank}위로 승리했어요.`
+  if (record.myOutcome === 'WIN') {
+    return `${name}에서 ${record.myRank}위로 승리했어요.`
   }
-
-  return `${record.gameName}에서 ${participant.rank}위를 기록했어요.`
+  return `${name}에서 ${record.myRank}위를 기록했어요.`
 }
+
+/** 게임별 gameResult JSON에서 생존 시간(ms)을 방어적으로 찾아 반환한다. 없으면 null. */
+function survivalTimeMs(detail: GameResultDetailResponse): number | null {
+  for (const value of Object.values(detail.gameResult)) {
+    if (value && typeof value === 'object' && 'survivalTimeMs' in value) {
+      const ms = (value as { survivalTimeMs?: unknown }).survivalTimeMs
+      if (typeof ms === 'number') return ms
+    }
+  }
+  return null
+}
+
+async function loadRecords() {
+  if (!auth.isAuthenticated || auth.user.id === null) {
+    records.value = []
+    recordsTotal.value = 0
+    return
+  }
+  isLoadingRecords.value = true
+  try {
+    const result = await getMyResults(recordsPage.value, RECORDS_PAGE_SIZE)
+    records.value = result.content
+    recordsTotal.value = result.totalElements
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '경기 기록을 불러오지 못했어요.',
+    )
+  } finally {
+    isLoadingRecords.value = false
+  }
+}
+
+function goToRecordsPage(next: number) {
+  if (next < 1 || next > totalRecordPages.value) return
+  recordsPage.value = next
+  void loadRecords()
+}
+
+onMounted(() => {
+  void loadRecords()
+})
+
+// 로그인/로그아웃으로 회원이 바뀌면 첫 페이지부터 다시 불러온다.
+watch(
+  () => auth.user.id,
+  () => {
+    recordsPage.value = 1
+    void loadRecords()
+  },
+)
 
 function handleOpenEdit() {
   draftNickname.value = nickname.value
@@ -126,46 +214,87 @@ function handleNicknameChange() {
   isNicknameChecked.value = false
 }
 
-function handleCheckNickname() {
-  if (draftNickname.value.trim().length < 2) {
-    showToast('닉네임은 2자 이상 입력해 주세요.')
+async function handleCheckNickname() {
+  const value = draftNickname.value.trim()
+  if (!NICKNAME_PATTERN.test(value)) {
+    showToast('닉네임은 공백 없이 한글/영문/숫자 2~10자여야 해요.')
     return
   }
-
-  isNicknameChecked.value = true
-  showToast('사용 가능한 닉네임이에요.')
+  try {
+    const result = await apiCheckNickname(value)
+    isNicknameChecked.value = result.available
+    showToast(
+      result.available
+        ? '사용 가능한 닉네임이에요.'
+        : '이미 사용 중인 닉네임이에요.',
+    )
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '닉네임 확인에 실패했어요.',
+    )
+  }
 }
 
-function handleSaveProfile() {
-  if (!isNicknameChecked.value && draftNickname.value !== nickname.value) {
+async function handleSaveProfile() {
+  if (auth.user.id === null) {
+    showToast('로그인이 필요해요.')
+    auth.openLogin()
+    return
+  }
+  const nextNickname = draftNickname.value.trim()
+  const nicknameChanged = nextNickname !== auth.user.nickname
+  const avatarChanged = draftAvatarId.value !== auth.user.profileImageCode
+
+  if (nicknameChanged && !isNicknameChecked.value) {
     showToast('닉네임 중복 확인을 먼저 해주세요.')
     return
   }
+  if (!nicknameChanged && !avatarChanged) {
+    isEditing.value = false
+    return
+  }
 
-  nickname.value = draftNickname.value.trim()
-  selectedAvatarId.value = draftAvatarId.value
-  auth.user.nickname = nickname.value
-  auth.user.avatar = selectedAvatar.value?.image ?? profileData.avatar
-  isEditing.value = false
-  showToast('프로필 정보가 저장되었어요.')
+  const patch: { nickname?: string; profileImageCode?: ProfileImageCode } = {}
+  if (nicknameChanged) patch.nickname = nextNickname
+  if (avatarChanged) patch.profileImageCode = draftAvatarId.value
+
+  try {
+    await auth.updateProfile(patch)
+    nickname.value = auth.user.nickname
+    selectedAvatarId.value = auth.user.profileImageCode ?? 'PROFILE_1'
+    isEditing.value = false
+    showToast('프로필 정보가 저장되었어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '프로필 저장에 실패했어요.',
+    )
+  }
 }
 
 function handleCancelEdit() {
   isEditing.value = false
 }
 
-function handleOpenRecord(record: GameResultDetail, event: globalThis.Event) {
+async function handleOpenRecord(record: MyGameResult, event: globalThis.Event) {
   lastFocusedElement = event.currentTarget as globalThis.HTMLElement
-  selectedRecord.value = record
+  selectedMyOutcome.value = record.myOutcome
+  selectedMyRank.value = record.myRank
+  try {
+    selectedRecord.value = await getResult(record.resultId)
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '경기 상세를 불러오지 못했어요.',
+    )
+  }
 }
 
 function handleRecordKeydown(
-  record: GameResultDetail,
+  record: MyGameResult,
   event: globalThis.KeyboardEvent,
 ) {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
-    handleOpenRecord(record, event)
+    void handleOpenRecord(record, event)
   }
 }
 
@@ -209,7 +338,7 @@ function handleClosePasswordChange() {
   isPasswordDialogOpen.value = false
 }
 
-function handleSubmitPasswordChange() {
+async function handleSubmitPasswordChange() {
   if (!currentPassword.value.trim()) {
     showToast('현재 비밀번호를 입력해 주세요.')
     return
@@ -225,17 +354,32 @@ function handleSubmitPasswordChange() {
     return
   }
 
-  isPasswordDialogOpen.value = false
-  showToast('비밀번호가 변경되었어요.')
+  try {
+    await auth.changePassword(currentPassword.value, changePassword.value)
+    isPasswordDialogOpen.value = false
+    showToast('비밀번호가 변경되었어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '비밀번호 변경에 실패했어요.',
+    )
+  }
 }
 
 function handleWithdraw() {
   isWithdrawDialogOpen.value = true
 }
 
-function handleConfirmWithdraw() {
-  isWithdrawDialogOpen.value = false
-  showToast('탈퇴가 접수되었어요. 그동안 함께해 주셔서 감사합니다.')
+async function handleConfirmWithdraw() {
+  try {
+    await auth.withdraw()
+    isWithdrawDialogOpen.value = false
+    showToast('탈퇴가 완료되었어요. 그동안 함께해 주셔서 감사합니다.')
+    await router.push({ name: 'home' })
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '회원 탈퇴에 실패했어요.',
+    )
+  }
 }
 </script>
 
@@ -301,16 +445,16 @@ function handleConfirmWithdraw() {
           aria-label="프로필 이미지 선택"
         >
           <button
-            v-for="avatar in profileData.avatars"
-            :key="avatar.id"
-            :aria-checked="avatar.id === draftAvatarId"
+            v-for="avatar in PROFILE_OPTIONS"
+            :key="avatar.code"
+            :aria-checked="avatar.code === draftAvatarId"
             :class="{
               'profile-page__avatar-option--selected':
-                avatar.id === draftAvatarId,
+                avatar.code === draftAvatarId,
             }"
             role="radio"
             type="button"
-            @click="draftAvatarId = avatar.id"
+            @click="draftAvatarId = avatar.code"
           >
             <img
               :src="avatar.image"
@@ -346,9 +490,9 @@ function handleConfirmWithdraw() {
           <h2 id="recent-record-title">최근 경기 기록</h2>
         </div>
       </header>
-      <ul v-if="gameResultRecords.length">
+      <ul v-if="auth.isAuthenticated && records.length">
         <li
-          v-for="record in gameResultRecords"
+          v-for="record in records"
           :key="record.resultId"
           tabindex="0"
           role="button"
@@ -356,11 +500,11 @@ function handleConfirmWithdraw() {
           @keydown="handleRecordKeydown(record, $event)"
         >
           <span
-            :class="`profile-page__record-icon--${getMyParticipant(record).outcome.toLowerCase()}`"
+            :class="`profile-page__record-icon--${record.myOutcome.toLowerCase()}`"
             aria-hidden="true"
           >
             <svg
-              v-if="getMyParticipant(record).outcome === 'WIN'"
+              v-if="record.myOutcome === 'WIN'"
               viewBox="0 0 20 20"
               fill="none"
             >
@@ -385,7 +529,7 @@ function handleConfirmWithdraw() {
               />
             </svg>
             <svg
-              v-else-if="getMyParticipant(record).outcome === 'LOSE'"
+              v-else-if="record.myOutcome === 'LOSE'"
               viewBox="0 0 20 20"
               fill="none"
             >
@@ -404,7 +548,7 @@ function handleConfirmWithdraw() {
               />
             </svg>
             <svg
-              v-else-if="getMyParticipant(record).outcome === 'DRAW'"
+              v-else-if="record.myOutcome === 'DRAW'"
               viewBox="0 0 20 20"
               fill="none"
             >
@@ -444,11 +588,10 @@ function handleConfirmWithdraw() {
             <b>{{ getSummary(record) }}</b
             ><small
               >{{ formatPlayMode(record.playMode) }} ·
-              {{ formatStartedAt(record.startedAt) }} ·
-              {{ formatDuration(getDurationMs(record)) }} 플레이</small
+              {{ formatStartedAt(record.playedAt) }}</small
             >
           </p>
-          <strong>{{ getMyParticipant(record).rank }}위</strong>
+          <strong>{{ record.myRank }}위</strong>
           <span class="profile-page__record-arrow" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none">
               <path
@@ -462,6 +605,21 @@ function handleConfirmWithdraw() {
           </span>
         </li>
       </ul>
+      <div
+        v-else-if="!auth.isAuthenticated"
+        class="profile-page__records-empty"
+      >
+        <img :src="gameEyeImage" alt="" aria-hidden="true" />
+        <p>로그인하면 내 경기 기록을 볼 수 있어요</p>
+        <span>로그인 후 최근 플레이한 기록이 여기에 표시돼요</span>
+        <button
+          class="profile-page__records-cta"
+          type="button"
+          @click="auth.openLogin"
+        >
+          로그인하기
+        </button>
+      </div>
       <div v-else class="profile-page__records-empty">
         <img :src="gameEyeImage" alt="" aria-hidden="true" />
         <p>아직 경기 기록이 없어요</p>
@@ -470,6 +628,27 @@ function handleConfirmWithdraw() {
           >게임 하러 가기</RouterLink
         >
       </div>
+      <nav
+        v-if="auth.isAuthenticated && totalRecordPages > 1"
+        class="profile-page__records-pagination"
+        aria-label="경기 기록 페이지"
+      >
+        <button
+          type="button"
+          :disabled="recordsPage <= 1 || isLoadingRecords"
+          @click="goToRecordsPage(recordsPage - 1)"
+        >
+          이전
+        </button>
+        <span>{{ recordsPage }} / {{ totalRecordPages }}</span>
+        <button
+          type="button"
+          :disabled="recordsPage >= totalRecordPages || isLoadingRecords"
+          @click="goToRecordsPage(recordsPage + 1)"
+        >
+          다음
+        </button>
+      </nav>
     </section>
 
     <section class="profile-page__account" aria-label="계정 관리">
@@ -479,7 +658,11 @@ function handleConfirmWithdraw() {
         <p>서비스 이용을 종료하거나 계정 정보를 관리할 수 있어요.</p>
       </div>
       <div class="profile-page__account-actions">
-        <button type="button" @click="handleOpenPasswordChange">
+        <button
+          v-if="auth.user.loginType !== 'KAKAO'"
+          type="button"
+          @click="handleOpenPasswordChange"
+        >
           비밀번호 변경
         </button>
         <button
@@ -531,15 +714,17 @@ function handleConfirmWithdraw() {
               {{ formatStartedAt(selectedRecord.startedAt) }} ·
               {{ formatPlayMode(selectedRecord.playMode) }}
             </p>
-            <h2 id="game-result-title">{{ selectedRecord.gameName }}</h2>
+            <h2 id="game-result-title">
+              {{ GAME_DISPLAY_NAME[selectedRecord.gameName] }}
+            </h2>
           </header>
           <div class="game-result-modal__outcome">
             <span
-              :class="`profile-page__record-icon--${getMyParticipant(selectedRecord).outcome.toLowerCase()}`"
+              :class="`profile-page__record-icon--${selectedMyOutcome.toLowerCase()}`"
               aria-hidden="true"
             >
               <svg
-                v-if="getMyParticipant(selectedRecord).outcome === 'WIN'"
+                v-if="selectedMyOutcome === 'WIN'"
                 viewBox="0 0 20 20"
                 fill="none"
               >
@@ -564,7 +749,7 @@ function handleConfirmWithdraw() {
                 />
               </svg>
               <svg
-                v-else-if="getMyParticipant(selectedRecord).outcome === 'LOSE'"
+                v-else-if="selectedMyOutcome === 'LOSE'"
                 viewBox="0 0 20 20"
                 fill="none"
               >
@@ -583,7 +768,7 @@ function handleConfirmWithdraw() {
                 />
               </svg>
               <svg
-                v-else-if="getMyParticipant(selectedRecord).outcome === 'DRAW'"
+                v-else-if="selectedMyOutcome === 'DRAW'"
                 viewBox="0 0 20 20"
                 fill="none"
               >
@@ -620,22 +805,15 @@ function handleConfirmWithdraw() {
               </svg>
             </span>
             <strong
-              >{{ getOutcomeLabel(getMyParticipant(selectedRecord).outcome) }} ·
-              {{ getMyParticipant(selectedRecord).rank }}위</strong
+              >{{ getOutcomeLabel(selectedMyOutcome) }} ·
+              {{ selectedMyRank }}위</strong
             >
           </div>
           <div class="game-result-modal__stats">
-            <article>
-              <span>점수</span
-              ><strong>{{ getMyParticipant(selectedRecord).score }}점</strong>
-            </article>
-            <article>
+            <article v-if="survivalTimeMs(selectedRecord) !== null">
               <span>생존 시간</span
               ><strong>{{
-                formatDuration(
-                  selectedRecord.gameResult['1']?.survivalTimeMs ??
-                    getDurationMs(selectedRecord),
-                )
+                formatDuration(survivalTimeMs(selectedRecord) ?? 0)
               }}</strong>
             </article>
             <article>
@@ -647,8 +825,7 @@ function handleConfirmWithdraw() {
           </div>
           <div class="game-result-modal__participants">
             <div>
-              <span>플레이어</span><span>결과</span><span>순위</span
-              ><span>점수</span>
+              <span>플레이어</span><span>결과</span><span>순위</span>
             </div>
             <div
               v-for="participant in selectedRecord.participants"
@@ -656,8 +833,7 @@ function handleConfirmWithdraw() {
             >
               <b>{{ participant.displayName }}</b
               ><span>{{ getOutcomeLabel(participant.outcome) }}</span
-              ><span>{{ participant.rank }}위</span
-              ><span>{{ participant.score }}</span>
+              ><span>{{ participant.rank }}위</span>
             </div>
           </div>
           <button
@@ -1155,6 +1331,37 @@ function handleConfirmWithdraw() {
   color: #fff;
   background: var(--color-danger, #c2455a);
 }
+.profile-page__records-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 16px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.profile-page__records-pagination button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  color: var(--color-ink);
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.profile-page__records-pagination button:hover:not(:disabled) {
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+}
+.profile-page__records-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .game-result-modal {
   position: fixed;
   inset: 0;
@@ -1253,7 +1460,7 @@ function handleConfirmWithdraw() {
 }
 .game-result-modal__participants > div {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, 0.7fr);
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, 0.7fr);
   gap: 8px;
   padding: 11px 4px;
   border-bottom: 1px solid var(--color-line);

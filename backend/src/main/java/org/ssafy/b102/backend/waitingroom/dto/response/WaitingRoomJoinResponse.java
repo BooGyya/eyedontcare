@@ -18,12 +18,16 @@ public record WaitingRoomJoinResponse(
 	List<WaitingRoomParticipantResponse> participants,
 	Instant createdAt,
 	UUID guestSessionId,
-	String guestNickname
+	String guestNickname,
+	String openviduUrl,
+	String token
 ) {
 
 	public static WaitingRoomJoinResponse of(
 		WaitingRoomSnapshot snapshot,
-		ResolvedWaitingRoomParticipant identity
+		ResolvedWaitingRoomParticipant identity,
+		String openviduUrl,
+		String token
 	) {
 		return new WaitingRoomJoinResponse(
 			snapshot.room().roomId(),
@@ -37,7 +41,9 @@ public record WaitingRoomJoinResponse(
 				.toList(),
 			snapshot.room().createdAt(),
 			identity.guestSessionId(),
-			identity.guestNickname()
+			identity.guestNickname(),
+			openviduUrl,
+			token
 		);
 	}
 }

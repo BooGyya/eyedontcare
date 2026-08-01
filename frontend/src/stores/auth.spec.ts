@@ -1,12 +1,12 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AuthDialog from '../components/auth/AuthDialog.vue'
 import AppHeader from '../components/layout/AppHeader.vue'
 import ProfileMenu from '../components/layout/ProfileMenu.vue'
-import AccountPage from '../pages/AccountPage.vue'
 import { useAuthStore } from './auth'
+import type { AuthUser } from '../types/auth'
 
 function createTestRouter() {
   return createRouter({
@@ -14,30 +14,91 @@ function createTestRouter() {
     routes: [
       { path: '/', component: { template: '<div>home</div>' } },
       { path: '/profile', component: { template: '<div>profile</div>' } },
-      {
-        path: '/notifications',
-        component: { template: '<div>notifications</div>' },
-      },
-      { path: '/settings', component: { template: '<div>settings</div>' } },
     ],
   })
+}
+
+function base64url(value: unknown): string {
+  return globalThis
+    .btoa(JSON.stringify(value))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+/** `sub` 클레임만 있으면 되는 가짜 access 토큰(서명은 검증하지 않음). */
+function fakeAccessToken(userId: number): string {
+  return `header.${base64url({ sub: userId })}.signature`
+}
+
+function envelope(data: unknown, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    json: async () => ({ code: 'OK', message: '', data }),
+  }
+}
+
+const memberUser: AuthUser = {
+  id: 7,
+  nickname: '테스트눈',
+  level: 1,
+  avatar: 'avatar.png',
+  email: 'player@example.com',
+  loginType: 'LOCAL',
 }
 
 describe('auth store and UI', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    globalThis.localStorage?.clear()
   })
 
-  it('starts as a guest and returns to guest after mock authentication', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('starts as a guest and returns to guest after logout', async () => {
     const auth = useAuthStore()
 
     expect(auth.status).toBe('guest')
-    auth.signInWithMockKakao()
+    auth.setAuthenticatedUser(memberUser)
     expect(auth.status).toBe('authenticated')
-    expect(auth.displayName).toBe(auth.user.nickname)
-    auth.signOut()
+    expect(auth.displayName).toBe('테스트눈')
+
+    await auth.signOut()
     expect(auth.status).toBe('guest')
     expect(auth.displayName).toBe('게스트 플레이어')
+  })
+
+  it('logs in through the API and loads the member profile', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/auth/login')) {
+        return envelope({ accessToken: fakeAccessToken(7), refreshToken: 'r' })
+      }
+      if (url.includes('/users/7')) {
+        return envelope({
+          id: 7,
+          email: 'player@example.com',
+          nickname: '테스트눈',
+          profileImageCode: 'PROFILE_1',
+          loginType: 'LOCAL',
+          createdAt: '2026-08-01T00:00:00Z',
+        })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const auth = useAuthStore()
+    await auth.login('player@example.com', 'password1')
+
+    expect(auth.status).toBe('authenticated')
+    expect(auth.user.id).toBe(7)
+    expect(auth.user.nickname).toBe('테스트눈')
+    expect(globalThis.localStorage.getItem('eye-dont-care.accessToken')).toBe(
+      fakeAccessToken(7),
+    )
   })
 
   it('switches between signup and login screens and closes the auth dialog', async () => {
@@ -51,18 +112,35 @@ describe('auth store and UI', () => {
     auth.openSignup()
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[aria-label="카카오로 시작하기"]').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('비밀번호 확인')
     expect(wrapper.find('.auth-dialog__signup-panel').exists()).toBe(true)
 
     await wrapper.get('.auth-dialog__switch button').trigger('click')
     expect(wrapper.text()).toContain('처음이신가요?')
-    expect(wrapper.text()).not.toContain('비밀번호 확인')
 
     await wrapper.get('[aria-label="인증 창 닫기"]').trigger('click')
     expect(auth.isDialogOpen).toBe(false)
   })
 
-  it('renders signup and login controls for guests and a profile menu for members', async () => {
+  it('validates signup fields before calling the API', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const auth = useAuthStore()
+    const wrapper = mount(AuthDialog, {
+      global: { plugins: [pinia], stubs: { Teleport: true } },
+    })
+
+    auth.openSignup()
+    await wrapper.vm.$nextTick()
+    await wrapper.get('.auth-dialog__form').trigger('submit')
+
+    expect(wrapper.text()).toContain('이메일을 입력해주세요.')
+    expect(wrapper.text()).toContain('비밀번호를 입력해주세요.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('renders guest controls, and a profile menu once authenticated', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const router = createTestRouter()
@@ -75,71 +153,23 @@ describe('auth store and UI', () => {
     expect(wrapper.text()).toContain('로그인')
     expect(wrapper.find('[aria-label="프로필 메뉴"]').exists()).toBe(false)
 
-    auth.signInWithMockKakao()
+    auth.setAuthenticatedUser(memberUser)
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[aria-label="프로필 메뉴"]').exists()).toBe(true)
   })
 
-  it('creates a random nickname without retaining form credentials', () => {
-    const auth = useAuthStore()
-
-    const nickname = auth.registerMockUser()
-
-    expect(auth.status).toBe('authenticated')
-    expect(auth.user.nickname).toBe(nickname)
-    expect(nickname).not.toBe('')
-  })
-
-  it('validates signup fields before creating a mock member', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore()
-    const wrapper = mount(AuthDialog, {
-      global: { plugins: [pinia], stubs: { Teleport: true } },
-    })
-
-    auth.openSignup()
-    await wrapper.vm.$nextTick()
-    await wrapper.get('.auth-dialog__form').trigger('submit')
-    expect(wrapper.text()).toContain('이메일을 입력해주세요.')
-    expect(wrapper.text()).toContain('비밀번호를 입력해주세요.')
-
-    await wrapper.get('#signup-email').setValue('new-player@example.com')
-    await wrapper.get('#signup-password').setValue('password1')
-    await wrapper.get('.auth-dialog__form').trigger('submit')
-    expect(auth.status).toBe('authenticated')
-    expect(auth.user.nickname).not.toBe('')
-  })
-
-  it('shows a generated nickname in the profile menu', async () => {
+  it('shows the member nickname in the profile menu', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
     const auth = useAuthStore()
-    const nickname = auth.registerMockUser()
+    auth.setAuthenticatedUser(memberUser)
     const wrapper = mount(ProfileMenu, {
       global: { plugins: [pinia, router] },
     })
 
-    expect(wrapper.text()).toContain(nickname)
-  })
-
-  it('shows the generated nickname in the profile page summary', () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore()
-    const nickname = auth.registerMockUser()
-    const wrapper = mount(AccountPage, {
-      props: {
-        title: '마이페이지',
-        description: '내 활동과 게임 기록을 한눈에 확인해 보세요.',
-        items: ['내 프로필'],
-      },
-      global: { plugins: [pinia] },
-    })
-
-    expect(wrapper.get('.account-page__profile').text()).toContain(nickname)
+    expect(wrapper.text()).toContain('테스트눈')
   })
 })
