@@ -1,6 +1,7 @@
 import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
 import GamePlayPage from './GamePlayPage.vue'
 import GameResultPage from './GameResultPage.vue'
@@ -30,7 +31,9 @@ describe('gameplay routes', () => {
       const router = createGameRouter()
       await router.push(`/games/${gameId}/play?mode=solo`)
       await router.isReady()
-      const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+      const wrapper = mount(GamePlayPage, {
+        global: { plugins: [router, createPinia()] },
+      })
       expect(wrapper.find('.play-shell').exists()).toBe(true)
       wrapper.unmount()
     },
@@ -42,7 +45,7 @@ describe('gameplay routes', () => {
     await router.isReady()
     const wrapper = mount(GamePlayPage, {
       attachTo: document.body,
-      global: { plugins: [router] },
+      global: { plugins: [router, createPinia()] },
     })
 
     await wrapper.get('.draw-tools .primary').trigger('click')
@@ -64,7 +67,9 @@ describe('gameplay routes', () => {
       const router = createGameRouter()
       await router.push(`/games/rhythm/play?mode=${mode}`)
       await router.isReady()
-      const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+      const wrapper = mount(GamePlayPage, {
+        global: { plugins: [router, createPinia()] },
+      })
 
       expect(wrapper.findAll('.rhythm-duel-player')).toHaveLength(2)
       expect(wrapper.text()).toContain('상대 게임 화면')
