@@ -29,6 +29,12 @@ export interface UserResponse {
   createdAt: string
 }
 
+/** `GET /api/v1/users/nickname/check` 응답 data. */
+export interface NicknameCheckResponse {
+  nickname: string
+  available: boolean
+}
+
 /**
  * UI 전반에서 쓰는 현재 사용자 모델.
  *
@@ -41,6 +47,8 @@ export interface AuthUser {
   /** 백엔드에 레벨 개념이 없어 임시 placeholder다. Phase 4에서 실제 통계로 대체한다. */
   level: number
   avatar: string
+  /** 현재 프로필 이미지 코드. 아바타 선택지 프리셀렉트에 쓴다. 게스트는 null. */
+  profileImageCode: ProfileImageCode | null
   email: string | null
   loginType: UserLoginType | null
 }

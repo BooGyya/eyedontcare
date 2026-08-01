@@ -5,8 +5,14 @@ import {
   loginWithKakao as apiLoginWithKakao,
   logout as apiLogout,
   signup as apiSignup,
+  withdraw as apiWithdraw,
 } from '../api/auth'
-import { avatarForProfileCode, getUser } from '../api/user'
+import {
+  avatarForProfileCode,
+  getUser,
+  updatePassword as apiUpdatePassword,
+  updateProfile as apiUpdateProfile,
+} from '../api/user'
 import { decodeUserId } from '../api/jwt'
 import {
   clearTokens,
@@ -18,6 +24,7 @@ import type {
   AuthDialogScreen,
   AuthStatus,
   AuthUser,
+  ProfileImageCode,
   TokenResponse,
   UserResponse,
 } from '../types/auth'
@@ -31,6 +38,7 @@ function guestUser(): AuthUser {
     nickname: '게스트 플레이어',
     level: 0,
     avatar: avatarForProfileCode(null),
+    profileImageCode: null,
     email: null,
     loginType: null,
   }
@@ -42,6 +50,7 @@ function toAuthUser(profile: UserResponse): AuthUser {
     nickname: profile.nickname,
     level: PLACEHOLDER_LEVEL,
     avatar: avatarForProfileCode(profile.profileImageCode),
+    profileImageCode: profile.profileImageCode,
     email: profile.email,
     loginType: profile.loginType,
   }
@@ -160,6 +169,31 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** 닉네임/프로필 이미지 수정. 응답(UserResponse)으로 user를 갱신해 헤더/메뉴와 즉시 일관. */
+  async function updateProfile(patch: {
+    nickname?: string
+    profileImageCode?: ProfileImageCode
+  }) {
+    if (user.value.id === null) {
+      throw new Error('로그인이 필요해요.')
+    }
+    const profile = await apiUpdateProfile(user.value.id, patch)
+    setAuthenticatedUser(toAuthUser(profile))
+  }
+
+  async function changePassword(currentPassword: string, newPassword: string) {
+    if (user.value.id === null) {
+      throw new Error('로그인이 필요해요.')
+    }
+    await apiUpdatePassword(user.value.id, { currentPassword, newPassword })
+  }
+
+  /** 회원 탈퇴 후 게스트로 되돌린다. */
+  async function withdraw() {
+    await apiWithdraw()
+    resetToGuest()
+  }
+
   // 자동 재발급까지 실패하면(세션 만료) 게스트로 전환한다.
   setSessionExpiredHandler(resetToGuest)
 
@@ -181,5 +215,8 @@ export const useAuthStore = defineStore('auth', () => {
     startKakaoLogin,
     signOut,
     restoreSession,
+    updateProfile,
+    changePassword,
+    withdraw,
   }
 })
