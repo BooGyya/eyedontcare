@@ -12,6 +12,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isDialogOpen = ref(false)
   const dialogScreen = ref<AuthDialogScreen>('login')
   const user = ref<MockAuthenticatedUser>({ ...mockAuthenticatedUser })
+  // 로그인(Auth) 연동 전까지는 항상 null이라 대기방·매칭은 게스트 신원으로 동작한다.
+  // 실제 로그인이 붙으면 여기에 JWT를 채워 회원 신원 경로가 켜진다. [[resolveIdentity]]
+  const accessToken = ref<string | null>(null)
 
   const isAuthenticated = computed(() => status.value === 'authenticated')
   const isGuest = computed(() => status.value === 'guest')
@@ -61,6 +64,7 @@ export const useAuthStore = defineStore('auth', () => {
     isGuest,
     displayName,
     user,
+    accessToken,
     openLogin,
     openSignup,
     closeDialog,
