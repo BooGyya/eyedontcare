@@ -24,6 +24,15 @@ export const GAME_NAME_BY_ID: Record<GameDetailId, GameName> = {
   blink: 'BLINK',
 }
 
+/** 백엔드 `GameName` enum → 사용자에게 보여줄 한글 게임명. */
+export const GAME_DISPLAY_NAME: Record<GameName, string> = {
+  EYEFIGHT: '눈싸움',
+  BLINK: '깜빡임 참기',
+  DRAWING: '눈으로 그리기',
+  RHYTHM: '리듬 게임',
+  HOCKEY: '에어하키',
+}
+
 export interface WaitingRoomParticipant {
   participantKey: string
   displayName: string
