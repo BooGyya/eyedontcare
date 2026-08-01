@@ -25,10 +25,17 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
   jpa:
+    # 엔티티로 스키마를 생성/갱신한다. 프로젝트에 마이그레이션 도구가 없어 dev와 동일하게 맞춘다.
+    # (실운영 규모에서는 Flyway/Liquibase 도입 후 validate로 되돌리는 것을 권장)
+    defer-datasource-initialization: true
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     open-in-view: false
     properties:
       hibernate:
         format_sql: false
     show-sql: false
+  sql:
+    init:
+      # data.sql로 games 카탈로그를 시드한다. WHERE NOT EXISTS라 매 기동마다 멱등하다.
+      mode: always
