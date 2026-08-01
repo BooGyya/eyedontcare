@@ -8,6 +8,7 @@ import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
 import { useLocalCamera } from '../composables/useLocalCamera'
+import { useGameResultSubmission } from '../composables/useGameResultSubmission'
 import { useMediaSessionStore } from '../stores/mediaSession'
 
 const route = useRoute()
@@ -155,8 +156,18 @@ const drawAccumulatedScore = computed(() =>
     .reduce((total, result) => total + result.score, 0),
 )
 
+// 게임 종료 시 결과를 저장하는 파이프라인(지금은 mock 값). 실패해도 화면 전환은 막지 않는다.
+const { submitPlayedResult } = useGameResultSubmission()
+const playStartedAt = new Date().toISOString()
+
 function toResult() {
   if (!game.value) return
+  void submitPlayedResult({
+    gameSlug: game.value.id,
+    mode: mode.value,
+    startedAt: playStartedAt,
+    score: session.value?.score ?? 0,
+  })
   router.push({
     name: 'game-result',
     params: { gameId: game.value.id },
