@@ -1,19 +1,29 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import gameEyeImage from '../assets/images/games/game-eye.png'
 import { useToast } from '../composables/useToast'
 import { gameResultRecords } from '../mocks/gameResults'
 import { profileData } from '../mocks/profile'
 import { useAuthStore } from '../stores/auth'
+import { PROFILE_OPTIONS, checkNickname as apiCheckNickname } from '../api/user'
+import { ApiError } from '../api/http'
 import type { GameOutcome, GameResultDetail } from '../types/gameResult'
+import type { ProfileImageCode } from '../types/auth'
+
+/** 백엔드 닉네임 규칙: 공백 없이 한글/영문/숫자 2~10자. */
+const NICKNAME_PATTERN = /^[가-힣A-Za-z0-9]{2,10}$/
 
 const { showToast } = useToast()
+const router = useRouter()
 const auth = useAuthStore()
 const isEditing = ref(false)
 const nickname = ref(auth.user.nickname)
 const draftNickname = ref(auth.user.nickname)
-const selectedAvatarId = ref(profileData.avatars[0]?.id ?? '')
-const draftAvatarId = ref(selectedAvatarId.value)
+const selectedAvatarId = ref<ProfileImageCode>(
+  auth.user.profileImageCode ?? 'PROFILE_1',
+)
+const draftAvatarId = ref<ProfileImageCode>(selectedAvatarId.value)
 const isNicknameChecked = ref(false)
 const isPasswordDialogOpen = ref(false)
 const currentPassword = ref('')
@@ -28,9 +38,18 @@ let previousBodyOverflow = ''
 
 const selectedAvatar = computed(
   () =>
-    profileData.avatars.find(
-      (avatar) => avatar.id === selectedAvatarId.value,
-    ) ?? profileData.avatars[0],
+    PROFILE_OPTIONS.find((option) => option.code === selectedAvatarId.value) ??
+    PROFILE_OPTIONS[0],
+)
+
+// 로그인/프로필 갱신으로 스토어 user가 바뀌면(편집 중이 아닐 때) 표시값을 동기화한다.
+watch(
+  () => auth.user,
+  (nextUser) => {
+    if (isEditing.value) return
+    nickname.value = nextUser.nickname
+    selectedAvatarId.value = nextUser.profileImageCode ?? 'PROFILE_1'
+  },
 )
 
 const changePasswordsMatch = computed(
@@ -126,28 +145,61 @@ function handleNicknameChange() {
   isNicknameChecked.value = false
 }
 
-function handleCheckNickname() {
-  if (draftNickname.value.trim().length < 2) {
-    showToast('닉네임은 2자 이상 입력해 주세요.')
+async function handleCheckNickname() {
+  const value = draftNickname.value.trim()
+  if (!NICKNAME_PATTERN.test(value)) {
+    showToast('닉네임은 공백 없이 한글/영문/숫자 2~10자여야 해요.')
     return
   }
-
-  isNicknameChecked.value = true
-  showToast('사용 가능한 닉네임이에요.')
+  try {
+    const result = await apiCheckNickname(value)
+    isNicknameChecked.value = result.available
+    showToast(
+      result.available
+        ? '사용 가능한 닉네임이에요.'
+        : '이미 사용 중인 닉네임이에요.',
+    )
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '닉네임 확인에 실패했어요.',
+    )
+  }
 }
 
-function handleSaveProfile() {
-  if (!isNicknameChecked.value && draftNickname.value !== nickname.value) {
+async function handleSaveProfile() {
+  if (auth.user.id === null) {
+    showToast('로그인이 필요해요.')
+    auth.openLogin()
+    return
+  }
+  const nextNickname = draftNickname.value.trim()
+  const nicknameChanged = nextNickname !== auth.user.nickname
+  const avatarChanged = draftAvatarId.value !== auth.user.profileImageCode
+
+  if (nicknameChanged && !isNicknameChecked.value) {
     showToast('닉네임 중복 확인을 먼저 해주세요.')
     return
   }
+  if (!nicknameChanged && !avatarChanged) {
+    isEditing.value = false
+    return
+  }
 
-  nickname.value = draftNickname.value.trim()
-  selectedAvatarId.value = draftAvatarId.value
-  auth.user.nickname = nickname.value
-  auth.user.avatar = selectedAvatar.value?.image ?? profileData.avatar
-  isEditing.value = false
-  showToast('프로필 정보가 저장되었어요.')
+  const patch: { nickname?: string; profileImageCode?: ProfileImageCode } = {}
+  if (nicknameChanged) patch.nickname = nextNickname
+  if (avatarChanged) patch.profileImageCode = draftAvatarId.value
+
+  try {
+    await auth.updateProfile(patch)
+    nickname.value = auth.user.nickname
+    selectedAvatarId.value = auth.user.profileImageCode ?? 'PROFILE_1'
+    isEditing.value = false
+    showToast('프로필 정보가 저장되었어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '프로필 저장에 실패했어요.',
+    )
+  }
 }
 
 function handleCancelEdit() {
@@ -209,7 +261,7 @@ function handleClosePasswordChange() {
   isPasswordDialogOpen.value = false
 }
 
-function handleSubmitPasswordChange() {
+async function handleSubmitPasswordChange() {
   if (!currentPassword.value.trim()) {
     showToast('현재 비밀번호를 입력해 주세요.')
     return
@@ -225,17 +277,32 @@ function handleSubmitPasswordChange() {
     return
   }
 
-  isPasswordDialogOpen.value = false
-  showToast('비밀번호가 변경되었어요.')
+  try {
+    await auth.changePassword(currentPassword.value, changePassword.value)
+    isPasswordDialogOpen.value = false
+    showToast('비밀번호가 변경되었어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '비밀번호 변경에 실패했어요.',
+    )
+  }
 }
 
 function handleWithdraw() {
   isWithdrawDialogOpen.value = true
 }
 
-function handleConfirmWithdraw() {
-  isWithdrawDialogOpen.value = false
-  showToast('탈퇴가 접수되었어요. 그동안 함께해 주셔서 감사합니다.')
+async function handleConfirmWithdraw() {
+  try {
+    await auth.withdraw()
+    isWithdrawDialogOpen.value = false
+    showToast('탈퇴가 완료되었어요. 그동안 함께해 주셔서 감사합니다.')
+    await router.push({ name: 'home' })
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '회원 탈퇴에 실패했어요.',
+    )
+  }
 }
 </script>
 
@@ -301,16 +368,16 @@ function handleConfirmWithdraw() {
           aria-label="프로필 이미지 선택"
         >
           <button
-            v-for="avatar in profileData.avatars"
-            :key="avatar.id"
-            :aria-checked="avatar.id === draftAvatarId"
+            v-for="avatar in PROFILE_OPTIONS"
+            :key="avatar.code"
+            :aria-checked="avatar.code === draftAvatarId"
             :class="{
               'profile-page__avatar-option--selected':
-                avatar.id === draftAvatarId,
+                avatar.code === draftAvatarId,
             }"
             role="radio"
             type="button"
-            @click="draftAvatarId = avatar.id"
+            @click="draftAvatarId = avatar.code"
           >
             <img
               :src="avatar.image"
@@ -479,7 +546,11 @@ function handleConfirmWithdraw() {
         <p>서비스 이용을 종료하거나 계정 정보를 관리할 수 있어요.</p>
       </div>
       <div class="profile-page__account-actions">
-        <button type="button" @click="handleOpenPasswordChange">
+        <button
+          v-if="auth.user.loginType !== 'KAKAO'"
+          type="button"
+          @click="handleOpenPasswordChange"
+        >
           비밀번호 변경
         </button>
         <button
