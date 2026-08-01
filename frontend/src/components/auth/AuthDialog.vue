@@ -3,9 +3,11 @@ import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import kakaoTalkIcon from '../../assets/images/illustrations/kakao-talk.png'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
+import { ApiError } from '../../api/http'
 
 const auth = useAuthStore()
 const { showToast } = useToast()
+const isSubmitting = ref(false)
 const dialogRef = ref<InstanceType<typeof globalThis.HTMLElement> | null>(null)
 const signupForm = reactive({
   email: '',
@@ -77,23 +79,52 @@ function validateLogin() {
   return !Object.values(loginErrors).some(Boolean)
 }
 
-function handleMockKakaoLogin() {
-  auth.signInWithMockKakao()
-  showToast('카카오 연동 없이 mock 인증 상태로 전환했어요.')
+function handleKakaoLogin() {
+  try {
+    auth.startKakaoLogin()
+  } catch (error) {
+    showToast(
+      error instanceof Error
+        ? error.message
+        : '카카오 로그인을 시작하지 못했어요.',
+    )
+  }
 }
 
-function handleSignupSubmit() {
-  if (!validateSignup()) return
-  const nickname = auth.registerMockUser()
-  showToast(`${nickname}님, mock 가입으로 환영해요!`)
-  clearForms()
+async function handleSignupSubmit() {
+  if (!validateSignup() || isSubmitting.value) return
+  isSubmitting.value = true
+  try {
+    await auth.signup(signupForm.email, signupForm.password)
+    showToast('회원가입이 완료됐어요. 환영해요!')
+    clearForms()
+  } catch (error) {
+    showToast(
+      error instanceof ApiError
+        ? error.message
+        : '회원가입에 실패했어요. 잠시 후 다시 시도해 주세요.',
+    )
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
-function handleLoginSubmit() {
-  if (!validateLogin()) return
-  auth.signInWithMockKakao()
-  showToast('이메일 정보는 저장하지 않고 mock 인증으로 전환했어요.')
-  clearForms()
+async function handleLoginSubmit() {
+  if (!validateLogin() || isSubmitting.value) return
+  isSubmitting.value = true
+  try {
+    await auth.login(loginForm.email, loginForm.password)
+    showToast('로그인했어요.')
+    clearForms()
+  } catch (error) {
+    showToast(
+      error instanceof ApiError
+        ? error.message
+        : '로그인에 실패했어요. 이메일과 비밀번호를 확인해 주세요.',
+    )
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 watch(
@@ -200,7 +231,11 @@ onBeforeUnmount(() => {
                 >
                   {{ signupErrors.password }}
                 </p>
-                <button class="auth-dialog__submit" type="submit">
+                <button
+                  class="auth-dialog__submit"
+                  type="submit"
+                  :disabled="isSubmitting"
+                >
                   회원가입
                 </button>
               </form>
@@ -214,7 +249,7 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 aria-label="카카오로 시작하기"
-                @click="handleMockKakaoLogin"
+                @click="handleKakaoLogin"
               >
                 <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
                   <img :src="kakaoTalkIcon" alt="" />
@@ -261,7 +296,13 @@ onBeforeUnmount(() => {
               >
                 {{ loginErrors.password }}
               </p>
-              <button class="auth-dialog__submit" type="submit">로그인</button>
+              <button
+                class="auth-dialog__submit"
+                type="submit"
+                :disabled="isSubmitting"
+              >
+                로그인
+              </button>
             </form>
             <p class="auth-dialog__switch">
               처음이신가요?
@@ -272,7 +313,7 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 aria-label="카카오로 로그인"
-                @click="handleMockKakaoLogin"
+                @click="handleKakaoLogin"
               >
                 <span class="auth-dialog__social-kakao-icon" aria-hidden="true">
                   <img :src="kakaoTalkIcon" alt="" />

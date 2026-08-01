@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import ProfileMenu from '../components/layout/ProfileMenu.vue'
@@ -21,8 +21,18 @@ describe('ProfilePage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/profile')
     await router.isReady()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().setAuthenticatedUser({
+      id: 1,
+      nickname: profileData.nickname,
+      level: 1,
+      avatar: 'avatar.png',
+      email: null,
+      loginType: 'LOCAL',
+    })
     const wrapper = mount(ProfilePage, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [pinia, router] },
     })
 
     expect(wrapper.text()).toContain(profileData.nickname)
