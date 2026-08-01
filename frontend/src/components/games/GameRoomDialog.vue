@@ -1,26 +1,47 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { ApiError } from '../../api/http'
+import { joinMatch, cancelMatch } from '../../api/match'
+import { currentAccessToken, resolveIdentity } from '../../api/identity'
+import { useMatchSocket } from '../../composables/useMatchSocket'
+import { GAME_NAME_BY_ID } from '../../types/waitingRoom'
+import type { GameDetailId } from '../../types/game-detail'
 
 type RoomFlow = 'friends' | 'random'
 
 const props = defineProps<{
   open: boolean
+  gameId: GameDetailId
   gameTitle: string
   flow: RoomFlow
 }>()
 const emit = defineEmits<{
   close: []
   enterRoom: [
-    payload: { mode: RoomFlow; roomCode: string; role?: 'host' | 'player' },
+    payload: {
+      mode: RoomFlow
+      roomCode?: string
+      roomId?: string
+      role?: 'host' | 'player'
+    },
   ]
 }>()
 const dialogRef = ref<globalThis.HTMLElement | null>(null)
 const roomCode = ref('')
 const codeError = ref('')
 const matchingSeconds = ref(0)
-let matchTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+const matchError = ref('')
 let matchInterval: ReturnType<typeof globalThis.setInterval> | undefined
 let previousBodyOverflow = ''
+
+// 랜덤 매칭 소켓: 성사되면 서버가 roomId를 푸시한다. 그 방으로 대기방에 접속하도록 위로 넘긴다.
+const matchSocket = useMatchSocket({
+  onMatchSuccess: (roomId) => enterRandomRoom(roomId),
+  onError: (_code, message) => {
+    matchError.value = message
+    clearMatching()
+  },
+})
 
 const title = computed(() =>
   props.flow === 'friends' ? '친구와 1:1 대결' : '랜덤 매칭',
@@ -35,13 +56,19 @@ const matchingTime = computed(
 )
 
 function clearMatching() {
-  if (matchTimer) globalThis.clearTimeout(matchTimer)
   if (matchInterval) globalThis.clearInterval(matchInterval)
-  matchTimer = undefined
   matchInterval = undefined
 }
-function closeDialog() {
+function stopMatching() {
   clearMatching()
+  matchSocket.close()
+}
+function closeDialog() {
+  // 랜덤 매칭 중 닫기 = 매칭 취소. 소켓만 닫아도 서버가 정리하지만, 소켓 연결 전 취소도 커버한다.
+  if (props.flow === 'random') {
+    void cancelMatch(currentAccessToken()).catch(() => undefined)
+  }
+  stopMatching()
   emit('close')
 }
 function createRoom() {
@@ -62,19 +89,41 @@ function joinRoom() {
     role: 'player',
   })
 }
-function startMatching() {
+function enterRandomRoom(roomId: string) {
+  stopMatching()
+  emit('enterRoom', { mode: 'random', roomId })
+}
+async function startMatching() {
   clearMatching()
+  matchError.value = ''
   matchingSeconds.value = 0
   matchInterval = globalThis.setInterval(() => {
     matchingSeconds.value += 1
   }, 1000)
-  matchTimer = globalThis.setTimeout(() => {
+
+  // 신규 게스트는 세션이 없으므로 join을 먼저 호출해 세션을 확보하고, 이미 성사된 경우
+  // 응답의 waitingRoomId로 곧바로 입장한다. 아니면 소켓을 열어 MATCH_SUCCESS를 기다린다.
+  try {
+    const result = await joinMatch(GAME_NAME_BY_ID[props.gameId], currentAccessToken())
+    if (!props.open) return
+    if (result.waitingRoomId) {
+      enterRandomRoom(result.waitingRoomId)
+      return
+    }
+    const identity = resolveIdentity()
+    if (!identity) {
+      matchError.value = '매칭을 시작할 수 없어요. 잠시 후 다시 시도해 주세요.'
+      clearMatching()
+      return
+    }
+    matchSocket.connect(identity)
+  } catch (error) {
+    matchError.value =
+      error instanceof ApiError
+        ? error.message
+        : '매칭 요청에 실패했어요. 잠시 후 다시 시도해 주세요.'
     clearMatching()
-    emit('enterRoom', {
-      mode: 'random',
-      roomCode: String(Math.floor(1000 + Math.random() * 9000)),
-    })
-  }, 2600)
+  }
 }
 function handleBackdropClick(event: globalThis.MouseEvent) {
   if (event.target === event.currentTarget) closeDialog()
@@ -86,12 +135,13 @@ function handleKeydown(event: globalThis.KeyboardEvent) {
 watch(
   () => props.open,
   async (isOpen) => {
-    clearMatching()
+    stopMatching()
     roomCode.value = ''
     codeError.value = ''
+    matchError.value = ''
     matchingSeconds.value = 0
     if (!isOpen) return
-    if (props.flow === 'random') startMatching()
+    if (props.flow === 'random') void startMatching()
     await nextTick()
     dialogRef.value
       ?.querySelector<globalThis.HTMLElement>('[data-dialog-initial-focus]')
@@ -118,7 +168,7 @@ watch(
   },
 )
 onBeforeUnmount(() => {
-  clearMatching()
+  stopMatching()
   globalThis.removeEventListener('keydown', handleKeydown)
   if (typeof globalThis.document !== 'undefined')
     globalThis.document.body.style.overflow = previousBodyOverflow
@@ -227,7 +277,9 @@ onBeforeUnmount(() => {
             <p>
               대기 시간 <b>{{ matchingTime }}</b>
             </p>
-            <small>잠시만 기다려 주세요. mock 상대를 곧 연결할게요.</small
+            <small v-if="!matchError"
+              >실력이 비슷한 상대를 찾고 있어요. 잠시만 기다려 주세요.</small
+            ><small v-else class="error" role="alert">{{ matchError }}</small
             ><button
               class="secondary"
               type="button"
