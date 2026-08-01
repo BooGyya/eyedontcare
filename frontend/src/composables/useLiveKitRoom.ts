@@ -3,6 +3,7 @@ import type {
   LocalTrack,
   RemoteParticipant,
   RemoteTrack,
+  RemoteTrackPublication,
   Room,
 } from 'livekit-client'
 import type {
@@ -87,6 +88,7 @@ export function useLiveKitRoom() {
 
   function handleTrackSubscribed(
     track: RemoteTrack,
+    _publication: RemoteTrackPublication,
     participant: RemoteParticipant,
   ) {
     if (!livekit) return

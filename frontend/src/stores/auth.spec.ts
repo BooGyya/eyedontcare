@@ -44,6 +44,7 @@ const memberUser: AuthUser = {
   nickname: '테스트눈',
   level: 1,
   avatar: 'avatar.png',
+  profileImageCode: 'PROFILE_1',
   email: 'player@example.com',
   loginType: 'LOCAL',
 }

@@ -102,6 +102,9 @@ const participantCount = computed(
 const readyMedia = useLiveKitRoom()
 const opponentVideoRef = readyMedia.remoteVideoRef
 const hasPeerCamera = computed(() => readyMedia.hasRemoteVideo.value)
+// vue-tsc가 문자열 템플릿 ref(ref="opponentVideoRef")를 '사용'으로 세지 못해 noUnusedLocals가
+// 오탐한다. 실제로는 <video ref="opponentVideoRef">에 런타임 바인딩된다.
+void opponentVideoRef
 let readyMediaStarted = false
 
 async function connectReadyMedia() {

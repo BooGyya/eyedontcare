@@ -15,6 +15,7 @@ function mountRankingList(ranking: GameRanking, authenticated = false) {
       nickname: '눈썹 최강자',
       level: 12,
       avatar: 'avatar.png',
+      profileImageCode: 'PROFILE_1',
       email: null,
       loginType: 'LOCAL',
     })

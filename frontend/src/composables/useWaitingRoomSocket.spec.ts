@@ -20,7 +20,10 @@ class MockWebSocket {
   onerror: (() => void) | null = null
   onclose: (() => void) | null = null
 
-  constructor(readonly url: string) {
+  url: string
+
+  constructor(url: string) {
+    this.url = url
     MockWebSocket.instances.push(this)
   }
 

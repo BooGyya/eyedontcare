@@ -127,6 +127,12 @@ const {
   start: startLocalCamera,
 } = useLocalCamera()
 
+// vue-tsc는 컴포저블이 소유한 ref를 문자열 템플릿 ref(ref="...")에 바인딩할 때 '사용'으로
+// 인식하지 못해 noUnusedLocals 오탐을 낸다. 실제로는 아래 <video ref="..."> 요소들에 런타임
+// 바인딩되므로, 여기서 명시적으로 참조만 남겨 둔다.
+void remoteVideoRef
+void localCameraVideoRef
+
 // 웹캠을 쓰는 게임.
 const usesLocalCamera = computed(() =>
   ['hold', 'rhythm', 'draw', 'blink', 'air'].includes(game.value?.id ?? ''),
