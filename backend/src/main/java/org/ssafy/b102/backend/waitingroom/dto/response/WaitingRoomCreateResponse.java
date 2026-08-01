@@ -17,13 +17,17 @@ public record WaitingRoomCreateResponse(
 	WaitingRoomParticipantResponse participant,
 	Instant createdAt,
 	UUID guestSessionId,
-	String guestNickname
+	String guestNickname,
+	String openviduUrl,
+	String token
 ) {
 
 	public static WaitingRoomCreateResponse of(
 		WaitingRoom room,
 		WaitingRoomParticipant participant,
-		ResolvedWaitingRoomParticipant identity
+		ResolvedWaitingRoomParticipant identity,
+		String openviduUrl,
+		String token
 	) {
 		return new WaitingRoomCreateResponse(
 			room.roomId(),
@@ -34,7 +38,9 @@ public record WaitingRoomCreateResponse(
 			WaitingRoomParticipantResponse.from(participant),
 			room.createdAt(),
 			identity.guestSessionId(),
-			identity.guestNickname()
+			identity.guestNickname(),
+			openviduUrl,
+			token
 		);
 	}
 }

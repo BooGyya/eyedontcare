@@ -1,11 +1,9 @@
 import { onScopeDispose, ref, shallowRef, watch } from 'vue'
-import {
+import type {
+  LocalTrack,
+  RemoteParticipant,
+  RemoteTrack,
   Room,
-  RoomEvent,
-  Track,
-  type LocalTrack,
-  type RemoteParticipant,
-  type RemoteTrack,
 } from 'livekit-client'
 import type {
   MediaSessionCredentials,
@@ -15,7 +13,18 @@ import type {
 interface ConnectOptions {
   /** 마이크도 함께 송출할지. 기본은 false(시선 게임은 영상만 필요). */
   audio?: boolean
+  /**
+   * 이미 확보한 로컬 카메라 트랙(getUserMedia). 주면 이 트랙을 그대로 송출하므로
+   * 카메라를 두 번 여는 충돌을 피한다. 없으면 LiveKit이 직접 카메라를 켠다.
+   */
+  localTrack?: globalThis.MediaStreamTrack | null
 }
+
+/**
+ * 무거운 `livekit-client`는 실제 연결 시점에만 동적으로 불러온다. 대결이 아닌 화면이나
+ * 테스트(jsdom)에서는 이 모듈을 import해도 WebRTC 라이브러리가 로드되지 않는다.
+ */
+let livekit: typeof import('livekit-client') | null = null
 
 /**
  * LiveKit(OpenVidu) 미디어 방 연결을 다루는 공용 컴포저블.
@@ -30,6 +39,9 @@ export function useLiveKitRoom() {
   const isConnected = ref(false)
   const errorMessage = ref<string | null>(null)
   const remoteParticipants = ref<RemoteMediaParticipant[]>([])
+  // 원격 영상 트랙을 구독했는지(렌더링 판단용). mediaStreamTrack 유무에 의존하지 않고
+  // 트랙 존재 자체로 판단해야 구독 직후에도 안정적으로 표시된다.
+  const hasRemoteVideo = ref(false)
 
   const localVideoRef = ref<globalThis.HTMLVideoElement | null>(null)
   const remoteVideoRef = ref<globalThis.HTMLVideoElement | null>(null)
@@ -77,14 +89,16 @@ export function useLiveKitRoom() {
     track: RemoteTrack,
     participant: RemoteParticipant,
   ) {
+    if (!livekit) return
     const tracks = remoteTracksByIdentity.get(participant.identity) ?? {}
-    if (track.kind === Track.Kind.Video) {
+    if (track.kind === livekit.Track.Kind.Video) {
       tracks.video = track
+      hasRemoteVideo.value = true
       if (!primaryRemoteVideoTrack) {
         primaryRemoteVideoTrack = track
-        syncPrimaryRemoteVideo()
       }
-    } else if (track.kind === Track.Kind.Audio) {
+      syncPrimaryRemoteVideo()
+    } else if (track.kind === livekit.Track.Kind.Audio) {
       tracks.audio = track
       const element = track.attach()
       element.style.display = 'none'
@@ -110,17 +124,10 @@ export function useLiveKitRoom() {
         remoteTracksByIdentity.delete(identity)
       }
     })
+    hasRemoteVideo.value = [...remoteTracksByIdentity.values()].some(
+      (tracks) => tracks.video,
+    )
     refreshRemoteParticipants()
-  }
-
-  function registerRoomEvents(target: Room) {
-    target
-      .on(RoomEvent.TrackSubscribed, handleTrackSubscribed)
-      .on(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
-      .on(RoomEvent.ParticipantDisconnected, refreshRemoteParticipants)
-      .on(RoomEvent.Disconnected, () => {
-        isConnected.value = false
-      })
   }
 
   async function connect(
@@ -129,14 +136,37 @@ export function useLiveKitRoom() {
   ) {
     errorMessage.value = null
     try {
-      const nextRoom = new Room({ adaptiveStream: true, dynacast: true })
-      registerRoomEvents(nextRoom)
+      if (!livekit) {
+        livekit = await import('livekit-client')
+      }
+      const { Room, RoomEvent, Track } = livekit
+
+      // 두 플레이어가 창을 번갈아 볼 때 비활성(hidden) 창이 끊기지 않도록 자동 종료를 끈다.
+      const nextRoom = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        disconnectOnPageLeave: false,
+      })
+      nextRoom
+        .on(RoomEvent.TrackSubscribed, handleTrackSubscribed)
+        .on(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
+        .on(RoomEvent.TrackPublished, refreshRemoteParticipants)
+        .on(RoomEvent.LocalTrackPublished, refreshRemoteParticipants)
+        .on(RoomEvent.ParticipantConnected, refreshRemoteParticipants)
+        .on(RoomEvent.ParticipantDisconnected, refreshRemoteParticipants)
+        .on(RoomEvent.Disconnected, () => {
+          isConnected.value = false
+        })
       room.value = nextRoom
 
       await nextRoom.connect(credentials.openviduUrl, credentials.token)
       isConnected.value = true
 
-      if (options.audio) {
+      if (options.localTrack) {
+        await nextRoom.localParticipant.publishTrack(options.localTrack, {
+          source: Track.Source.Camera,
+        })
+      } else if (options.audio) {
         await nextRoom.localParticipant.enableCameraAndMicrophone()
       } else {
         await nextRoom.localParticipant.setCameraEnabled(true)
@@ -160,6 +190,7 @@ export function useLiveKitRoom() {
     primaryRemoteVideoTrack = null
     localTrack = null
     remoteParticipants.value = []
+    hasRemoteVideo.value = false
     isConnected.value = false
     const activeRoom = room.value
     room.value = null
@@ -179,6 +210,7 @@ export function useLiveKitRoom() {
     isConnected,
     errorMessage,
     remoteParticipants,
+    hasRemoteVideo,
     localVideoRef,
     remoteVideoRef,
     connect,

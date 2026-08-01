@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
 import GameReadyPage from './GameReadyPage.vue'
 
@@ -22,7 +23,9 @@ describe('GameReadyPage', () => {
     await router.push('/games/hold/ready?mode=solo')
     await router.isReady()
 
-    const wrapper = mount(GameReadyPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameReadyPage, {
+      global: { plugins: [router, createPinia()] },
+    })
 
     expect(globalThis.document.body.textContent).toContain(
       '게임 준비를 위해 웹캠을 켜주세요',
@@ -38,7 +41,9 @@ describe('GameReadyPage', () => {
     await router.push('/games/hold/ready?mode=friends&room=4827&role=player')
     await router.isReady()
 
-    const wrapper = mount(GameReadyPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameReadyPage, {
+      global: { plugins: [router, createPinia()] },
+    })
 
     expect(wrapper.find('.room-code').text()).toContain('4827')
     expect(wrapper.findAll('.participant-card')).toHaveLength(2)
@@ -52,7 +57,9 @@ describe('GameReadyPage', () => {
     await router.push('/games/hold/ready?mode=random&room=4827')
     await router.isReady()
 
-    const wrapper = mount(GameReadyPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameReadyPage, {
+      global: { plugins: [router, createPinia()] },
+    })
 
     expect(wrapper.find('.room-code').exists()).toBe(false)
     expect(wrapper.findAll('.participant-card')).toHaveLength(2)
@@ -65,7 +72,9 @@ describe('GameReadyPage', () => {
     await router.push('/games/hold/ready?mode=ai')
     await router.isReady()
 
-    const wrapper = mount(GameReadyPage, { global: { plugins: [router] } })
+    const wrapper = mount(GameReadyPage, {
+      global: { plugins: [router, createPinia()] },
+    })
 
     expect(wrapper.text()).toContain('AI 대결 준비방')
     expect(wrapper.text()).not.toContain('눈싸움 AI 준비')

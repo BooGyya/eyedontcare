@@ -269,7 +269,9 @@ class WaitingRoomControllerTest {
 			),
 			Instant.parse("2026-07-30T04:00:00Z"),
 			guestId,
-			guest ? "게스트닉네임" : null
+			guest ? "게스트닉네임" : null,
+			null,
+			null
 		);
 	}
 
@@ -304,7 +306,9 @@ class WaitingRoomControllerTest {
 			),
 			createdAt,
 			guestId,
-			"게스트닉네임"
+			"게스트닉네임",
+			null,
+			null
 		);
 	}
 }

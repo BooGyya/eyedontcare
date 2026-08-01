@@ -12,6 +12,7 @@ import org.ssafy.b102.backend.game.entity.PlayMode;
 import org.ssafy.b102.backend.game.service.GameService;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.error.CommonErrorCode;
+import org.ssafy.b102.backend.global.openvidu.LiveKitTokenService;
 import org.ssafy.b102.backend.global.security.AuthenticatedUser;
 import org.ssafy.b102.backend.waitingroom.config.WaitingRoomProperties;
 import org.ssafy.b102.backend.waitingroom.dto.request.WaitingRoomCreateRequest;
@@ -51,9 +52,31 @@ public class WaitingRoomService {
 	private final InviteCodeGenerator inviteCodeGenerator;
 	private final RoomIdGenerator roomIdGenerator;
 	private final Clock clock;
+	private final LiveKitTokenService liveKitTokenService;
 
 	@Autowired
 	public WaitingRoomService(
+		GameService gameService,
+		WaitingRoomParticipantResolver participantResolver,
+		WaitingRoomStore waitingRoomStore,
+		WaitingRoomProperties properties,
+		InviteCodeGenerator inviteCodeGenerator,
+		RoomIdGenerator roomIdGenerator,
+		LiveKitTokenService liveKitTokenService
+	) {
+		this(
+			gameService,
+			participantResolver,
+			waitingRoomStore,
+			properties,
+			inviteCodeGenerator,
+			roomIdGenerator,
+			Clock.systemUTC(),
+			liveKitTokenService
+		);
+	}
+
+	WaitingRoomService(
 		GameService gameService,
 		WaitingRoomParticipantResolver participantResolver,
 		WaitingRoomStore waitingRoomStore,
@@ -68,7 +91,8 @@ public class WaitingRoomService {
 			properties,
 			inviteCodeGenerator,
 			roomIdGenerator,
-			Clock.systemUTC()
+			Clock.systemUTC(),
+			null
 		);
 	}
 
@@ -81,6 +105,28 @@ public class WaitingRoomService {
 		RoomIdGenerator roomIdGenerator,
 		Clock clock
 	) {
+		this(
+			gameService,
+			participantResolver,
+			waitingRoomStore,
+			properties,
+			inviteCodeGenerator,
+			roomIdGenerator,
+			clock,
+			null
+		);
+	}
+
+	WaitingRoomService(
+		GameService gameService,
+		WaitingRoomParticipantResolver participantResolver,
+		WaitingRoomStore waitingRoomStore,
+		WaitingRoomProperties properties,
+		InviteCodeGenerator inviteCodeGenerator,
+		RoomIdGenerator roomIdGenerator,
+		Clock clock,
+		LiveKitTokenService liveKitTokenService
+	) {
 		this.gameService = gameService;
 		this.participantResolver = participantResolver;
 		this.waitingRoomStore = waitingRoomStore;
@@ -88,6 +134,25 @@ public class WaitingRoomService {
 		this.inviteCodeGenerator = inviteCodeGenerator;
 		this.roomIdGenerator = roomIdGenerator;
 		this.clock = clock;
+		this.liveKitTokenService = liveKitTokenService;
+	}
+
+	private String mediaUrl() {
+		return liveKitTokenService == null ? null : liveKitTokenService.url();
+	}
+
+	private String issueMediaToken(
+		String participantKey,
+		String displayName,
+		UUID roomId
+	) {
+		return liveKitTokenService == null
+			? null
+			: liveKitTokenService.issueToken(
+				participantKey,
+				displayName,
+				roomId.toString()
+			);
 	}
 
 	public WaitingRoomCreateResponse createInviteRoom(
@@ -131,7 +196,17 @@ public class WaitingRoomService {
 				new CreateInviteRoomCommand(room, participant, properties.activeTtl())
 			);
 			if (result == CreateInviteRoomResult.CREATED) {
-				return WaitingRoomCreateResponse.of(room, participant, identity);
+				return WaitingRoomCreateResponse.of(
+					room,
+					participant,
+					identity,
+					mediaUrl(),
+					issueMediaToken(
+						participant.participantKey(),
+						participant.displayName(),
+						room.roomId()
+					)
+				);
 			}
 		}
 
@@ -171,7 +246,16 @@ public class WaitingRoomService {
 						WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE
 					);
 				}
-				yield WaitingRoomJoinResponse.of(result.snapshot(), identity);
+				yield WaitingRoomJoinResponse.of(
+					result.snapshot(),
+					identity,
+					mediaUrl(),
+					issueMediaToken(
+						identity.participantKey(),
+						identity.displayName(),
+						result.snapshot().room().roomId()
+					)
+				);
 			}
 			case INVALID_INVITE_CODE ->
 				throw new BusinessException(WaitingRoomErrorCode.INVALID_INVITE_CODE);

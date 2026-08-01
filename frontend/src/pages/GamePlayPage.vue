@@ -6,6 +6,9 @@ import GamePlayShell from '../components/games/GamePlayShell.vue'
 import { createMockSession, gameModeLabels } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
+import { useLiveKitRoom } from '../composables/useLiveKitRoom'
+import { useLocalCamera } from '../composables/useLocalCamera'
+import { useMediaSessionStore } from '../stores/mediaSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,12 +32,24 @@ const holdElapsedLabel = computed(() => {
 
 let holdTimer: ReturnType<typeof globalThis.setInterval> | undefined
 
-onMounted(() => {
-  if (game.value?.id !== 'hold') return
+async function initHoldMedia() {
+  // 내 웹캠은 항상 표시한다(솔로 포함).
+  const stream = await startLocalCamera()
+  // 대기방에서 받은 접속 정보가 있으면 내 트랙을 송출하고 상대 웹캠을 구독한다.
+  if (isHoldDuel.value && mediaSession.credentials) {
+    await connectMedia(mediaSession.credentials, {
+      localTrack: stream?.getVideoTracks()[0] ?? null,
+    })
+  }
+}
 
-  holdTimer = globalThis.setInterval(() => {
-    holdElapsedTenths.value += 1
-  }, 100)
+onMounted(() => {
+  if (game.value?.id === 'hold') {
+    void initHoldMedia()
+    holdTimer = globalThis.setInterval(() => {
+      holdElapsedTenths.value += 1
+    }, 100)
+  }
 })
 
 onUnmounted(() => {
@@ -93,6 +108,26 @@ const isCompetitive = computed(() =>
 const isRhythmDuel = computed(
   () =>
     game.value?.id === 'rhythm' && ['friends', 'random'].includes(mode.value),
+)
+
+// 눈싸움(hold) 대결: 상대 웹캠을 실제 미디어 서버로 주고받는다.
+const mediaSession = useMediaSessionStore()
+const {
+  remoteVideoRef,
+  hasRemoteVideo,
+  connect: connectMedia,
+} = useLiveKitRoom()
+const hasPeerCamera = computed(() => hasRemoteVideo.value)
+
+// 내 웹캠(로컬 셀프뷰)은 미디어 서버와 무관하게 getUserMedia로 항상 보여준다(솔로 포함).
+const {
+  videoRef: localCameraVideoRef,
+  isActive: isLocalCameraActive,
+  start: startLocalCamera,
+} = useLocalCamera()
+
+const isHoldDuel = computed(
+  () => game.value?.id === 'hold' && ['friends', 'random'].includes(mode.value),
 )
 const colorSwatchNames: Record<string, string> = {
   '#161c2d': '검정',
@@ -240,17 +275,27 @@ function advanceDrawRound() {
         <p class="eyebrow">나</p>
         <div class="eye-see-camera">
           <video
-            aria-label="향후 내 웹캠 영상이 표시될 영역"
+            ref="localCameraVideoRef"
+            class="eye-see-camera__self"
+            aria-label="내 웹캠 영상"
+            autoplay
             muted
             playsinline
           ></video>
           <img
+            v-if="!isLocalCameraActive"
             :src="game.mascotImage"
             alt="내 카메라 준비 마스코트"
             draggable="false"
           />
         </div>
-        <p class="camera-state">내 카메라 프리뷰는 게임 연동 후 표시됩니다.</p>
+        <p class="camera-state">
+          {{
+            isLocalCameraActive
+              ? '내 카메라가 연결되었습니다.'
+              : '내 카메라를 준비하고 있어요.'
+          }}
+        </p>
       </aside>
 
       <aside v-else-if="game.id === 'air'" class="air-score-panel">
@@ -700,18 +745,24 @@ function advanceDrawRound() {
           <p class="eyebrow">친구</p>
           <div class="eye-see-camera eye-see-camera--friend">
             <video
-              aria-label="향후 친구 웹캠 영상이 표시될 영역"
-              muted
+              ref="remoteVideoRef"
+              aria-label="친구 웹캠 영상"
+              autoplay
               playsinline
             ></video>
             <img
+              v-if="!hasPeerCamera"
               :src="game.image"
               alt="친구 카메라 준비 안내 이미지"
               draggable="false"
             />
           </div>
           <p class="camera-state">
-            친구 카메라 프리뷰는 게임 연동 후 표시됩니다.
+            {{
+              hasPeerCamera
+                ? '친구 카메라가 연결되었습니다.'
+                : '친구 카메라를 기다리고 있어요.'
+            }}
           </p>
         </template>
         <template v-else>
@@ -1975,6 +2026,9 @@ function advanceDrawRound() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.eye-see-camera__self {
+  transform: scaleX(-1);
 }
 .eye-see-camera img {
   position: relative;

@@ -1,8 +1,26 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
+import { useMediaSessionStore } from '../stores/mediaSession'
+import { useWaitingRoomSocket } from '../composables/useWaitingRoomSocket'
+import { useLiveKitRoom } from '../composables/useLiveKitRoom'
+import { createInviteRoom, joinInviteRoom } from '../api/waitingRoom'
+import { ApiError } from '../api/http'
+import { GAME_NAME_BY_ID } from '../types/waitingRoom'
+import type {
+  WaitingRoomGameStartData,
+  WaitingRoomIdentity,
+  WaitingRoomParticipant,
+} from '../types/waitingRoom'
 
 type CameraPermissionStatus =
   'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable'
@@ -15,7 +33,7 @@ const { showToast } = useToast()
 const permissionStatus = ref<CameraPermissionStatus>('idle')
 const isCalibrated = ref(false)
 const isReady = ref(false)
-const isOpponentReady = ref(false)
+const mockOpponentReady = ref(false)
 const isWebcamGuideOpen = ref(true)
 const isCalibrationOpen = ref(false)
 const isCameraErrorOpen = ref(false)
@@ -25,6 +43,7 @@ const isGamePlaybackPending = ref(false)
 const calibrationStep = ref(1)
 const cameraStream = ref<globalThis.MediaStream | null>(null)
 const previewVideo = ref<globalThis.HTMLVideoElement | null>(null)
+const panelVideo = ref<globalThis.HTMLVideoElement | null>(null)
 const dialogRef = ref<globalThis.HTMLElement | null>(null)
 let previousBodyOverflow = ''
 let isBodyScrollLocked = false
@@ -43,6 +62,52 @@ const isMultiplayer = computed(() => ['friends', 'random'].includes(mode.value))
 const isFriendRoom = computed(() => mode.value === 'friends')
 const isRandomRoom = computed(() => mode.value === 'random')
 const isHost = computed(() => isFriendRoom.value && role.value === 'host')
+
+// --- 친구(invite) 대결 실시간 세션 ---
+// REST로 방을 만들거나 참가하면 실시간 세션이 켜지고, 대기방 WebSocket으로 상대 준비 상태와
+// GAME_START(미디어 접속 정보)를 주고받는다. 백엔드가 없거나 실패하면 기존 mock 준비 화면을 유지한다.
+const mediaSession = useMediaSessionStore()
+const liveRoomId = ref<string | null>(null)
+const liveRoomCode = ref<string | null>(null)
+const liveIdentity = ref<WaitingRoomIdentity | null>(null)
+const isLiveSession = computed(() => liveRoomId.value !== null)
+
+const waitingSocket = useWaitingRoomSocket({
+  onGameStart: handleGameStart,
+  onError: (_code, message) => showToast(message),
+})
+
+const myRoomRole = computed(() => (isHost.value ? 'HOST' : 'PLAYER'))
+const liveOpponent = computed<WaitingRoomParticipant | null>(
+  () =>
+    waitingSocket.roomState.value?.participants.find(
+      (participant) => participant.roomRole !== myRoomRole.value,
+    ) ?? null,
+)
+const isOpponentReady = computed(() =>
+  isLiveSession.value
+    ? (liveOpponent.value?.isReady ?? false)
+    : mockOpponentReady.value,
+)
+const displayRoomCode = computed(() => liveRoomCode.value ?? roomCode.value)
+
+// 대기방 미디어(피어 웹캠): 방 참가 시 받은 토큰으로 OpenVidu에 연결해 상대 웹캠을 구독하고,
+// 내 카메라가 준비되면 내 트랙을 송출한다. 내 웹캠은 아래 getUserMedia 프리뷰로 이미 보여준다.
+const readyMedia = useLiveKitRoom()
+const opponentVideoRef = readyMedia.remoteVideoRef
+const hasPeerCamera = computed(() => readyMedia.hasRemoteVideo.value)
+let readyMediaStarted = false
+
+async function connectReadyMedia() {
+  if (readyMediaStarted || !cameraStream.value || !mediaSession.credentials) {
+    return
+  }
+  readyMediaStarted = true
+  await readyMedia.connect(mediaSession.credentials, {
+    localTrack: cameraStream.value.getVideoTracks()[0] ?? null,
+  })
+}
+
 const roomTitle = computed(() => {
   if (isRandomRoom.value) return '랜덤 매칭 준비방'
   if (isFriendRoom.value) return '친구와 대결 준비방'
@@ -177,12 +242,17 @@ function handlePrimaryAction() {
     return
   }
   if (isHost.value) {
-    if (canStartGame.value) openGameStartDialog()
+    if (!canStartGame.value) return
+    if (isLiveSession.value) waitingSocket.sendStartGame()
+    else openGameStartDialog()
     return
   }
   if (canMarkReady.value && !isReady.value) {
     isReady.value = true
-    if (!isMultiplayer.value) openGameStartDialog()
+    if (isLiveSession.value) {
+      waitingSocket.sendReady(true)
+      showToast('내 준비 상태를 완료로 표시했어요.')
+    } else if (!isMultiplayer.value) openGameStartDialog()
     else showToast('내 준비 상태를 완료로 표시했어요.')
   }
 }
@@ -194,6 +264,11 @@ function handleCalibrationNext() {
   }
   isCalibrated.value = true
   isCalibrationOpen.value = false
+  if (isLiveSession.value) {
+    waitingSocket.sendCalibrationStatus('COMPLETED')
+    // 방장은 준비 버튼이 없으므로 캘리브레이션 완료 시 준비 상태도 함께 올린다.
+    if (isHost.value) waitingSocket.sendReady(true)
+  }
   showToast('시선 캘리브레이션 준비가 완료되었어요.')
 }
 
@@ -203,7 +278,71 @@ function handleCalibrationBack() {
 }
 
 function handleToggleOpponentReady() {
-  isOpponentReady.value = !isOpponentReady.value
+  mockOpponentReady.value = !mockOpponentReady.value
+}
+
+function handleGameStart(data: WaitingRoomGameStartData) {
+  if (data.openviduUrl && data.token) {
+    mediaSession.setCredentials({
+      openviduUrl: data.openviduUrl,
+      token: data.token,
+    })
+  }
+  // 준비 화면 카메라를 놓아줘야 플레이 화면에서 다시 잡을 수 있다.
+  stopCameraStream()
+  if (game.value)
+    router.push({
+      name: 'game-play',
+      params: { gameId: game.value.id },
+      query: route.query,
+    })
+}
+
+async function initInviteSession() {
+  if (!isFriendRoom.value || !game.value) return
+  try {
+    const gameName = GAME_NAME_BY_ID[game.value.id]
+    if (isHost.value) {
+      const created = await createInviteRoom(gameName)
+      liveRoomId.value = created.roomId
+      liveRoomCode.value = created.roomCode
+      liveIdentity.value = created.guestSessionId
+        ? { guestSessionId: created.guestSessionId }
+        : null
+      if (created.openviduUrl && created.token) {
+        mediaSession.setCredentials({
+          openviduUrl: created.openviduUrl,
+          token: created.token,
+        })
+      }
+    } else {
+      if (!roomCode.value) return
+      const joined = await joinInviteRoom(roomCode.value)
+      liveRoomId.value = joined.roomId
+      liveIdentity.value = joined.guestSessionId
+        ? { guestSessionId: joined.guestSessionId }
+        : null
+      if (joined.openviduUrl && joined.token) {
+        mediaSession.setCredentials({
+          openviduUrl: joined.openviduUrl,
+          token: joined.token,
+        })
+      }
+    }
+    if (liveRoomId.value && liveIdentity.value) {
+      waitingSocket.connect(liveRoomId.value, liveIdentity.value)
+    } else {
+      liveRoomId.value = null
+    }
+  } catch (error) {
+    // 실패 시 mock 준비 화면은 유지하되, 원인을 사용자에게 알린다(조용히 삼키지 않는다).
+    liveRoomId.value = null
+    const message =
+      error instanceof ApiError
+        ? error.message
+        : '대기방 연결에 실패했어요. 잠시 후 다시 시도해 주세요.'
+    showToast(message)
+  }
 }
 
 function handleDialogBackdrop(event: globalThis.MouseEvent, close: () => void) {
@@ -211,9 +350,9 @@ function handleDialogBackdrop(event: globalThis.MouseEvent, close: () => void) {
 }
 
 async function handleCopyRoomCode() {
-  if (!roomCode.value) return
+  if (!displayRoomCode.value) return
   try {
-    await globalThis.navigator.clipboard.writeText(roomCode.value)
+    await globalThis.navigator.clipboard.writeText(displayRoomCode.value)
     showToast('방 코드를 복사했어요!')
   } catch {
     /* no-op */
@@ -228,14 +367,25 @@ function handleKeydown(event: globalThis.KeyboardEvent) {
   else if (isWebcamGuideOpen.value) isWebcamGuideOpen.value = false
 }
 
+function attachStreamTo(video: globalThis.HTMLVideoElement | null) {
+  if (!video || !cameraStream.value) return
+  video.srcObject = cameraStream.value
+  void video.play().catch(() => undefined)
+}
+
 async function attachPreviewStream() {
   await nextTick()
-  if (!previewVideo.value || !cameraStream.value) return
-  previewVideo.value.srcObject = cameraStream.value
-  void previewVideo.value.play().catch(() => undefined)
+  attachStreamTo(previewVideo.value)
+  attachStreamTo(panelVideo.value)
 }
 
 watch(cameraStream, attachPreviewStream)
+watch(panelVideo, (video) => attachStreamTo(video))
+// 내 카메라와 접속 토큰이 모두 준비되면 대기방에서 피어 미디어 연결을 시작한다.
+watch(
+  [cameraStream, () => mediaSession.credentials?.token],
+  () => void connectReadyMedia(),
+)
 watch(
   [
     isWebcamGuideOpen,
@@ -279,9 +429,14 @@ watch(areAllPlayersReady, (isReady) => {
 if (typeof globalThis.window !== 'undefined')
   globalThis.window.addEventListener('keydown', handleKeydown)
 
+onMounted(() => {
+  void initInviteSession()
+})
+
 onBeforeUnmount(() => {
   stopCameraStream()
   clearGameStartCountdown()
+  waitingSocket.close()
   if (typeof globalThis.document !== 'undefined')
     globalThis.document.body.style.overflow = previousBodyOverflow
   isBodyScrollLocked = false
@@ -380,12 +535,12 @@ onBeforeUnmount(() => {
         <div v-if="isFriendRoom" class="room-code" aria-label="방 코드">
           <span>방 코드</span>
           <b
-            v-for="(digit, index) in roomCode.padEnd(4, '•').slice(0, 4)"
+            v-for="(digit, index) in displayRoomCode.padEnd(4, '•').slice(0, 4)"
             :key="index"
             >{{ digit }}</b
           >
           <button
-            v-if="roomCode"
+            v-if="displayRoomCode"
             type="button"
             class="room-code__copy"
             aria-label="방 코드 복사"
@@ -444,12 +599,22 @@ onBeforeUnmount(() => {
           </span>
         </header>
         <div class="participant-visual">
+          <video
+            v-if="isCameraConnected"
+            ref="panelVideo"
+            class="participant-visual__camera"
+            autoplay
+            muted
+            playsinline
+            aria-label="내 웹캠 미리보기"
+          ></video>
           <img
+            v-else
             :src="game?.mascotImage ?? ''"
             alt="내 게임 준비 상태 마스코트"
             draggable="false"
           />
-          <span>내 준비 상태</span>
+          <span>{{ isCameraConnected ? '내 웹캠' : '내 준비 상태' }}</span>
         </div>
         <ol class="my-progress" aria-label="나의 게임 준비 진행 단계">
           <li :class="{ complete: isCameraConnected }">
@@ -546,13 +711,26 @@ onBeforeUnmount(() => {
           </span>
         </header>
         <div class="participant-visual participant-visual--opponent">
+          <video
+            v-if="hasPeerCamera"
+            ref="opponentVideoRef"
+            class="participant-visual__camera participant-visual__camera--peer"
+            autoplay
+            playsinline
+            :aria-label="`${opponentName} 웹캠 영상`"
+          ></video>
           <img
+            v-else
             :src="game.image"
             :alt="`${opponentName} 준비 상태 안내 이미지`"
             draggable="false"
           />
           <span>{{
-            isOpponentReady ? '상대 준비 완료' : '상대 준비 대기'
+            hasPeerCamera
+              ? isOpponentReady
+                ? '상대 준비 완료'
+                : '상대 접속됨'
+              : '상대 준비 대기'
           }}</span>
         </div>
         <p class="opponent-note">
@@ -1020,6 +1198,17 @@ onBeforeUnmount(() => {
   height: 125px;
   object-fit: contain;
   user-select: none;
+}
+.participant-visual__camera {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.participant-visual__camera--peer {
+  transform: none;
 }
 .participant-visual span {
   position: absolute;
