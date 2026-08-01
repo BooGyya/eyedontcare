@@ -224,6 +224,9 @@ async function handleRequestCamera() {
     permissionStatus.value = 'granted'
     isWebcamGuideOpen.value = false
     isCalibrationOpen.value = true
+    // 백엔드 캘리브레이션 상태는 PENDING → IN_PROGRESS → COMPLETED 순서를 요구한다.
+    // 캘리브레이션이 시작되는 이 시점에 IN_PROGRESS를 먼저 알려야 이후 COMPLETED가 수락된다.
+    if (isLiveSession.value) waitingSocket.sendCalibrationStatus('IN_PROGRESS')
   } catch (error) {
     const name = error instanceof globalThis.DOMException ? error.name : ''
     permissionStatus.value =
