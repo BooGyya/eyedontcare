@@ -35,6 +35,31 @@ export interface ParticipantResult {
   rank: number
 }
 
+/** `POST /game-results` 요청의 참가자 한 명. */
+export interface ParticipantResultRequest {
+  participantKey: string
+  participantType: ParticipantType
+  slotNo: number
+  displayName: string
+  outcome: GameOutcome
+  rank: number
+}
+
+/** `POST /game-results` 요청 본문. */
+export interface SubmitGameResultRequest {
+  playId: string
+  gameId: number
+  startedAt: string
+  endedAt: string
+  participants: ParticipantResultRequest[]
+  gameResult: Record<string, unknown>
+}
+
+/** `POST /game-results` 응답 data. */
+export interface SubmitGameResultResponse {
+  resultId: number
+}
+
 /** `GET /game-results/{id}` 상세 응답. */
 export interface GameResultDetailResponse {
   resultId: number
