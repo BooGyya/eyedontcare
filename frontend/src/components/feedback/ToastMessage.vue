@@ -18,12 +18,12 @@ defineProps<{
   position: fixed;
   bottom: 24px;
   left: 50%;
-  z-index: 20;
+  z-index: 80;
   margin: 0;
   padding: 12px 18px;
   border-radius: var(--radius-button);
   color: #fff;
-  background: #252d51;
+  background: var(--color-ink);
   box-shadow: 0 12px 30px rgba(30, 36, 78, 0.22);
   font-size: 13px;
   transform: translateX(-50%);
@@ -32,8 +32,8 @@ defineProps<{
 .toast-enter-active,
 .toast-leave-active {
   transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
+    opacity 240ms var(--ease-out),
+    transform 240ms var(--ease-out);
 }
 
 .toast-enter-from,

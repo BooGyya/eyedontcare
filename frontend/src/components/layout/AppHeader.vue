@@ -1,27 +1,44 @@
 <script setup lang="ts">
 import logoImage from '../../assets/images/brand/logo.png'
+import { useAuthStore } from '../../stores/auth'
 import PrimaryNavigation from './PrimaryNavigation.vue'
 import ProfileMenu from './ProfileMenu.vue'
+
+const auth = useAuthStore()
 </script>
 
 <template>
   <header class="app-header">
-    <RouterLink class="app-header__brand" to="/" aria-label="eye dont care 홈">
-      <img :src="logoImage" alt="eye dont care" />
-    </RouterLink>
-    <PrimaryNavigation />
-    <div class="app-header__actions">
-      <span class="app-header__coin"><i>●</i><b>1,250</b></span>
+    <div class="app-header__inner">
       <RouterLink
-        class="app-header__icon-link"
-        to="/notifications"
-        aria-label="알림"
-        >🔔</RouterLink
+        class="app-header__brand"
+        to="/"
+        aria-label="eye dont care home"
       >
-      <RouterLink class="app-header__icon-link" to="/settings" aria-label="설정"
-        >⚙</RouterLink
-      >
-      <ProfileMenu />
+        <img :src="logoImage" alt="eye dont care" />
+      </RouterLink>
+      <PrimaryNavigation />
+      <div class="app-header__actions">
+        <template v-if="auth.isAuthenticated">
+          <ProfileMenu />
+        </template>
+        <template v-else>
+          <button
+            class="app-header__auth-button app-header__auth-button--quiet"
+            type="button"
+            @click="auth.openSignup"
+          >
+            회원가입
+          </button>
+          <button
+            class="app-header__auth-button"
+            type="button"
+            @click="auth.openLogin"
+          >
+            로그인
+          </button>
+        </template>
+      </div>
     </div>
   </header>
 </template>
@@ -31,16 +48,26 @@ import ProfileMenu from './ProfileMenu.vue'
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 105px;
   height: 118px;
-  padding: 0 58px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--color-line);
+}
+.app-header__inner {
+  display: flex;
+  width: min(var(--content-width), calc(100% - 120px));
+  height: 100%;
+  align-items: center;
+  gap: 105px;
+  margin-inline: auto;
 }
 .app-header__brand {
   flex: 0 0 178px;
+  transform-origin: left center;
+  transition: transform var(--duration-fast) ease;
+}
+.app-header__brand:hover {
+  transform: scale(1.03);
 }
 .app-header__brand img {
   width: 154px;
@@ -50,48 +77,56 @@ import ProfileMenu from './ProfileMenu.vue'
 .app-header__actions {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 13px;
   margin-left: auto;
 }
-.app-header__icon-link {
-  position: relative;
-  color: var(--color-ink);
-  font-size: 21px;
-  line-height: 1;
-}
-.app-header__icon-link.router-link-active {
+.app-header__auth-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-button);
   color: var(--color-accent-blue);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
 }
-.app-header__coin {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-ink);
-  font-size: 17px;
+.app-header__auth-button:hover {
+  color: #fff;
+  background: var(--color-accent-blue);
+  transform: translateY(-1px);
 }
-.app-header__coin i {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  border-radius: 50%;
-  color: #f6b928;
-  background: #fff2c2;
-  font-size: 15px;
-  font-style: normal;
+.app-header__auth-button:active {
+  transform: translateY(0);
+}
+.app-header__auth-button--quiet {
+  color: var(--color-muted);
+}
+.app-header__auth-button--quiet:hover {
+  color: #fff;
+  background: var(--color-muted);
 }
 @media (max-width: 1100px) {
-  .app-header {
+  .app-header__inner {
+    width: min(900px, calc(100% - 52px));
     gap: 35px;
-    padding-inline: 26px;
   }
 }
 @media (max-width: 640px) {
   .app-header {
+    height: auto;
+  }
+  .app-header__inner {
+    width: calc(100% - 32px);
+    height: auto;
     flex-wrap: wrap;
     gap: 8px 16px;
-    height: auto;
-    padding: 8px 16px 0;
+    padding: 8px 0 0;
   }
   .app-header__brand {
     flex-basis: 105px;
@@ -101,11 +136,12 @@ import ProfileMenu from './ProfileMenu.vue'
     height: 63px;
   }
   .app-header__actions {
-    gap: 8px;
+    gap: 7px;
   }
-  .app-header__coin,
-  .app-header__icon-link:last-of-type {
-    display: none;
+  .app-header__auth-button {
+    min-height: 30px;
+    padding-inline: 9px;
+    font-size: 11px;
   }
 }
 </style>

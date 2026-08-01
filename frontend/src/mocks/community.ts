@@ -1,0 +1,66 @@
+import gameBlinkImage from '../assets/images/games/game-blink.png'
+import gameWaveImage from '../assets/images/games/game-wave.png'
+import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
+import teamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
+import type { CommunityGroup } from '../types/community'
+
+export const communityGroups: CommunityGroup[] = [
+  {
+    id: 'eye-health-routine',
+    name: '눈 건강 루틴 연구소',
+    description: '매일 10분, 함께 눈 건강 루틴을 만들고 게임 기록을 나눠요.',
+    image: teamworkImage,
+    members: 18,
+    capacity: 24,
+    visibility: 'public',
+    activity: 'Eye-See',
+    leader: '눈썹 최강자',
+    isJoined: true,
+    isOwner: true,
+    createdAt: 5,
+  },
+  {
+    id: 'focus-champions',
+    name: '집중력 챔피언스',
+    description: '눈으로 그리기와 리듬 게임 기록을 함께 올려 보는 모임이에요.',
+    image: gameWaveImage,
+    members: 5,
+    capacity: 10,
+    visibility: 'private',
+    activity: '리듬 게임',
+    leader: '초록별',
+    isJoined: false,
+    isOwner: false,
+    createdAt: 4,
+    joinCode: 'FOCUS7',
+  },
+  {
+    id: 'blink-friends',
+    name: '깜빡이 동호회',
+    description: '눈 깜빡이기 미션을 서로 응원하며 가볍게 즐겨요.',
+    image: gameBlinkImage,
+    members: 2,
+    capacity: 6,
+    visibility: 'private',
+    activity: '눈 깜빡이기',
+    leader: '방울 반짝',
+    isJoined: false,
+    isOwner: false,
+    createdAt: 3,
+    joinCode: 'BLINK9',
+  },
+  {
+    id: 'night-players',
+    name: '야간 플레이어즈',
+    description: '늦은 시간에도 즐겁게 에어하키를 즐기고 기록을 나눠요.',
+    image: groupJoinImage,
+    members: 12,
+    capacity: 12,
+    visibility: 'public',
+    activity: '에어하키',
+    leader: '밤하늘',
+    isJoined: false,
+    isOwner: false,
+    createdAt: 2,
+  },
+]

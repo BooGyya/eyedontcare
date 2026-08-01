@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useToast } from '../../composables/useToast'
 import ToastMessage from '../feedback/ToastMessage.vue'
+import AuthDialog from '../auth/AuthDialog.vue'
 import AppFooter from './AppFooter.vue'
 import AppHeader from './AppHeader.vue'
 
@@ -15,19 +16,20 @@ const { isVisible, message } = useToast()
     </main>
     <AppFooter />
     <ToastMessage :message="message" :visible="isVisible" />
+    <AuthDialog />
   </div>
 </template>
 
 <style scoped>
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  min-height: 100dvh;
   flex-direction: column;
 }
 
 .app-layout__content {
   flex: 1;
-  width: min(var(--content-width), calc(100% - 120px));
+  width: var(--layout-inline);
   margin: 0 auto;
 }
 

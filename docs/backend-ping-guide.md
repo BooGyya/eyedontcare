@@ -29,7 +29,6 @@ Invoke-RestMethod -Method Get -Uri "http://localhost:8080/api/ping"
 
 ```json
 {
-  "success": true,
   "code": "SUCCESS",
   "message": "요청에 성공했습니다.",
   "data": {
@@ -58,7 +57,6 @@ HTTP 상태는 `409 Conflict`이며 응답 코드는 `PING-001`입니다. `Error
 
 ```json
 {
-  "success": false,
   "code": "PING-001",
   "message": "의도적으로 발생시킨 Ping 비즈니스 예외입니다."
 }
@@ -95,19 +93,20 @@ Invoke-RestMethod `
   -Body '{"message":""}'
 ```
 
-빈 `message`는 `@NotBlank` 검증에 실패해 `400 Bad Request`, `COMMON-001`, 필드별 `errors`를 반환합니다.
+빈 `message`는 `@NotBlank` 검증에 실패해 `400 Bad Request`, `COMMON-001`, `data.fieldErrors`를 반환합니다.
 
 ```json
 {
-  "success": false,
   "code": "COMMON-001",
   "message": "요청 값이 올바르지 않습니다.",
-  "errors": [
-    {
-      "field": "message",
-      "reason": "메시지는 필수입니다."
-    }
-  ]
+  "data": {
+    "fieldErrors": [
+      {
+        "field": "message",
+        "reason": "메시지는 필수입니다."
+      }
+    ]
+  }
 }
 ```
 
@@ -137,7 +136,6 @@ Invoke-RestMethod -Method Get -Uri "http://localhost:8080/api/ping/errors/unexpe
 
 ```json
 {
-  "success": false,
   "code": "COMMON-500",
   "message": "서버 내부 오류가 발생했습니다."
 }

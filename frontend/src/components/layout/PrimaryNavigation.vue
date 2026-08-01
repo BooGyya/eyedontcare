@@ -21,6 +21,7 @@ const navigationItems = [
         class="primary-navigation__link"
         :class="{ 'primary-navigation__link--active': isExactActive }"
         :data-testid="item.testId"
+        :aria-current="isExactActive ? 'page' : undefined"
         @click="navigate"
       >
         {{ item.label }}
@@ -44,9 +45,14 @@ const navigationItems = [
   color: var(--color-ink);
   font-size: 16px;
   font-weight: 700;
+  transition: color var(--duration-fast) ease;
 }
 
-.primary-navigation__link--active::after {
+.primary-navigation__link:hover {
+  color: var(--color-primary);
+}
+
+.primary-navigation__link::after {
   position: absolute;
   right: 0;
   bottom: 23px;
@@ -55,6 +61,14 @@ const navigationItems = [
   border-radius: 999px;
   background: var(--color-accent-blue);
   content: '';
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.primary-navigation__link:hover::after,
+.primary-navigation__link--active::after {
+  transform: scaleX(1);
 }
 
 @media (max-width: 1100px) {
@@ -72,7 +86,7 @@ const navigationItems = [
     font-size: 11px;
   }
 
-  .primary-navigation__link--active::after {
+  .primary-navigation__link::after {
     bottom: 0;
     height: 3px;
   }

@@ -1,63 +1,63 @@
 <script setup lang="ts">
-import logoImage from '../../assets/images/brand/logo.png'
+import { ref } from 'vue'
+import footerLogoImage from '../../assets/images/brand/footer-logo.png'
 import { useToast } from '../../composables/useToast'
+import PolicyDialog from '../common/PolicyDialog.vue'
+import FeedbackDialog from '../common/FeedbackDialog.vue'
+import { policyDocuments } from '../../mocks/footer'
+import type { PolicyDocument } from '../../types/footer'
 
 const { showToast } = useToast()
 
-const footerLinks = [
-  '이용약관',
-  '개인정보처리방침',
-  '커뮤니티 가이드',
-  '고객센터',
-]
+const activeDocument = ref<PolicyDocument | null>(null)
+const isFeedbackOpen = ref(false)
+
+function openFeedbackFromPolicy() {
+  activeDocument.value = null
+  isFeedbackOpen.value = true
+}
+
+function handleFeedbackSubmit() {
+  isFeedbackOpen.value = false
+  showToast('소중한 피드백이 접수됐어요. 감사합니다!')
+}
 </script>
 
 <template>
   <footer class="app-footer">
     <RouterLink class="app-footer__brand" to="/" aria-label="eye dont care 홈">
-      <img :src="logoImage" alt="eye dont care" />
+      <img :src="footerLogoImage" alt="eye dont care" />
     </RouterLink>
-    <small>© 2026 eye dont care. All rights reserved.</small>
+    <div class="app-footer__meta">
+      <small>© 2026 eye dont care. All rights reserved.</small>
+      <p class="app-footer__support">
+        문의 support@eyedontcare.app · 평일 10:00~18:00
+      </p>
+    </div>
     <div class="app-footer__links">
       <button
-        v-for="link in footerLinks"
-        :key="link"
+        v-for="doc in policyDocuments"
+        :key="doc.id"
         type="button"
-        @click="showToast(`${link}은 다음 단계에서 준비할 예정이에요.`)"
+        @click="activeDocument = doc"
       >
-        {{ link }}
+        {{ doc.label }}
+      </button>
+      <button type="button" @click="isFeedbackOpen = true">
+        피드백 보내기
       </button>
     </div>
-    <div class="app-footer__social" aria-label="소셜 미디어">
-      <button
-        type="button"
-        aria-label="유튜브"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        ▶
-      </button>
-      <button
-        type="button"
-        aria-label="인스타그램"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        ◎
-      </button>
-      <button
-        type="button"
-        aria-label="디스코드"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        ♟
-      </button>
-      <button
-        type="button"
-        aria-label="엑스"
-        @click="showToast('소셜 링크는 아직 연결되지 않았어요.')"
-      >
-        𝕏
-      </button>
-    </div>
+
+    <PolicyDialog
+      :document="activeDocument"
+      @close="activeDocument = null"
+      @open-feedback="openFeedbackFromPolicy"
+    />
+    <FeedbackDialog
+      :open="isFeedbackOpen"
+      @close="isFeedbackOpen = false"
+      @submit="handleFeedbackSubmit"
+    />
   </footer>
 </template>
 
@@ -66,53 +66,54 @@ const footerLinks = [
   display: flex;
   align-items: center;
   gap: 28px;
-  width: min(var(--content-width), calc(100% - 120px));
+  width: var(--layout-inline);
   min-height: 100px;
   margin: auto auto 0;
   padding: 16px 0 12px;
   border-top: 1px solid var(--color-line);
-  color: #17345e;
+  color: var(--color-muted);
   font-size: 12px;
 }
 
 .app-footer__brand img {
-  width: 105px;
+  width: 72px;
   height: 72px;
   object-fit: contain;
 }
 
-.app-footer small {
+.app-footer__meta {
+  display: grid;
+  gap: 4px;
   margin-right: 52px;
 }
 
-.app-footer__links,
-.app-footer__social {
+.app-footer__support {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.app-footer__links {
   display: flex;
   gap: 20px;
-}
-
-.app-footer__links button,
-.app-footer__social button {
-  padding: 0;
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-}
-
-.app-footer__social {
-  gap: 12px;
   margin-left: auto;
 }
 
-.app-footer__social button {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 1px solid var(--color-line);
-  border-radius: 50%;
-  box-shadow: 0 4px 11px rgba(34, 46, 85, 0.08);
-  font-size: 17px;
+.app-footer__links button {
+  padding: 0;
+  border-bottom: 1px solid transparent;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+.app-footer__links button:hover,
+.app-footer__links button:focus-visible {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
 }
 
 @media (max-width: 1100px) {
@@ -120,7 +121,7 @@ const footerLinks = [
     width: min(900px, calc(100% - 52px));
   }
 
-  .app-footer small {
+  .app-footer__meta {
     margin-right: 0;
   }
 
@@ -139,23 +140,20 @@ const footerLinks = [
   }
 
   .app-footer__brand img {
-    width: 87px;
+    width: 58px;
     height: 58px;
   }
 
-  .app-footer small {
-    width: 100%;
+  .app-footer__meta {
     order: 3;
+    width: 100%;
   }
 
   .app-footer__links {
-    display: none;
-  }
-
-  .app-footer__social button {
-    width: 32px;
-    height: 32px;
-    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: 0;
+    order: 2;
   }
 }
 </style>
