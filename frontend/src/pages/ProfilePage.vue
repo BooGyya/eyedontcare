@@ -69,6 +69,16 @@ const selectedAvatar = computed(
     PROFILE_OPTIONS[0],
 )
 
+// 가입일을 1일째로 세는 달력 기준 일수. 게스트/이전 mock 화면은 기존 값 유지.
+const journeyDays = computed(() => {
+  if (!auth.user.createdAt) return profileData.journeyDays
+  const created = new Date(auth.user.createdAt)
+  const startOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const elapsed = startOfDay(new Date()) - startOfDay(created)
+  return Math.max(1, Math.floor(elapsed / 86_400_000) + 1)
+})
+
 // 로그인/프로필 갱신으로 스토어 user가 바뀌면(편집 중이 아닐 때) 표시값을 동기화한다.
 watch(
   () => auth.user,
@@ -395,7 +405,7 @@ async function handleConfirmWithdraw() {
       <div class="profile-page__identity">
         <span>MY EYE JOURNEY</span>
         <h1>{{ nickname }}</h1>
-        <p>꾸준히 눈을 쉬게 해준 지 {{ profileData.journeyDays }}일째예요.</p>
+        <p>eyedontcare와 함께한 지 {{ journeyDays }}일째예요.</p>
       </div>
       <button
         class="profile-page__edit-button"

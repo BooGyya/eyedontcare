@@ -51,4 +51,6 @@ export interface AuthUser {
   profileImageCode: ProfileImageCode | null
   email: string | null
   loginType: UserLoginType | null
+  /** 가입 시각(ISO). 게스트는 null. */
+  createdAt: string | null
 }
