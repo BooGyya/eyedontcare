@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
-import { useAuthStore } from '../stores/auth'
 import type { GamePlayMode } from '../types/game-detail'
 import guideMascotImage from '../assets/images/brand/mascot-eye.png'
 import profileJoyImage from '../assets/images/profiles/profile-joy.png'
@@ -14,7 +13,6 @@ import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 const route = useRoute()
 const router = useRouter()
 const { showToast } = useToast()
-const auth = useAuthStore()
 const roomFlow = ref<'friends' | 'random'>('friends')
 const isRoomDialogOpen = ref(false)
 
@@ -56,12 +54,6 @@ watch(
 function handleSelectMode(mode: GamePlayMode) {
   if (!game.value) return
   if (mode.id === 'friends' || mode.id === 'random') {
-    if (!auth.isAuthenticated) {
-      auth.openLogin()
-      showToast('친구 대결과 랜덤 매칭은 로그인 후 이용할 수 있어요.')
-      return
-    }
-
     roomFlow.value = mode.id
     isRoomDialogOpen.value = true
     return
