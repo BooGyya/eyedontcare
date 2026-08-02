@@ -23,13 +23,6 @@ const auth = useAuthStore()
       <button type="button" @click="auth.openLogin">로그인하기</button>
     </section>
     <div v-else class="account-page__panel">
-      <section v-if="title === '마이페이지'" class="account-page__profile">
-        <img :src="auth.user.avatar" :alt="`${auth.user.nickname} 프로필`" />
-        <div>
-          <strong>{{ auth.user.nickname }}</strong>
-          <p>Lv. {{ auth.user.level }} · 눈 건강 챌린저</p>
-        </div>
-      </section>
       <section v-for="item in items" :key="item">
         <h2>{{ item }}</h2>
         <p>이 기능의 상세 설정은 준비 중입니다.</p>
@@ -62,19 +55,6 @@ const auth = useAuthStore()
 }
 .account-page__panel section:hover {
   background: var(--color-surface-soft);
-}
-.account-page__panel .account-page__profile {
-  gap: 12px;
-}
-.account-page__profile img {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  object-fit: cover;
-  background: var(--color-blue-soft);
-}
-.account-page__profile strong {
-  font-size: 17px;
 }
 .account-page h2 {
   flex: 0 0 140px;

@@ -47,6 +47,7 @@ const memberUser: AuthUser = {
   profileImageCode: 'PROFILE_1',
   email: 'player@example.com',
   loginType: 'LOCAL',
+  createdAt: '2026-08-01T00:00:00Z',
 }
 
 describe('auth store and UI', () => {

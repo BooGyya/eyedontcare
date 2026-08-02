@@ -41,6 +41,7 @@ function guestUser(): AuthUser {
     profileImageCode: null,
     email: null,
     loginType: null,
+    createdAt: null,
   }
 }
 
@@ -53,6 +54,7 @@ function toAuthUser(profile: UserResponse): AuthUser {
     profileImageCode: profile.profileImageCode,
     email: profile.email,
     loginType: profile.loginType,
+    createdAt: profile.createdAt,
   }
 }
 

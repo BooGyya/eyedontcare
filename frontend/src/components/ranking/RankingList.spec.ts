@@ -18,6 +18,7 @@ function mountRankingList(ranking: GameRanking, authenticated = false) {
       profileImageCode: 'PROFILE_1',
       email: null,
       loginType: 'LOCAL',
+      createdAt: '2026-08-01T00:00:00Z',
     })
   }
 
