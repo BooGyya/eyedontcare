@@ -184,7 +184,7 @@ export const homeQuickActions: QuickAction[] = [
     description: '커뮤니티에 참여하고 친구들과 소통해요!',
     image: discordLogoImage,
     tone: 'blue',
-    notice: '디스코드 커뮤니티 연결은 다음 단계에서 준비할 예정이에요.',
+    externalUrl: 'https://discord.gg/8SyyCmGRC',
   },
   {
     id: 'ranking',

@@ -105,7 +105,7 @@ export const policyDocuments: PolicyDocument[] = [
         heading: '문의 채널',
         bullets: [
           '이메일: support@eyedontcare.app',
-          '디스코드 커뮤니티: 홈 하단 소셜 아이콘에서 준비 중이에요.',
+          '디스코드 커뮤니티: 홈 하단 디스코드로 함께하기 버튼으로 입장해 피드백을 남기고 친구들과 통화하며 함께 게임할 수 있어요.',
         ],
       },
       {
