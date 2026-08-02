@@ -15,6 +15,7 @@ public class CorsConfig {
 	private static final String[] ALLOWED_METHODS = {
 		"GET",
 		"POST",
+        "PUT",
 		"PATCH",
 		"DELETE",
 		"OPTIONS"
