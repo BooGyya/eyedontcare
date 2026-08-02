@@ -861,7 +861,6 @@ async function handleConfirmWithdraw() {
       <div
         v-if="isPasswordDialogOpen"
         class="profile-dialog"
-        @click.self="handleClosePasswordChange"
         @keydown.esc="handleClosePasswordChange"
       >
         <section
