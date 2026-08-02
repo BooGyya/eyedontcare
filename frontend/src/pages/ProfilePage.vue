@@ -934,7 +934,6 @@ async function handleConfirmWithdraw() {
       <div
         v-if="isWithdrawDialogOpen"
         class="profile-dialog"
-        @click.self="isWithdrawDialogOpen = false"
         @keydown.esc="isWithdrawDialogOpen = false"
       >
         <section
