@@ -66,8 +66,7 @@ onBeforeUnmount(() => {
     >
       <img class="profile-menu__avatar" :src="auth.user.avatar" alt="" />
       <span class="profile-menu__meta">
-        <strong>{{ auth.user.nickname }}</strong
-        ><small>Lv. {{ auth.user.level }}</small>
+        <strong>{{ auth.user.nickname }}</strong>
       </span>
     </button>
     <Transition name="profile-menu">
@@ -80,8 +79,7 @@ onBeforeUnmount(() => {
         <div class="profile-menu__heading">
           <img :src="auth.user.avatar" :alt="`${auth.user.nickname} 프로필`" />
           <div>
-            <strong>{{ auth.user.nickname }}</strong
-            ><span>Lv. {{ auth.user.level }} · 눈 건강 챌린저</span>
+            <strong>{{ auth.user.nickname }}</strong>
           </div>
         </div>
         <div class="profile-menu__actions">
@@ -145,11 +143,6 @@ onBeforeUnmount(() => {
   gap: 1px;
   text-align: left;
   font-size: 14px;
-}
-.profile-menu__meta small,
-.profile-menu__heading span {
-  color: var(--color-muted);
-  font-size: 11px;
 }
 .profile-menu__panel {
   position: absolute;
