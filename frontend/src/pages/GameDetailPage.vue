@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GameRoomDialog from '../components/games/GameRoomDialog.vue'
-import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GamePlayMode } from '../types/game-detail'
 import guideMascotImage from '../assets/images/brand/mascot-eye.png'
@@ -12,7 +11,6 @@ import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 
 const route = useRoute()
 const router = useRouter()
-const { showToast } = useToast()
 const roomFlow = ref<'friends' | 'random'>('friends')
 const isRoomDialogOpen = ref(false)
 
@@ -64,7 +62,6 @@ function handleSelectMode(mode: GamePlayMode) {
     params: { gameId: game.value.id },
     query: { mode: mode.id },
   })
-  showToast(`${game.value.title} ${mode.label} 모드는 준비 중이에요.`)
 }
 
 function toTokens(text: string) {
