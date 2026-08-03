@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
                   type="password"
                   autocomplete="new-password"
                   maxlength="16"
-                  placeholder="8~16자, 영문+숫자 조합"
+                  placeholder="8~16자, 영문+숫자, 공백 불가"
                   :aria-invalid="Boolean(signupErrors.password)"
                   aria-describedby="signup-password-error"
                 />

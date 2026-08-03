@@ -61,7 +61,7 @@ class SignupRequestTest {
         assertThat(violations)
             .extracting(ConstraintViolation::getMessage)
             .contains(
-                "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 합니다."
+                "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 하며 공백은 사용할 수 없습니다."
             );
     }
 
@@ -78,7 +78,24 @@ class SignupRequestTest {
         assertThat(violations)
             .extracting(ConstraintViolation::getMessage)
             .contains(
-                "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 합니다."
+                "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 하며 공백은 사용할 수 없습니다."
+            );
+    }
+
+    @Test
+    void 영문과_숫자를_포함해도_중간_공백이_있으면_검증에_실패한다() {
+        SignupRequest request = new SignupRequest(
+            "user@example.com",
+            "pass word1"
+        );
+
+        Set<ConstraintViolation<SignupRequest>> violations =
+            validator.validate(request);
+
+        assertThat(violations)
+            .extracting(ConstraintViolation::getMessage)
+            .contains(
+                "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 하며 공백은 사용할 수 없습니다."
             );
     }
 

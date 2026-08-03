@@ -29,4 +29,17 @@ describe('isValidPassword', () => {
   it('rejects an empty string', () => {
     expect(isValidPassword('')).toBe(false)
   })
+
+  it('rejects a password with internal whitespace', () => {
+    expect(isValidPassword('abcd 1234')).toBe(false)
+  })
+
+  it('rejects a password with leading or trailing whitespace', () => {
+    expect(isValidPassword(' abcd1234')).toBe(false)
+    expect(isValidPassword('abcd1234 ')).toBe(false)
+  })
+
+  it('rejects a password with tab whitespace', () => {
+    expect(isValidPassword('abcd\t1234')).toBe(false)
+  })
 })
