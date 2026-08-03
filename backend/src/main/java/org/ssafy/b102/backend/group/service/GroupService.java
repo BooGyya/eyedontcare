@@ -1,6 +1,8 @@
 package org.ssafy.b102.backend.group.service;
 
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,7 +20,6 @@ import org.ssafy.b102.backend.group.dto.response.GroupDetailResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupListResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupMemberResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupResponse;
-import org.ssafy.b102.backend.group.dto.response.GroupSummaryResponse;
 import org.ssafy.b102.backend.group.dto.response.MyGroupListResponse;
 import org.ssafy.b102.backend.group.entity.Group;
 import org.ssafy.b102.backend.group.entity.GroupMember;
@@ -34,8 +35,10 @@ import org.ssafy.b102.backend.user.repository.UserRepository;
 /**
  * 소모임 도메인 서비스.
  *
- * <p>모든 기능은 인증된 회원 기준이다. 방장은 삭제·강퇴만 할 수 있고 나가기는 할 수 없으며,
- * 정원·중복 가입은 저장 전에 검증하되 동시성 최종 방어는 (group_id, user_id) 유니크 제약이 맡는다.
+ * <p>모든 기능은 인증된 회원 기준이다. 응답은 프론트 CommunityGroup 모양에 맞춰
+ * 인원수(members)·방장 닉네임(leader)·요청자 상태(isOwner/isJoined)·입장 코드(joinCode)를 담는다.
+ * 방장은 삭제·강퇴만 할 수 있고 나가기는 할 수 없으며, 정원·중복 가입은 저장 전에 검증하되
+ * 동시성 최종 방어는 (group_id, user_id) 유니크 제약이 맡는다.
  */
 @Service
 public class GroupService {
@@ -105,11 +108,16 @@ public class GroupService {
 			)
 		);
 
-		return GroupResponse.of(group, 1, GroupRole.OWNER);
+		return GroupResponse.of(group, 1, nickname(userId), true, true);
 	}
 
 	@Transactional(readOnly = true)
-	public GroupListResponse getGroups(String keyword, int page, int size) {
+	public GroupListResponse getGroups(
+		Long userId,
+		String keyword,
+		int page,
+		int size
+	) {
 		Pageable pageable = PageRequest.of(page - 1, size);
 		String normalizedKeyword = keyword == null ? "" : keyword;
 
@@ -120,11 +128,14 @@ public class GroupService {
 				pageable
 			);
 
-		List<GroupSummaryResponse> items = groups.getContent().stream()
-			.map(group -> GroupSummaryResponse.of(
+		Map<Long, GroupRole> myRoles = myRolesByGroup(userId);
+		Map<Long, String> leaders = leadersOf(groups.getContent());
+
+		List<GroupResponse> items = groups.getContent().stream()
+			.map(group -> toResponse(
 				group,
-				groupMemberRepository.countByGroupId(group.getId()),
-				null
+				leaders.get(group.getOwnerUserId()),
+				myRoles.get(group.getId())
 			))
 			.toList();
 
@@ -145,15 +156,17 @@ public class GroupService {
 			.findByGroupIdAndUserId(groupId, userId)
 			.map(GroupMember::getRole)
 			.orElse(null);
-		String groupCodeForMember = myRole == null
-			? null
-			: group.getGroupCode();
 
 		List<GroupMember> members = groupMemberRepository
 			.findByGroupIdOrderByJoinedAtAsc(groupId);
-		Map<Long, String> nicknames = loadNicknames(members);
 
-		List<GroupMemberResponse> memberResponses = members.stream()
+		List<Long> nicknameTargets = new ArrayList<>(members.stream()
+			.map(GroupMember::getUserId)
+			.toList());
+		nicknameTargets.add(group.getOwnerUserId());
+		Map<Long, String> nicknames = nicknamesOf(nicknameTargets);
+
+		List<GroupMemberResponse> memberList = members.stream()
 			.map(member -> new GroupMemberResponse(
 				member.getUserId(),
 				nicknames.get(member.getUserId()),
@@ -164,9 +177,11 @@ public class GroupService {
 
 		return GroupDetailResponse.of(
 			group,
-			groupCodeForMember,
-			myRole,
-			memberResponses
+			members.size(),
+			nicknames.get(group.getOwnerUserId()),
+			myRole == GroupRole.OWNER,
+			myRole != null,
+			memberList
 		);
 	}
 
@@ -197,7 +212,13 @@ public class GroupService {
 			)
 		);
 
-		return GroupResponse.of(group, memberCount + 1, GroupRole.MEMBER);
+		return GroupResponse.of(
+			group,
+			memberCount + 1,
+			nickname(group.getOwnerUserId()),
+			false,
+			true
+		);
 	}
 
 	@Transactional(readOnly = true)
@@ -212,14 +233,18 @@ public class GroupService {
 			.stream()
 			.collect(Collectors.toMap(Group::getId, Function.identity()));
 
-		List<GroupSummaryResponse> items = memberships.stream()
-			.map(membership -> groups.get(membership.getGroupId()))
-			.filter(Objects::nonNull)
-			.map(group -> GroupSummaryResponse.of(
-				group,
-				groupMemberRepository.countByGroupId(group.getId()),
-				resolveRole(memberships, group.getId())
-			))
+		Map<Long, String> leaders = leadersOf(groups.values());
+
+		List<GroupResponse> items = memberships.stream()
+			.filter(membership -> groups.containsKey(membership.getGroupId()))
+			.map(membership -> {
+				Group group = groups.get(membership.getGroupId());
+				return toResponse(
+					group,
+					leaders.get(group.getOwnerUserId()),
+					membership.getRole()
+				);
+			})
 			.toList();
 
 		return new MyGroupListResponse(items);
@@ -267,6 +292,20 @@ public class GroupService {
 		groupMemberRepository.delete(target);
 	}
 
+	private GroupResponse toResponse(
+		Group group,
+		String leader,
+		GroupRole myRole
+	) {
+		return GroupResponse.of(
+			group,
+			groupMemberRepository.countByGroupId(group.getId()),
+			leader,
+			myRole == GroupRole.OWNER,
+			myRole != null
+		);
+	}
+
 	private Group findGroupOrThrow(Long groupId) {
 		return groupRepository.findById(groupId)
 			.orElseThrow(() ->
@@ -291,24 +330,30 @@ public class GroupService {
 		);
 	}
 
-	private Map<Long, String> loadNicknames(List<GroupMember> members) {
-		List<Long> userIds = members.stream()
-			.map(GroupMember::getUserId)
-			.toList();
+	private Map<Long, GroupRole> myRolesByGroup(Long userId) {
+		return groupMemberRepository
+			.findByUserIdOrderByJoinedAtAsc(userId)
+			.stream()
+			.collect(Collectors.toMap(
+				GroupMember::getGroupId,
+				GroupMember::getRole
+			));
+	}
 
+	private Map<Long, String> leadersOf(Collection<Group> groups) {
+		return nicknamesOf(groups.stream()
+			.map(Group::getOwnerUserId)
+			.toList());
+	}
+
+	private Map<Long, String> nicknamesOf(Collection<Long> userIds) {
 		return userRepository.findAllById(userIds).stream()
 			.collect(Collectors.toMap(User::getId, User::getNickname));
 	}
 
-	private GroupRole resolveRole(
-		List<GroupMember> memberships,
-		Long groupId
-	) {
-		return memberships.stream()
-			.filter(membership ->
-				membership.getGroupId().equals(groupId))
-			.map(GroupMember::getRole)
-			.findFirst()
+	private String nickname(Long userId) {
+		return userRepository.findById(userId)
+			.map(User::getNickname)
 			.orElse(null);
 	}
 }

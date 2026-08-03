@@ -26,7 +26,6 @@ import org.ssafy.b102.backend.group.dto.response.GroupDetailResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupListResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupMemberResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupResponse;
-import org.ssafy.b102.backend.group.dto.response.GroupSummaryResponse;
 import org.ssafy.b102.backend.group.dto.response.MyGroupListResponse;
 import org.ssafy.b102.backend.group.entity.GroupRole;
 import org.ssafy.b102.backend.group.entity.GroupVisibility;
@@ -36,6 +35,8 @@ import org.ssafy.b102.backend.group.service.GroupService;
 class GroupControllerTest {
 
 	private static final Long USER_ID = 1L;
+	private static final Instant CREATED_AT =
+		Instant.parse("2026-08-03T00:00:00Z");
 
 	@AfterEach
 	void clearSecurityContext() {
@@ -43,11 +44,11 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 소모임을_생성하면_201과_생성코드를_반환한다() throws Exception {
+	void 소모임을_생성하면_201과_방장정보를_반환한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.groupResponse = new GroupResponse(
-			10L, "모임", "소개", "A1B2C3",
-			GroupVisibility.PUBLIC, 30, 1, USER_ID, GroupRole.OWNER
+			10L, "모임", "소개", 1, 30, GroupVisibility.PUBLIC,
+			"방장", true, true, "A1B2C3", CREATED_AT
 		);
 
 		mockMvc(service)
@@ -59,7 +60,9 @@ class GroupControllerTest {
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.code").value("GROUP_CREATE_SUCCESS"))
 			.andExpect(jsonPath("$.data.groupId").value(10))
-			.andExpect(jsonPath("$.data.myRole").value("OWNER"));
+			.andExpect(jsonPath("$.data.isOwner").value(true))
+			.andExpect(jsonPath("$.data.joinCode").value("A1B2C3"))
+			.andExpect(jsonPath("$.data.leader").value("방장"));
 
 		assertThat(service.capturedUserId).isEqualTo(USER_ID);
 	}
@@ -78,8 +81,9 @@ class GroupControllerTest {
 	void 공개_목록을_조회한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.listResponse = new GroupListResponse(
-			List.of(new GroupSummaryResponse(
-				10L, "모임", "소개", 3, 30, GroupVisibility.PUBLIC, null)),
+			List.of(new GroupResponse(
+				10L, "모임", "소개", 3, 30, GroupVisibility.PUBLIC,
+				"방장", false, false, null, CREATED_AT)),
 			1, 20, 1, 1
 		);
 
@@ -88,7 +92,9 @@ class GroupControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("GROUP_LIST_FOUND"))
 			.andExpect(jsonPath("$.data.groups[0].groupId").value(10))
-			.andExpect(jsonPath("$.data.groups[0].myRole").doesNotExist());
+			.andExpect(jsonPath("$.data.groups[0].members").value(3))
+			.andExpect(jsonPath("$.data.groups[0].isJoined").value(false))
+			.andExpect(jsonPath("$.data.groups[0].joinCode").doesNotExist());
 
 		assertThat(service.capturedKeyword).isEqualTo("모");
 	}
@@ -97,32 +103,33 @@ class GroupControllerTest {
 	void 내_소모임을_조회한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.myListResponse = new MyGroupListResponse(List.of(
-			new GroupSummaryResponse(
-				10L, "모임", null, 3, 30, GroupVisibility.PUBLIC, GroupRole.OWNER)
+			new GroupResponse(
+				10L, "모임", "소개", 3, 30, GroupVisibility.PUBLIC,
+				"방장", true, true, "A1B2C3", CREATED_AT)
 		));
 
 		mockMvc(service)
 			.perform(get("/api/v1/groups/me"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("MY_GROUP_LIST_FOUND"))
-			.andExpect(jsonPath("$.data.groups[0].myRole").value("OWNER"));
+			.andExpect(jsonPath("$.data.groups[0].isOwner").value(true));
 	}
 
 	@Test
 	void 상세를_조회한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.detailResponse = new GroupDetailResponse(
-			10L, "모임", "소개", "A1B2C3",
-			GroupVisibility.PUBLIC, 30, 1, USER_ID, GroupRole.OWNER,
+			10L, "모임", "소개", 1, 30, GroupVisibility.PUBLIC,
+			"방장", true, true, "A1B2C3", CREATED_AT,
 			List.of(new GroupMemberResponse(
-				USER_ID, "방장", GroupRole.OWNER, Instant.parse("2026-08-03T00:00:00Z")))
+				USER_ID, "방장", GroupRole.OWNER, CREATED_AT))
 		);
 
 		mockMvc(service)
 			.perform(get("/api/v1/groups/{groupId}", 10L))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("GROUP_DETAIL_FOUND"))
-			.andExpect(jsonPath("$.data.members[0].nickname").value("방장"));
+			.andExpect(jsonPath("$.data.memberList[0].nickname").value("방장"));
 
 		assertThat(service.capturedGroupId).isEqualTo(10L);
 	}
@@ -142,8 +149,8 @@ class GroupControllerTest {
 	void 코드로_입장한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.groupResponse = new GroupResponse(
-			10L, "모임", null, "A1B2C3",
-			GroupVisibility.PUBLIC, 30, 2, USER_ID, GroupRole.MEMBER
+			10L, "모임", null, 2, 30, GroupVisibility.PUBLIC,
+			"방장", false, true, "A1B2C3", CREATED_AT
 		);
 
 		mockMvc(service)
@@ -152,16 +159,15 @@ class GroupControllerTest {
 				.content("{\"groupCode\":\"A1B2C3\"}"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("GROUP_JOIN_SUCCESS"))
-			.andExpect(jsonPath("$.data.myRole").value("MEMBER"));
+			.andExpect(jsonPath("$.data.isJoined").value(true))
+			.andExpect(jsonPath("$.data.isOwner").value(false));
 
 		assertThat(service.capturedGroupCode).isEqualTo("A1B2C3");
 	}
 
 	@Test
 	void 나간다() throws Exception {
-		RecordingGroupService service = new RecordingGroupService();
-
-		mockMvc(service)
+		mockMvc(new RecordingGroupService())
 			.perform(post("/api/v1/groups/{groupId}/leave", 10L))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.code").value("GROUP_LEAVE_SUCCESS"))
@@ -282,8 +288,11 @@ class GroupControllerTest {
 		}
 
 		@Override
-		public GroupListResponse getGroups(String keyword, int page, int size) {
+		public GroupListResponse getGroups(
+			Long userId, String keyword, int page, int size
+		) {
 			maybeThrow();
+			this.capturedUserId = userId;
 			this.capturedKeyword = keyword;
 			return listResponse;
 		}

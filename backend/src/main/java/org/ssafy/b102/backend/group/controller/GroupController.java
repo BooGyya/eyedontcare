@@ -57,7 +57,7 @@ public class GroupController {
 		@RequestParam(defaultValue = "20") int size
 	) {
 		GroupListResponse response =
-			groupService.getGroups(keyword, page, size);
+			groupService.getGroups(member.userId(), keyword, page, size);
 
 		return ResponseEntity.ok(ApiResponse.success(
 			GroupSuccessCode.GROUP_LIST_FOUND,

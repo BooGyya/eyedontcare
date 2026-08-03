@@ -3,7 +3,6 @@ package org.ssafy.b102.backend.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -83,6 +82,8 @@ class GroupServiceTest {
 				setField(Group.class, saved, "id", GROUP_ID);
 				return saved;
 			});
+		when(userRepository.findById(OWNER_ID))
+			.thenReturn(Optional.of(user(OWNER_ID, "방장")));
 
 		GroupResponse response = groupService.create(
 			OWNER_ID,
@@ -90,15 +91,16 @@ class GroupServiceTest {
 		);
 
 		assertThat(response.groupId()).isEqualTo(GROUP_ID);
-		assertThat(response.myRole()).isEqualTo(GroupRole.OWNER);
-		assertThat(response.memberCount()).isEqualTo(1);
-		assertThat(response.groupCode()).isEqualTo("A1B2C3");
+		assertThat(response.isOwner()).isTrue();
+		assertThat(response.isJoined()).isTrue();
+		assertThat(response.members()).isEqualTo(1);
+		assertThat(response.joinCode()).isEqualTo("A1B2C3");
+		assertThat(response.leader()).isEqualTo("방장");
 
 		ArgumentCaptor<GroupMember> captor =
 			ArgumentCaptor.forClass(GroupMember.class);
 		verify(groupMemberRepository).save(captor.capture());
 		assertThat(captor.getValue().getRole()).isEqualTo(GroupRole.OWNER);
-		assertThat(captor.getValue().getUserId()).isEqualTo(OWNER_ID);
 		assertThat(captor.getValue().getJoinedAt()).isEqualTo(NOW);
 	}
 
@@ -108,6 +110,8 @@ class GroupServiceTest {
 		when(groupRepository.existsByGroupCode("A1B2C3")).thenReturn(false);
 		when(groupRepository.save(any(Group.class)))
 			.thenAnswer(invocation -> invocation.getArgument(0));
+		when(userRepository.findById(OWNER_ID))
+			.thenReturn(Optional.of(user(OWNER_ID, "방장")));
 
 		GroupResponse response = groupService.create(
 			OWNER_ID,
@@ -119,19 +123,20 @@ class GroupServiceTest {
 
 	@Test
 	void 코드가_중복이면_새_코드를_재발급한다() {
-		when(groupCodeGenerator.generate())
-			.thenReturn("DUP111", "UNIQ22");
+		when(groupCodeGenerator.generate()).thenReturn("DUP111", "UNIQ22");
 		when(groupRepository.existsByGroupCode("DUP111")).thenReturn(true);
 		when(groupRepository.existsByGroupCode("UNIQ22")).thenReturn(false);
 		when(groupRepository.save(any(Group.class)))
 			.thenAnswer(invocation -> invocation.getArgument(0));
+		when(userRepository.findById(OWNER_ID))
+			.thenReturn(Optional.of(user(OWNER_ID, "방장")));
 
 		GroupResponse response = groupService.create(
 			OWNER_ID,
 			new GroupCreateRequest("모임", null, GroupVisibility.PUBLIC, 10)
 		);
 
-		assertThat(response.groupCode()).isEqualTo("UNIQ22");
+		assertThat(response.joinCode()).isEqualTo("UNIQ22");
 	}
 
 	@Test
@@ -150,50 +155,54 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 공개_소모임_목록을_조회한다() {
+	void 공개_목록은_비멤버에게_joinCode를_숨긴다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		Page<Group> page = new PageImpl<>(
-			List.of(group),
-			PageRequest.of(0, 20),
-			1
-		);
+			List.of(group), PageRequest.of(0, 20), 1);
 		when(groupRepository.findByVisibilityAndNameContaining(
-			eq(GroupVisibility.PUBLIC), eq(""), any()
-		)).thenReturn(page);
+			eq(GroupVisibility.PUBLIC), eq(""), any())).thenReturn(page);
+		when(groupMemberRepository.findByUserIdOrderByJoinedAtAsc(MEMBER_ID))
+			.thenReturn(List.of());
+		when(userRepository.findAllById(any()))
+			.thenReturn(List.of(user(OWNER_ID, "방장")));
 		when(groupMemberRepository.countByGroupId(GROUP_ID)).thenReturn(3);
 
-		GroupListResponse response = groupService.getGroups(null, 1, 20);
+		GroupListResponse response =
+			groupService.getGroups(MEMBER_ID, null, 1, 20);
 
-		assertThat(response.groups()).hasSize(1);
-		assertThat(response.groups().get(0).memberCount()).isEqualTo(3);
-		assertThat(response.groups().get(0).myRole()).isNull();
-		assertThat(response.totalElements()).isEqualTo(1);
+		GroupResponse item = response.groups().get(0);
+		assertThat(item.members()).isEqualTo(3);
+		assertThat(item.leader()).isEqualTo("방장");
+		assertThat(item.isJoined()).isFalse();
+		assertThat(item.isOwner()).isFalse();
+		assertThat(item.joinCode()).isNull();
 	}
 
 	@Test
-	void 멤버는_상세에서_코드와_역할을_본다() {
+	void 멤버는_상세에서_joinCode와_isOwner를_본다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		when(groupRepository.findById(GROUP_ID))
 			.thenReturn(Optional.of(group));
 		when(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, OWNER_ID))
-			.thenReturn(Optional.of(
-				member(OWNER_ID, GroupRole.OWNER)));
+			.thenReturn(Optional.of(member(OWNER_ID, GroupRole.OWNER)));
 		when(groupMemberRepository.findByGroupIdOrderByJoinedAtAsc(GROUP_ID))
 			.thenReturn(List.of(member(OWNER_ID, GroupRole.OWNER)));
-		when(userRepository.findAllById(List.of(OWNER_ID)))
+		when(userRepository.findAllById(any()))
 			.thenReturn(List.of(user(OWNER_ID, "방장")));
 
 		GroupDetailResponse response =
 			groupService.getGroup(OWNER_ID, GROUP_ID);
 
-		assertThat(response.groupCode()).isEqualTo("A1B2C3");
-		assertThat(response.myRole()).isEqualTo(GroupRole.OWNER);
-		assertThat(response.members()).hasSize(1);
-		assertThat(response.members().get(0).nickname()).isEqualTo("방장");
+		assertThat(response.joinCode()).isEqualTo("A1B2C3");
+		assertThat(response.isOwner()).isTrue();
+		assertThat(response.isJoined()).isTrue();
+		assertThat(response.leader()).isEqualTo("방장");
+		assertThat(response.memberList()).hasSize(1);
+		assertThat(response.memberList().get(0).nickname()).isEqualTo("방장");
 	}
 
 	@Test
-	void 비멤버는_상세에서_코드와_역할이_null이다() {
+	void 비멤버는_상세에서_joinCode가_null이다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		when(groupRepository.findById(GROUP_ID))
 			.thenReturn(Optional.of(group));
@@ -201,14 +210,15 @@ class GroupServiceTest {
 			.thenReturn(Optional.empty());
 		when(groupMemberRepository.findByGroupIdOrderByJoinedAtAsc(GROUP_ID))
 			.thenReturn(List.of(member(OWNER_ID, GroupRole.OWNER)));
-		when(userRepository.findAllById(List.of(OWNER_ID)))
+		when(userRepository.findAllById(any()))
 			.thenReturn(List.of(user(OWNER_ID, "방장")));
 
 		GroupDetailResponse response =
 			groupService.getGroup(MEMBER_ID, GROUP_ID);
 
-		assertThat(response.groupCode()).isNull();
-		assertThat(response.myRole()).isNull();
+		assertThat(response.joinCode()).isNull();
+		assertThat(response.isJoined()).isFalse();
+		assertThat(response.isOwner()).isFalse();
 	}
 
 	@Test
@@ -229,11 +239,16 @@ class GroupServiceTest {
 		when(groupMemberRepository.existsByGroupIdAndUserId(GROUP_ID, MEMBER_ID))
 			.thenReturn(false);
 		when(groupMemberRepository.countByGroupId(GROUP_ID)).thenReturn(1);
+		when(userRepository.findById(OWNER_ID))
+			.thenReturn(Optional.of(user(OWNER_ID, "방장")));
 
 		GroupResponse response = groupService.join(MEMBER_ID, "A1B2C3");
 
-		assertThat(response.myRole()).isEqualTo(GroupRole.MEMBER);
-		assertThat(response.memberCount()).isEqualTo(2);
+		assertThat(response.isJoined()).isTrue();
+		assertThat(response.isOwner()).isFalse();
+		assertThat(response.members()).isEqualTo(2);
+		assertThat(response.joinCode()).isEqualTo("A1B2C3");
+		assertThat(response.leader()).isEqualTo("방장");
 		verify(groupMemberRepository).save(any(GroupMember.class));
 	}
 
@@ -382,8 +397,7 @@ class GroupServiceTest {
 
 	private static Group group(GroupVisibility visibility, int capacity) {
 		Group group = Group.create(
-			"모임", "소개", "A1B2C3", OWNER_ID, visibility, capacity
-		);
+			"모임", "소개", "A1B2C3", OWNER_ID, visibility, capacity);
 		setField(Group.class, group, "id", GROUP_ID);
 		return group;
 	}

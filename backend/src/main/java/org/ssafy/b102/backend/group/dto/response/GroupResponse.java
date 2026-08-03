@@ -1,39 +1,47 @@
 package org.ssafy.b102.backend.group.dto.response;
 
+import java.time.Instant;
 import org.ssafy.b102.backend.group.entity.Group;
-import org.ssafy.b102.backend.group.entity.GroupRole;
 import org.ssafy.b102.backend.group.entity.GroupVisibility;
 
 /**
- * 소모임 생성·입장 응답. (멤버 목록은 상세 조회에서만 내려준다.)
+ * 소모임 카드 응답(생성·입장·목록 항목 공통). 프론트 CommunityGroup 모양에 맞춘다.
+ *
+ * <p>{@code joinCode}는 요청자가 가입한 경우에만 채우고, 비가입자는 null이다.
  */
 public record GroupResponse(
 	Long groupId,
 	String name,
 	String description,
-	String groupCode,
-	GroupVisibility visibility,
+	int members,
 	int capacity,
-	int memberCount,
-	Long ownerUserId,
-	GroupRole myRole
+	GroupVisibility visibility,
+	String leader,
+	boolean isOwner,
+	boolean isJoined,
+	String joinCode,
+	Instant createdAt
 ) {
 
 	public static GroupResponse of(
 		Group group,
-		int memberCount,
-		GroupRole myRole
+		int members,
+		String leader,
+		boolean isOwner,
+		boolean isJoined
 	) {
 		return new GroupResponse(
 			group.getId(),
 			group.getName(),
 			group.getDescription(),
-			group.getGroupCode(),
-			group.getVisibility(),
+			members,
 			group.getCapacity(),
-			memberCount,
-			group.getOwnerUserId(),
-			myRole
+			group.getVisibility(),
+			leader,
+			isOwner,
+			isJoined,
+			isJoined ? group.getGroupCode() : null,
+			group.getCreatedAt()
 		);
 	}
 }
