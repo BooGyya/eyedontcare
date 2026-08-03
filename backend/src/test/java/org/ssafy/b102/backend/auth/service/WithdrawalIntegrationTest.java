@@ -176,7 +176,8 @@ class WithdrawalIntegrationTest {
             1,
             Outcome.WIN,
             1,
-            "original-display-name"
+            "original-display-name",
+            null
         );
 
         gameResult.addParticipant(participant);

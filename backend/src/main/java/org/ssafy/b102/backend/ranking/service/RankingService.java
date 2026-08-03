@@ -157,7 +157,7 @@ public class RankingService {
 				byUser.computeIfAbsent(userId, key -> new Aggregate())
 					.addWin(endedAt);
 			} else {
-				Long score = extractScore(participant);
+				Long score = participant.getScore();
 				if (score == null) {
 					continue;
 				}
@@ -188,22 +188,6 @@ public class RankingService {
 			));
 		}
 		return ranked;
-	}
-
-	private Long extractScore(Participant participant) {
-		Map<String, Object> gameResult = participant.getGameResult().getGameResult();
-		if (gameResult == null || participant.getSlotNo() == null) {
-			return null;
-		}
-		Object slot = gameResult.get(String.valueOf(participant.getSlotNo()));
-		if (!(slot instanceof Map<?, ?> slotMap)) {
-			return null;
-		}
-		Object score = slotMap.get("score");
-		if (!(score instanceof Number number)) {
-			return null;
-		}
-		return number.longValue();
 	}
 
 	private MyRank findMyRank(List<RankedUser> ranked, Long userId) {
