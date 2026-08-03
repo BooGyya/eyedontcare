@@ -9,6 +9,10 @@ import profile1 from '../assets/images/profiles/profile-joy.png'
 import profile2 from '../assets/images/profiles/profile-smile.png'
 import profile3 from '../assets/images/profiles/profile-wink.png'
 import profile4 from '../assets/images/profiles/profile-calm.png'
+import profile5 from '../assets/images/profiles/profile-athlete.png'
+import profile6 from '../assets/images/profiles/profile-crown.png'
+import profile7 from '../assets/images/profiles/profile-detective.png'
+import profile8 from '../assets/images/profiles/profile-tired.png'
 import type {
   NicknameCheckResponse,
   ProfileImageCode,
@@ -20,6 +24,10 @@ const PROFILE_IMAGE_BY_CODE: Record<ProfileImageCode, string> = {
   PROFILE_2: profile2,
   PROFILE_3: profile3,
   PROFILE_4: profile4,
+  PROFILE_5: profile5,
+  PROFILE_6: profile6,
+  PROFILE_7: profile7,
+  PROFILE_8: profile8,
 }
 
 /** `ProfileImageCode`를 아바타 이미지 URL로 해석한다. 알 수 없으면 기본값. */
@@ -27,7 +35,7 @@ export function avatarForProfileCode(code: ProfileImageCode | null): string {
   return (code && PROFILE_IMAGE_BY_CODE[code]) ?? profile1
 }
 
-/** 프로필 편집 화면의 아바타 선택지. 백엔드가 지원하는 4종에 1:1 대응한다. */
+/** 프로필 편집 화면의 아바타 선택지. 백엔드가 지원하는 8종에 1:1 대응한다. */
 export const PROFILE_OPTIONS: {
   code: ProfileImageCode
   name: string
@@ -37,6 +45,10 @@ export const PROFILE_OPTIONS: {
   { code: 'PROFILE_2', name: '미소', image: profile2 },
   { code: 'PROFILE_3', name: '윙크', image: profile3 },
   { code: 'PROFILE_4', name: '차분', image: profile4 },
+  { code: 'PROFILE_5', name: '활력', image: profile5 },
+  { code: 'PROFILE_6', name: '왕관', image: profile6 },
+  { code: 'PROFILE_7', name: '탐정', image: profile7 },
+  { code: 'PROFILE_8', name: '휴식', image: profile8 },
 ]
 
 export async function getUser(userId: number): Promise<UserResponse> {
