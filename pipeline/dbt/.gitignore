@@ -1,0 +1,5 @@
+# dbt 빌드 산출물
+target/
+logs/
+dbt_packages/
+.user.yml
