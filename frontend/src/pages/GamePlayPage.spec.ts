@@ -61,6 +61,30 @@ describe('gameplay routes', () => {
     wrapper.unmount()
   })
 
+  it('shows a leave confirmation dialog before emitting leave', async () => {
+    const router = createGameRouter()
+    await router.push('/games/air/play?mode=solo')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+
+    await wrapper.get('.play-shell__leave').trigger('click')
+    expect(wrapper.find('.play-shell__confirm').exists()).toBe(true)
+    expect(wrapper.text()).toContain('게임에서 나가시겠어요?')
+    expect(wrapper.text()).toContain('몰수패')
+
+    const continueButton = wrapper
+      .findAll('.play-shell__confirm-actions button')
+      .find((button) => button.text() === '계속하기')
+    await continueButton?.trigger('click')
+
+    expect(wrapper.find('.play-shell__confirm').exists()).toBe(false)
+    expect(wrapper.find('.play-shell').exists()).toBe(true)
+    expect(router.currentRoute.value.name).toBe('game-play')
+    wrapper.unmount()
+  })
+
   it.each(['friends', 'random'])(
     'renders separate rhythm game status panels in %s mode',
     async (mode) => {
