@@ -85,7 +85,7 @@ describe('gameplay routes', () => {
     const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
     const opponentMiss = wrapper.get('[data-testid="opponent-rhythm-miss"]')
 
-    for (let count = 0; count < 4; count += 1) {
+    for (let count = 0; count < 5; count += 1) {
       await opponentMiss.trigger('click')
     }
 
@@ -95,6 +95,58 @@ describe('gameplay routes', () => {
     wrapper.unmount()
   })
 
+  it('shows the completed result when mock game end is selected', async () => {
+    const router = createGameRouter()
+    await router.push('/games/rhythm/play?mode=solo&result=failed')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+
+    await wrapper.get('.finish').trigger('click')
+    await nextTick()
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
+    expect(router.currentRoute.value.name).toBe('game-result')
+    expect(router.currentRoute.value.query.result).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('shows the failed result when the solo player uses every rhythm heart', async () => {
+    const router = createGameRouter()
+    await router.push('/games/rhythm/play?mode=solo')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+    const mineMiss = wrapper.get('.rhythm-controls button:nth-child(3)')
+
+    for (let count = 0; count < 5; count += 1) {
+      await mineMiss.trigger('click')
+    }
+
+    await nextTick()
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
+    expect(router.currentRoute.value.name).toBe('game-result')
+    expect(router.currentRoute.value.query.result).toBe('failed')
+    wrapper.unmount()
+  })
+
+  it.each(['friends', 'random'])(
+    'shows the rhythm duel loss result in %s mode when my hearts are depleted',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/rhythm/play?mode=${mode}`)
+      await router.isReady()
+      const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
+      const mineMiss = wrapper.get('.rhythm-controls button:nth-child(3)')
+
+      for (let count = 0; count < 5; count += 1) {
+        await mineMiss.trigger('click')
+      }
+
+      await nextTick()
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
+      expect(router.currentRoute.value.query.result).toBe('lose')
+      wrapper.unmount()
+    },
+  )
+
   it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
     'renders the %s result route from mock data',
     async (gameId) => {
@@ -103,6 +155,114 @@ describe('gameplay routes', () => {
       await router.isReady()
       const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
       expect(wrapper.find('.result-shell').exists()).toBe(true)
+      wrapper.unmount()
+    },
+  )
+
+  it('renders the heart-depletion result message', async () => {
+    const router = createGameRouter()
+    await router.push('/games/rhythm/result?mode=solo&result=failed')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+    expect(wrapper.find('.failed-result').classes()).toContain('failed-result')
+    expect(wrapper.text()).toContain('게임에 실패했어요!')
+    expect(wrapper.text()).toContain('하트를 모두 사용했어요!')
+    wrapper.unmount()
+  })
+
+  it('renders the solo Eye See result when a record is not renewed', async () => {
+    const router = createGameRouter()
+    await router.push('/games/hold/result?mode=solo&result=not-new-record')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+    expect(wrapper.find('.hold-record-missed').exists()).toBe(true)
+    expect(wrapper.text()).toContain('신기록 갱신에 실패했어요!')
+    expect(wrapper.text()).toContain('01:02.38')
+    expect(wrapper.find('.result-actions').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['friends', 'random'])(
+    'renders the rhythm duel loss result in %s mode',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/rhythm/result?mode=${mode}&result=lose`)
+      await router.isReady()
+      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+      expect(wrapper.find('.duel-loss').exists()).toBe(true)
+      expect(wrapper.text()).toContain('YOU LOSE...')
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['ai', 'friends', 'random'])(
+    'renders the air hockey loss result in %s mode',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/air/result?mode=${mode}&result=lose`)
+      await router.isReady()
+      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+      expect(wrapper.find('.air-result').exists()).toBe(true)
+      expect(wrapper.find('.air-result .duel-loss__hero').exists()).toBe(true)
+      expect(wrapper.text()).toContain('YOU LOSE...')
+      expect(wrapper.text()).not.toContain('승리한 플레이어')
+      expect(wrapper.text()).not.toContain('아쉬운 플레이어')
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['ai', 'friends', 'random'])(
+    'renders the air hockey victory result in %s mode with its banner and score panel',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/air/result?mode=${mode}`)
+      await router.isReady()
+      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+      expect(wrapper.find('.air-result').exists()).toBe(true)
+      expect(wrapper.find('.air-result .duel-loss__hero').exists()).toBe(true)
+      expect(wrapper.text()).toContain('YOU WIN!')
+      expect(wrapper.text()).not.toContain('승리한 플레이어')
+      expect(wrapper.text()).not.toContain('아쉬운 플레이어')
+      if (mode !== 'ai') {
+        expect(wrapper.text()).toContain('눈빛 좋은 플레이어')
+        expect(wrapper.text()).toContain('신나는 플레이어')
+      }
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['friends', 'random'])(
+    'renders the Eye See duel result in %s mode with the showcase result layout',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/hold/result?mode=${mode}`)
+      await router.isReady()
+      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+      expect(wrapper.find('.air-result').exists()).toBe(true)
+      expect(wrapper.find('.air-result .duel-loss__hero').exists()).toBe(true)
+      expect(wrapper.text()).toContain('YOU WIN!')
+      expect(wrapper.text()).toContain('눈빛 좋은 플레이어')
+      expect(wrapper.text()).toContain('신나는 플레이어')
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['friends', 'random'])(
+    'renders the rhythm duel victory result in %s mode with the shared duel layout',
+    async (mode) => {
+      const router = createGameRouter()
+      await router.push(`/games/rhythm/result?mode=${mode}`)
+      await router.isReady()
+      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+
+      expect(wrapper.find('.duel-loss').exists()).toBe(true)
+      expect(wrapper.text()).toContain('YOU WIN!')
       wrapper.unmount()
     },
   )

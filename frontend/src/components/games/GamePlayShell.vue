@@ -4,6 +4,7 @@ defineProps<{
   modeLabel: string
   timeLabel: string
   timeCaption?: string
+  showElapsed?: boolean
   score: string
   showScore?: boolean
   showMetrics?: boolean
@@ -28,7 +29,11 @@ defineEmits<{ leave: [] }>()
         <h1>{{ title }}</h1>
         <span class="play-shell__mode">{{ modeLabel }}</span>
       </div>
-      <div v-if="timeCaption" class="play-shell__elapsed" aria-live="polite">
+      <div
+        v-if="timeCaption && showElapsed !== false"
+        class="play-shell__elapsed"
+        aria-live="polite"
+      >
         <span>{{ timeCaption }}</span>
         <strong>{{ timeLabel }}</strong>
       </div>
@@ -171,8 +176,14 @@ defineEmits<{ leave: [] }>()
   top: 50%;
   left: 50%;
   display: grid;
+  min-width: 150px;
   justify-items: center;
   gap: 2px;
+  padding: 8px 16px;
+  border: 1px solid #dedbff;
+  border-radius: 14px;
+  background: #fbfaff;
+  box-shadow: 0 7px 18px rgba(79, 68, 232, 0.1);
   transform: translate(-50%, -50%);
 }
 .play-shell__elapsed span {
