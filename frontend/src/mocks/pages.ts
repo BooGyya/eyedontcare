@@ -75,7 +75,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈빛왕',
         score: '128회',
         avatar: crownProfile,
-        level: 'Lv. 18',
         trend: 'same',
       },
       {
@@ -83,7 +82,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '초롱이',
         score: '116회',
         avatar: joyProfile,
-        level: 'Lv. 17',
         trend: 'up',
       },
       {
@@ -91,7 +89,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '반짝콩',
         score: '103회',
         avatar: smileProfile,
-        level: 'Lv. 16',
         trend: 'down',
       },
       {
@@ -99,7 +96,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈사람',
         score: '101회',
         avatar: calmProfile,
-        level: 'Lv. 15',
         trend: 'up',
       },
       {
@@ -107,7 +103,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '찰나의 눈빛',
         score: '100회',
         avatar: athleteProfile,
-        level: 'Lv. 14',
         trend: 'same',
       },
       {
@@ -115,7 +110,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '깜빡 달인',
         score: '99회',
         avatar: detectiveProfile,
-        level: 'Lv. 13',
         trend: 'down',
       },
       {
@@ -123,7 +117,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈쌩 최강자',
         score: '98회',
         avatar: joyProfile,
-        level: 'Lv. 12',
         trend: 'up',
         isCurrentUser: true,
       },
@@ -132,7 +125,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '매일 한 번',
         score: '95회',
         avatar: smileProfile,
-        level: 'Lv. 12',
         trend: 'same',
       },
       {
@@ -140,7 +132,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈 휴식가',
         score: '93회',
         avatar: crownProfile,
-        level: 'Lv. 11',
         trend: 'down',
       },
       {
@@ -148,7 +139,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '맑은 시선',
         score: '91회',
         avatar: calmProfile,
-        level: 'Lv. 10',
         trend: 'up',
       },
     ],
@@ -167,7 +157,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '선긋기달인',
         score: '2,450점',
         avatar: detectiveProfile,
-        level: 'Lv. 18',
         trend: 'same',
       },
       {
@@ -175,7 +164,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '몽글이',
         score: '2,230점',
         avatar: athleteProfile,
-        level: 'Lv. 17',
         trend: 'up',
       },
       {
@@ -183,7 +171,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '보라콩',
         score: '2,180점',
         avatar: smileProfile,
-        level: 'Lv. 16',
         trend: 'down',
       },
       {
@@ -191,7 +178,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '시선집중',
         score: '2,110점',
         avatar: calmProfile,
-        level: 'Lv. 15',
         trend: 'same',
       },
       {
@@ -199,7 +185,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈쌩 최강자',
         score: '2,050점',
         avatar: joyProfile,
-        level: 'Lv. 12',
         trend: 'up',
         isCurrentUser: true,
       },
@@ -208,7 +193,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '선 따라가기',
         score: '1,990점',
         avatar: detectiveProfile,
-        level: 'Lv. 14',
         trend: 'down',
       },
       {
@@ -216,7 +200,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '동그라미 장인',
         score: '1,940점',
         avatar: athleteProfile,
-        level: 'Lv. 13',
         trend: 'up',
       },
       {
@@ -224,7 +207,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '차분한 연필',
         score: '1,900점',
         avatar: calmProfile,
-        level: 'Lv. 12',
         trend: 'same',
       },
       {
@@ -232,7 +214,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '보는 대로',
         score: '1,860점',
         avatar: smileProfile,
-        level: 'Lv. 11',
         trend: 'down',
       },
       {
@@ -240,7 +221,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '시선 화가',
         score: '1,820점',
         avatar: crownProfile,
-        level: 'Lv. 10',
         trend: 'up',
       },
     ],
@@ -259,7 +239,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '집중마스터',
         score: '87.5초',
         avatar: athleteProfile,
-        level: 'Lv. 18',
         trend: 'same',
       },
       {
@@ -267,7 +246,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈동자',
         score: '84.1초',
         avatar: crownProfile,
-        level: 'Lv. 17',
         trend: 'up',
       },
       {
@@ -275,7 +253,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '별빛',
         score: '80.6초',
         avatar: detectiveProfile,
-        level: 'Lv. 16',
         trend: 'down',
       },
       {
@@ -283,7 +260,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '고요한 시선',
         score: '77.8초',
         avatar: detectiveProfile,
-        level: 'Lv. 15',
         trend: 'up',
       },
       {
@@ -291,7 +267,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '한밤의 집중',
         score: '75.9초',
         avatar: calmProfile,
-        level: 'Lv. 14',
         trend: 'same',
       },
       {
@@ -299,7 +274,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈꽃 여행자',
         score: '73.6초',
         avatar: smileProfile,
-        level: 'Lv. 14',
         trend: 'down',
       },
       {
@@ -307,7 +281,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '시선 수집가',
         score: '71.4초',
         avatar: joyProfile,
-        level: 'Lv. 13',
         trend: 'up',
       },
       {
@@ -315,7 +288,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '새벽의 눈',
         score: '69.8초',
         avatar: athleteProfile,
-        level: 'Lv. 12',
         trend: 'same',
       },
       {
@@ -323,7 +295,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '깜빡임 제로',
         score: '67.5초',
         avatar: crownProfile,
-        level: 'Lv. 12',
         trend: 'down',
       },
       {
@@ -331,7 +302,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '편안한 눈빛',
         score: '65.1초',
         avatar: calmProfile,
-        level: 'Lv. 11',
         trend: 'up',
       },
       {
@@ -339,7 +309,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈쌩 최강자',
         score: '63.4초',
         avatar: joyProfile,
-        level: 'Lv. 12',
         trend: 'up',
         isCurrentUser: true,
       },
@@ -359,7 +328,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '리듬의 별',
         score: '4,820점',
         avatar: crownProfile,
-        level: 'Lv. 18',
         trend: 'up',
       },
       {
@@ -367,7 +335,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '콤보 장인',
         score: '4,610점',
         avatar: athleteProfile,
-        level: 'Lv. 17',
         trend: 'same',
       },
       {
@@ -375,7 +342,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈빛 비트',
         score: '4,390점',
         avatar: smileProfile,
-        level: 'Lv. 16',
         trend: 'down',
       },
       {
@@ -383,7 +349,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '박자 수집가',
         score: '4,150점',
         avatar: detectiveProfile,
-        level: 'Lv. 15',
         trend: 'up',
       },
       {
@@ -391,7 +356,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '왼눈 오른눈',
         score: '3,980점',
         avatar: calmProfile,
-        level: 'Lv. 14',
         trend: 'same',
       },
       {
@@ -399,7 +363,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '템포 러너',
         score: '3,760점',
         avatar: joyProfile,
-        level: 'Lv. 14',
         trend: 'down',
       },
       {
@@ -407,7 +370,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '리듬 여우',
         score: '3,590점',
         avatar: athleteProfile,
-        level: 'Lv. 13',
         trend: 'up',
       },
       {
@@ -415,7 +377,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '반짝 박자',
         score: '3,450점',
         avatar: crownProfile,
-        level: 'Lv. 12',
         trend: 'same',
       },
       {
@@ -423,7 +384,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈동자 드러머',
         score: '3,310점',
         avatar: smileProfile,
-        level: 'Lv. 11',
         trend: 'down',
       },
       {
@@ -431,7 +391,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '고요한 리듬',
         score: '3,250점',
         avatar: calmProfile,
-        level: 'Lv. 11',
         trend: 'up',
       },
       {
@@ -439,7 +398,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈쌩 최강자',
         score: '3,180점',
         avatar: joyProfile,
-        level: 'Lv. 12',
         trend: 'up',
         isCurrentUser: true,
       },
@@ -459,7 +417,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '바람의 지배자',
         score: '5,260점',
         avatar: detectiveProfile,
-        level: 'Lv. 18',
         trend: 'same',
       },
       {
@@ -467,7 +424,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '시선 골키퍼',
         score: '4,980점',
         avatar: athleteProfile,
-        level: 'Lv. 17',
         trend: 'up',
       },
       {
@@ -475,7 +431,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '푸른 회오리',
         score: '4,640점',
         avatar: crownProfile,
-        level: 'Lv. 16',
         trend: 'down',
       },
       {
@@ -483,7 +438,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '가벼운 눈빛',
         score: '4,390점',
         avatar: calmProfile,
-        level: 'Lv. 15',
         trend: 'up',
       },
       {
@@ -491,7 +445,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '에어 스텝',
         score: '4,120점',
         avatar: smileProfile,
-        level: 'Lv. 14',
         trend: 'same',
       },
       {
@@ -499,7 +452,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈길 드리블',
         score: '3,940점',
         avatar: athleteProfile,
-        level: 'Lv. 13',
         trend: 'down',
       },
       {
@@ -507,7 +459,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '바람길 탐험가',
         score: '3,810점',
         avatar: crownProfile,
-        level: 'Lv. 13',
         trend: 'up',
       },
       {
@@ -515,7 +466,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '눈쌩 최강자',
         score: '3,720점',
         avatar: joyProfile,
-        level: 'Lv. 12',
         trend: 'up',
         isCurrentUser: true,
       },
@@ -524,7 +474,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '시선 바람개비',
         score: '3,580점',
         avatar: detectiveProfile,
-        level: 'Lv. 11',
         trend: 'same',
       },
       {
@@ -532,7 +481,6 @@ export const gameRankings: GameRanking[] = [
         nickname: '맑은 공기',
         score: '3,410점',
         avatar: calmProfile,
-        level: 'Lv. 10',
         trend: 'down',
       },
     ],
