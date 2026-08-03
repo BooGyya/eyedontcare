@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import gameEyeImage from '../assets/images/games/game-eye.png'
 import { useToast } from '../composables/useToast'
@@ -15,6 +8,7 @@ import { useAuthStore } from '../stores/auth'
 import { PROFILE_OPTIONS, checkNickname as apiCheckNickname } from '../api/user'
 import { getMyResults, getResult } from '../api/gameResult'
 import { ApiError } from '../api/http'
+import { isValidPassword, PASSWORD_POLICY_MESSAGE } from '../utils/password'
 import { GAME_DISPLAY_NAME } from '../types/waitingRoom'
 import type { ProfileImageCode } from '../types/auth'
 import type {
@@ -187,7 +181,9 @@ async function loadRecords() {
     recordsTotal.value = result.totalElements
   } catch (error) {
     showToast(
-      error instanceof ApiError ? error.message : '경기 기록을 불러오지 못했어요.',
+      error instanceof ApiError
+        ? error.message
+        : '경기 기록을 불러오지 못했어요.',
     )
   } finally {
     isLoadingRecords.value = false
@@ -222,6 +218,18 @@ function handleOpenEdit() {
 
 function handleNicknameChange() {
   isNicknameChecked.value = false
+}
+
+/** maxlength로 입력은 이미 막히므로, 10자 초과 시도에 안내만 띄운다. */
+function handleNicknameBeforeInput(event: globalThis.InputEvent) {
+  if (!event.data) return
+  const input = event.currentTarget as globalThis.HTMLInputElement
+  const selectionLength =
+    (input.selectionEnd ?? 0) - (input.selectionStart ?? 0)
+  const nextLength = input.value.length - selectionLength + event.data.length
+  if (nextLength > 10) {
+    showToast('닉네임은 10자까지 입력할 수 있어요.')
+  }
 }
 
 async function handleCheckNickname() {
@@ -293,7 +301,9 @@ async function handleOpenRecord(record: MyGameResult, event: globalThis.Event) {
     selectedRecord.value = await getResult(record.resultId)
   } catch (error) {
     showToast(
-      error instanceof ApiError ? error.message : '경기 상세를 불러오지 못했어요.',
+      error instanceof ApiError
+        ? error.message
+        : '경기 상세를 불러오지 못했어요.',
     )
   }
 }
@@ -356,6 +366,11 @@ async function handleSubmitPasswordChange() {
 
   if (!changePassword.value.trim()) {
     showToast('새 비밀번호를 입력해 주세요.')
+    return
+  }
+
+  if (!isValidPassword(changePassword.value)) {
+    showToast(PASSWORD_POLICY_MESSAGE)
     return
   }
 
@@ -435,7 +450,8 @@ async function handleConfirmWithdraw() {
             <input
               v-model="draftNickname"
               type="text"
-              maxlength="12"
+              maxlength="10"
+              @beforeinput="handleNicknameBeforeInput"
               @input="handleNicknameChange"
             />
             <button type="button" @click="handleCheckNickname">
@@ -834,9 +850,7 @@ async function handleConfirmWithdraw() {
             </article>
           </div>
           <div class="game-result-modal__participants">
-            <div>
-              <span>플레이어</span><span>결과</span><span>순위</span>
-            </div>
+            <div><span>플레이어</span><span>결과</span><span>순위</span></div>
             <div
               v-for="participant in selectedRecord.participants"
               :key="participant.slotNo"
@@ -885,6 +899,7 @@ async function handleConfirmWithdraw() {
               v-model="changePassword"
               type="password"
               autocomplete="new-password"
+              maxlength="16"
               placeholder="변경할 비밀번호를 입력해 주세요"
             />
           </label>
@@ -894,6 +909,7 @@ async function handleConfirmWithdraw() {
               v-model="changePasswordConfirmation"
               type="password"
               autocomplete="new-password"
+              maxlength="16"
               placeholder="비밀번호를 한 번 더 입력해 주세요"
             />
             <small

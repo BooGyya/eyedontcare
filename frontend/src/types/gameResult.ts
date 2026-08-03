@@ -72,23 +72,3 @@ export interface GameResultDetailResponse {
   /** 게임별 구조가 달라 그대로 저장/조회되는 JSON. */
   gameResult: Record<string, unknown>
 }
-
-export type GameParticipant = {
-  slotNo: number
-  participantType: 'USER' | 'GUEST' | 'BOT'
-  displayName: string
-  outcome: GameOutcome
-  rank: number
-  score: number
-}
-
-export type GameResultDetail = {
-  resultId: number
-  gameName: string
-  playMode: 'SINGLE' | 'MULTI'
-  difficulty: number | null
-  startedAt: string
-  endedAt: string
-  participants: GameParticipant[]
-  gameResult: Record<string, { survivalTimeMs?: number }>
-}
