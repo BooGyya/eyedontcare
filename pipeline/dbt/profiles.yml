@@ -1,0 +1,14 @@
+# dbt 연결 프로파일. 값은 환경변수로 주입(기본값은 로컬 compose Postgres).
+# 결과 모델은 analytics 스키마에 물질화한다(운영 public 테이블과 분리).
+eyedontcare:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PORT', '5432') | int }}"
+      user: "{{ env_var('DBT_USER', 'backend') }}"
+      password: "{{ env_var('DBT_PASSWORD', 'backend-local-password') }}"
+      dbname: "{{ env_var('DBT_DBNAME', 'backend') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'analytics') }}"
+      threads: 4
