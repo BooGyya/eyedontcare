@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+
 defineProps<{
   title: string
   modeLabel: string
@@ -12,7 +14,14 @@ defineProps<{
     total: number
   }
 }>()
-defineEmits<{ leave: [] }>()
+const emit = defineEmits<{ leave: [] }>()
+
+const isLeaveConfirmOpen = ref(false)
+
+function confirmLeave() {
+  isLeaveConfirmOpen.value = false
+  emit('leave')
+}
 </script>
 
 <template>
@@ -62,12 +71,41 @@ defineEmits<{ leave: [] }>()
         class="play-shell__leave"
         type="button"
         aria-label="게임 나가기"
-        @click="$emit('leave')"
+        @click="isLeaveConfirmOpen = true"
       >
         나가기
       </button>
     </header>
     <main class="play-shell__content"><slot /></main>
+    <div
+      v-if="isLeaveConfirmOpen"
+      class="play-shell__confirm"
+      @keydown.esc="isLeaveConfirmOpen = false"
+    >
+      <section
+        class="play-shell__confirm-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leave-confirm-title"
+      >
+        <h2 id="leave-confirm-title">게임에서 나가시겠어요?</h2>
+        <p>
+          지금 나가면 중도 이탈로 처리되며<br />이번 경기는 몰수패로 기록됩니다.
+        </p>
+        <div class="play-shell__confirm-actions">
+          <button type="button" @click="isLeaveConfirmOpen = false">
+            계속하기
+          </button>
+          <button
+            class="play-shell__confirm-leave"
+            type="button"
+            @click="confirmLeave"
+          >
+            나가기
+          </button>
+        </div>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -285,5 +323,75 @@ defineEmits<{ leave: [] }>()
   .play-shell__header button {
     margin-left: auto;
   }
+}
+.play-shell__confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 36, 61, 0.45);
+}
+.play-shell__confirm-card {
+  display: grid;
+  gap: 14px;
+  width: min(400px, 100%);
+  padding: 28px;
+  border-radius: var(--radius-card, 18px);
+  background: #fff;
+  box-shadow: var(--shadow-float);
+  text-align: center;
+}
+.play-shell__confirm-card h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 20px;
+}
+.play-shell__confirm-card p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+.play-shell__confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.play-shell__confirm-actions button {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid #dfe3ee;
+  border-radius: 10px;
+  color: var(--color-ink);
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.play-shell__confirm-actions button:hover {
+  border-color: #bfc7e9;
+  color: var(--color-accent-blue);
+  background: #f8f8ff;
+}
+.play-shell__confirm-actions button:active {
+  transform: translateY(1px);
+}
+.play-shell__confirm-leave {
+  border: 0;
+  color: #fff;
+  background: var(--color-danger, #c2455a);
+}
+.play-shell__confirm-leave:hover {
+  border-color: transparent;
+  color: #fff;
+  background: color-mix(in srgb, var(--color-danger, #c2455a) 82%, black);
 }
 </style>
