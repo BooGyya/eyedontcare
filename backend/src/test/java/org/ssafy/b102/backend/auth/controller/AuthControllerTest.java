@@ -254,7 +254,7 @@ class AuthControllerTest {
             )
             .andExpect(
                 jsonPath("$.data.fieldErrors[0].reason")
-                    .value("비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 합니다.")
+                    .value("비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 하며 공백은 사용할 수 없습니다.")
             );
     }
 
@@ -289,7 +289,7 @@ class AuthControllerTest {
             )
             .andExpect(
                 jsonPath("$.data.fieldErrors[0].reason")
-                    .value("비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 합니다.")
+                    .value("비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 하며 공백은 사용할 수 없습니다.")
             );
     }
 

@@ -49,6 +49,20 @@ class LoginRequestTest {
     }
 
     @Test
+    void 로그인_비밀번호_내부_공백은_새_비밀번호_정책으로_거절하지_않는다() {
+        LoginRequest request = new LoginRequest(
+            "user@example.com",
+            "pass word1"
+        );
+
+        Set<ConstraintViolation<LoginRequest>> violations =
+            validator.validate(request);
+
+        assertThat(violations).isEmpty();
+        assertThat(request.password()).isEqualTo("pass word1");
+    }
+
+    @Test
     void 이메일_형식이_올바르지_않으면_검증에_실패한다() {
         LoginRequest request = new LoginRequest(
             "invalid-email",
