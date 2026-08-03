@@ -1,6 +1,7 @@
 package org.ssafy.b102.backend.gameresult.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -60,7 +61,8 @@ public class GameResultService {
 			request.startedAt(),
 			request.endedAt()
 		);
-		request.participants().forEach(participant -> gameResult.addParticipant(toParticipant(participant)));
+		request.participants().forEach(participant ->
+			gameResult.addParticipant(toParticipant(participant, request.gameResult())));
 
 		return SubmitGameResultResponse.from(gameResultRepository.save(gameResult));
 	}
@@ -104,7 +106,10 @@ public class GameResultService {
 	 * 검증한다. 실패하면 예외가 나가 {@code @Transactional}이 결과·참가자 저장을 통째로 롤백한다.
 	 * 표시 이름은 요청 body를 신뢰하지 않고 검증된 세션의 닉네임을 쓴다.
 	 */
-	private Participant toParticipant(ParticipantResultRequest request) {
+	private Participant toParticipant(
+		ParticipantResultRequest request,
+		Map<String, Object> gameResult
+	) {
 		Long userId = null;
 		String displayName = request.displayName();
 
@@ -120,8 +125,25 @@ public class GameResultService {
 			request.slotNo(),
 			request.outcome(),
 			request.rank(),
-			displayName
+			displayName,
+			extractScore(gameResult, request.slotNo())
 		);
+	}
+
+	/**
+	 * 통일 구조 {@code {"<slot>": {"score": N}}}에서 해당 슬롯의 score를 뽑는다.
+	 * 값이 없거나 숫자가 아니면 null(랭킹·전적에서 제외)이다.
+	 */
+	private Long extractScore(Map<String, Object> gameResult, Integer slotNo) {
+		if (gameResult == null || slotNo == null) {
+			return null;
+		}
+		Object slot = gameResult.get(String.valueOf(slotNo));
+		if (!(slot instanceof Map<?, ?> slotMap)) {
+			return null;
+		}
+		Object score = slotMap.get("score");
+		return score instanceof Number number ? number.longValue() : null;
 	}
 
 	private Long resolveUserId(String participantKey) {

@@ -220,30 +220,29 @@ class RankingServiceTest {
 	}
 
 	private static Participant score(Long userId, long score, Instant endedAt) {
-		Map<String, Object> result = Map.of("1", Map.of("score", score));
-		return participant(userId, 1, Outcome.COMPLETED, result, endedAt);
+		return participant(userId, 1, Outcome.COMPLETED, score, endedAt);
 	}
 
 	private static Participant win(Long userId, Outcome outcome, Instant endedAt) {
-		return participant(userId, 1, outcome, Map.of(), endedAt);
+		return participant(userId, 1, outcome, null, endedAt);
 	}
 
 	private static Participant participant(
 		Long userId,
 		int slotNo,
 		Outcome outcome,
-		Map<String, Object> result,
+		Long score,
 		Instant endedAt
 	) {
 		GameResult gameResult = GameResult.of(
 			UUID.randomUUID(),
 			null,
-			result,
+			Map.of(),
 			endedAt.minusSeconds(60),
 			endedAt
 		);
 		Participant participant = Participant.of(
-			userId, ParticipantType.USER, slotNo, outcome, 1, "user" + userId
+			userId, ParticipantType.USER, slotNo, outcome, 1, "user" + userId, score
 		);
 		gameResult.addParticipant(participant);
 		return participant;
