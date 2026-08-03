@@ -40,26 +40,26 @@ export const DRAWING_WORDS_BY_DIFFICULTY: Record<
   DrawDifficulty,
   readonly string[]
 > = {
-  EASY: Object.freeze(['하트', '별', '해', '달', '컵', '구름', '사과', '열쇠']),
+  EASY: Object.freeze(['달', '산', '하트', '해', '책', '컵', '별', '구름']),
   MEDIUM: Object.freeze([
+    '사과',
+    '열쇠',
     '나무',
-    '집',
     '꽃',
     '안경',
-    '시계',
     '우산',
-    '의자',
-    '물고기',
+    '자동차',
+    '얼굴',
   ]),
   HARD: Object.freeze([
-    '자동차',
     '배',
     '비행기',
     '기타',
+    '물고기',
+    '의자',
+    '집',
+    '시계',
     '왕관',
-    '산',
-    '얼굴',
-    '책',
   ]),
 }
 
