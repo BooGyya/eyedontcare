@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
+import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import type { GameAiDifficultyOption, GamePlayMode } from '../types/game-detail'
 import guideMascotImage from '../assets/images/brand/mascot-eye.png'
@@ -59,7 +60,7 @@ function handleSelectMode(mode: GamePlayMode) {
   if (mode.id === 'friends' || mode.id === 'random') {
     if (!auth.isAuthenticated) {
       auth.openLogin()
-      showToast('친구 ?�결과 ?�덤 매칭?� 로그?????�용?????�어??')
+      showToast('친구 대결과 랜덤 매칭은 로그인 후 이용할 수 있어요')
       return
     }
 
@@ -68,7 +69,7 @@ function handleSelectMode(mode: GamePlayMode) {
     return
   }
 
-  // AI ?�이?��? ?�는 게임(지금�? ?�싸?��??� 바로 ?�동?��? ?�고 ?�이?��???고르�??�다.
+  // AI 난이도가 있는 게임(지금은 눈싸움)은 바로 이동하지 않고 난이도를 고르게 한다.
   if (mode.id === 'ai' && game.value.aiDifficulties?.length) {
     isDifficultyDialogOpen.value = true
     return
@@ -109,7 +110,7 @@ function handleEnterRoom(payload: {
     params: { gameId: game.value.id },
     query: {
       mode: payload.mode,
-      // 초�?방�? 4?�리 �?코드, ?�덤방�? 매칭?�로 받�? ?�제 roomId(UUID)�??�긴??
+      // 초대방은 4자리 방 코드, 랜덤방은 매칭으로 받은 실제 roomId(UUID)를 넘긴다.
       ...(payload.roomCode ? { room: payload.roomCode } : {}),
       ...(payload.roomId ? { roomId: payload.roomId } : {}),
       ...(payload.role ? { role: payload.role } : {}),
@@ -158,7 +159,7 @@ onBeforeUnmount(() => {
           stroke-linejoin="round"
         />
       </svg>
-      게임 목록?�로
+      게임 목록으로
     </RouterLink>
 
     <section class="game-detail-page__hero">
@@ -169,7 +170,7 @@ onBeforeUnmount(() => {
           aria-hidden="true"
           >{{ game.artCaption }}</span
         >
-        <img :src="game.image" :alt="`${displayTitle} 게임 ?�러?�트`" />
+        <img :src="game.image" :alt="`${displayTitle} 게임 일러스트`" />
       </div>
 
       <div class="game-detail-page__intro">
@@ -184,7 +185,7 @@ onBeforeUnmount(() => {
               <circle cx="12" cy="12" r="9" />
               <path d="M12 8h.01M12 11.5V16" />
             </svg>
-            게임 ?�명
+            게임 설명
           </button>
         </div>
         <p class="game-detail-page__subtitle">{{ game.subtitle }}</p>
@@ -196,7 +197,7 @@ onBeforeUnmount(() => {
               <path d="M4.5 20c1-4 3.8-6 7.5-6s6.5 2 7.5 6" />
             </svg>
             <div>
-              <dt>권장 ?�원</dt>
+              <dt>권장 인원</dt>
               <dd>{{ game.people }}</dd>
             </div>
           </div>
@@ -206,13 +207,13 @@ onBeforeUnmount(() => {
               <path d="M12 7v5l3.5 2" />
             </svg>
             <div>
-              <dt>{{ game.durationLabel ?? '?�한 ?�간' }}</dt>
+              <dt>{{ game.durationLabel ?? '제한 시간' }}</dt>
               <dd>{{ game.duration }}</dd>
             </div>
           </div>
         </dl>
 
-        <div class="game-detail-page__tags" aria-label="게임 ?�그">
+        <div class="game-detail-page__tags" aria-label="게임 태그">
           <span
             v-for="(tag, index) in game.tags"
             :key="tag"
@@ -229,7 +230,7 @@ onBeforeUnmount(() => {
         'game-detail-page__modes--compact': game.modes.length >= 4,
         'game-detail-page__modes--single': game.modes.length === 1,
       }"
-      aria-label="게임 모드 ?�택"
+      aria-label="게임 모드 선택"
     >
       <button
         v-for="mode in game.modes"
@@ -426,8 +427,8 @@ onBeforeUnmount(() => {
       </button>
     </section>
 
-    <section class="game-detail-page__other-games" aria-label="?�른 게임 목록">
-      <h2>?�른 게임???�어??/h2>
+    <section class="game-detail-page__other-games" aria-label="다른 게임 목록">
+      <h2>다른 게임도 있어요</h2>
       <div class="game-detail-page__other-games-grid">
         <RouterLink
           v-for="other in otherGames"
@@ -438,7 +439,7 @@ onBeforeUnmount(() => {
           <span class="game-detail-page__other-game-thumb">
             <img
               :src="other.image"
-              :alt="`${toDisplayTitle(other.title)} ?�네??"
+              :alt="`${toDisplayTitle(other.title)} 썸네일`"
             />
           </span>
           <span class="game-detail-page__other-game-title">{{
@@ -464,7 +465,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="game-detail-page__dialog-x"
-            aria-label="게임 ?�명 ?�기"
+            aria-label="게임 설명 닫기"
             @click="isDescriptionOpen = false"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -477,7 +478,7 @@ onBeforeUnmount(() => {
             </svg>
           </button>
           <h2 id="game-description-title" class="game-detail-page__guide-title">
-            게임 ?�명
+            게임 설명
           </h2>
 
           <div class="game-detail-page__guide-intro">
@@ -935,7 +936,7 @@ onBeforeUnmount(() => {
               v-if="game.guide.events?.length"
               class="game-detail-page__guide-events"
             >
-              <h3>?�벤???�시</h3>
+              <h3>이벤트 예시</h3>
               <div>
                 <article
                   v-for="event in game.guide.events"
@@ -999,7 +1000,7 @@ onBeforeUnmount(() => {
                     </svg>
                   </span>
                   <p>{{ event.label }}</p>
-                  <b>?�공 ??보너??</b>
+                  <b>성공 시 보너스!</b>
                 </article>
               </div>
             </div>
@@ -1369,7 +1370,7 @@ onBeforeUnmount(() => {
             class="game-detail-page__dialog-close"
             @click="isDescriptionOpen = false"
           >
-            ?�인
+            확인
           </button>
         </div>
 
@@ -1399,7 +1400,7 @@ onBeforeUnmount(() => {
             class="game-detail-page__dialog-close"
             @click="isDescriptionOpen = false"
           >
-            ?�기
+            닫기
           </button>
         </div>
       </div>
@@ -1417,9 +1418,9 @@ onBeforeUnmount(() => {
           aria-modal="true"
           aria-labelledby="ai-difficulty-title"
         >
-          <h2 id="ai-difficulty-title">?�이?��? ?�택?�세??/h2>
+          <h2 id="ai-difficulty-title">난이도를 선택하세요</h2>
           <p class="game-detail-page__difficulty-subtitle">
-            AI보다 ?�래 버티�??�리?�요. 목표 ?�간??골라주세??
+            AI보다 오래 버티면 유리해요. 목표 시간을 골라주세요
           </p>
           <div class="game-detail-page__difficulty-grid">
             <button
@@ -1439,7 +1440,7 @@ onBeforeUnmount(() => {
             class="game-detail-page__dialog-close"
             @click="isDifficultyDialogOpen = false"
           >
-            ?�기
+            닫기
           </button>
         </div>
       </div>
@@ -1461,10 +1462,10 @@ onBeforeUnmount(() => {
       :src="guideMascotImage"
       alt=""
     />
-    <h1>게임??찾을 ???�어??</h1>
-    <p>게임 목록?�서 ?�시 ?�택?�주?�요.</p>
+    <h1>게임을 찾을 수 없어요.</h1>
+    <p>게임 목록에서 다시 선택해주세요.</p>
     <RouterLink class="game-detail-page__missing-cta" to="/games"
-      >게임 목록?�로 가�?/RouterLink
+      >게임 목록으로 가기</RouterLink
     >
   </section>
 </template>

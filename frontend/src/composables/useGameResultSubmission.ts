@@ -36,6 +36,7 @@ export function useGameResultSubmission() {
     mode: GameSessionMode
     startedAt: string
     score: number
+    outcome?: GameOutcome
   }): Promise<void> {
     const participantKey = currentParticipantKey()
     const participantType = currentParticipantType()
@@ -48,9 +49,10 @@ export function useGameResultSubmission() {
     if (gameId === null) return // (gameName × playMode) 매핑 없음 → 스킵
 
     const outcome: GameOutcome =
-      options.gameSlug === 'draw' || options.mode === 'solo'
+      options.outcome ??
+      (options.gameSlug === 'draw' || options.mode === 'solo'
         ? 'COMPLETED'
-        : 'WIN'
+        : 'WIN')
     const displayName = auth.isAuthenticated
       ? auth.user.nickname
       : '게스트 플레이어'
