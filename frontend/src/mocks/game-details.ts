@@ -102,6 +102,11 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
         badge: '랭킹에 반영',
       },
       {
+        id: 'ai',
+        label: 'AI 대결',
+        description: 'AI가 버티는 시간보다 오래 버티면 승리해요!',
+      },
+      {
         id: 'friends',
         label: '친구와 대결',
         description: '초대코드, 방 생성을 해서 친구와 함께 대결해요!',
@@ -111,6 +116,11 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
         label: '랜덤 매칭',
         description: '랜덤 매칭을 돌려 게임 유저와 함께 대결해요!',
       },
+    ],
+    aiDifficulties: [
+      { value: 'easy', label: 'easy', duration: '15초' },
+      { value: 'normal', label: 'normal', duration: '30초' },
+      { value: 'hard', label: 'hard', duration: '1분' },
     ],
     guide: {
       intro: [
@@ -127,6 +137,14 @@ export const gameDetails: Record<GameDetailId, GameDetail> = {
           text: '게임 시간은\n둘 중 **먼저 눈을 감는**\n사람의 시간이에요!',
         },
       ],
+      difficulties: {
+        title: 'AI 대결 난이도',
+        items: [
+          { label: 'easy', duration: '15초', color: 'green' },
+          { label: 'normal', duration: '30초', color: 'orange' },
+          { label: 'hard', duration: '1분', color: 'purple' },
+        ],
+      },
     },
   },
   draw: {

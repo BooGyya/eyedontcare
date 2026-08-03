@@ -7,79 +7,981 @@ import { createMockSession, gameModeLabels } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
-import { useLocalCamera } from '../composables/useLocalCamera'
 import { useGameResultSubmission } from '../composables/useGameResultSubmission'
 import { useMediaSessionStore } from '../stores/mediaSession'
+import { useToast } from '../composables/useToast'
+import { useEyeTracking } from '../composables/useEyeTracking'
+import { useCalibrationStore } from '../stores/calibration'
+import { useGameSessionSocket } from '../composables/useGameSessionSocket'
+import { resolveIdentity } from '../api/identity'
+import { useLastGameResultStore } from '../stores/lastGameResult'
+import type { LastGameOutcome } from '../stores/lastGameResult'
+import {
+  applyBlinkEvent,
+  formatRemainingTime as formatBlinkRemainingTime,
+  makeInitialBlinkState,
+  startBlinkRound,
+  updateBlinkTimer,
+} from '../lib/games/blink-core'
+import {
+  finishStareRoundAsWinner,
+  formatDuration as formatStareDuration,
+  makeInitialStareState,
+  STARE_AI_DURATIONS_MS,
+  startStareRound,
+  updateStareRound,
+} from '../lib/games/stare-core'
+import {
+  applyRhythmInput,
+  finishRhythmRound,
+  formatRhythmTime,
+  getRhythmAccuracy,
+  makeInitialRhythmState,
+  startRhythmRound,
+  updateRhythmRound,
+  type RhythmInput,
+  type RhythmNote,
+} from '../lib/games/rhythm-core'
+import { analyzeAudioUrlToBeatmap } from '../lib/games/audio-beatmap'
+import {
+  addPointToStroke,
+  applyDrawRoundResult,
+  beginJudging,
+  DRAWING_ALL_WORDS,
+  DRAWING_DIFFICULTY_LABEL,
+  DRAWING_TOTAL_ROUNDS,
+  isDrawGameFinished,
+  makeInitialDrawGameState,
+  pickWordsForGame,
+  reportDrawJudgingError,
+  startDrawRound,
+  tickDrawRoundTimer,
+  type DrawStroke,
+} from '../lib/games/draw-core'
+import { recognizeDrawing } from '../api/draw'
+import {
+  AIR_HOCKEY_HEIGHT,
+  AIR_HOCKEY_WIDTH,
+  applyStrike,
+  determineAirHockeyWinner,
+  getGoalResult,
+  launchPuck,
+  makeInitialAirHockeyState,
+  resetPuckForServe,
+  resolveMalletCollision,
+  scoreGoal,
+  startAirHockeyMatch,
+  updateAirHockeyMatch,
+  type AirHockeyState,
+  type Mallet,
+} from '../lib/games/air-hockey-core'
 
 const route = useRoute()
 const router = useRouter()
-const rhythmMine = ref({ score: 1240, combo: 12, hearts: 4 })
-const rhythmOpponent = ref({ score: 1180, combo: 8, hearts: 4 })
-const blinkCount = ref(28)
 const drawScoreOpen = ref(false)
-const drawRound = ref(1)
-const selectedColor = ref('#4f74db')
-const eyeSeeState = ref<'playing' | 'success' | 'failed'>('playing')
-const holdElapsedTenths = ref(186)
+const selectedColor = ref('#161c2d')
 
-const holdElapsedLabel = computed(() => {
-  const totalSeconds = Math.floor(holdElapsedTenths.value / 10)
+// --- 그림그리기: 실제 시선 좌표 기반 캔버스 + AI 채점 연동 ---
+// 기획 확정본 기준 모드는 'ai' 하나뿐이라(친구/랜덤 없음) 상대 동기화가 필요 없다. 대신
+// 시선의 "좌표"(연속값)를 캔버스 위치로 써야 해서 에어하키처럼 매 프레임 screenGaze를 읽는다.
+// AI 채점(recognizeDrawing)은 아직 없는 백엔드 엔드포인트를 호출한다 — 실패하면 재시도할 수
+// 있게 라운드를 계속 진행 상태로 되돌린다(조용히 가짜 성공으로 넘기지 않는다).
+const drawTracking = useEyeTracking()
+const drawVideoRef = drawTracking.videoRef
+const drawCameraActive = drawTracking.isActive
+// vue-tsc가 문자열 템플릿 ref(ref="drawVideoRef")를 '사용'으로 인식하지 못해 noUnusedLocals가
+// 오탐한다 — blinkVideoRef 등과 동일한 이유.
+void drawVideoRef
+
+const drawCanvasRef = ref<globalThis.HTMLCanvasElement | null>(null)
+const DRAW_CANVAS_WIDTH = 800
+const DRAW_CANVAS_HEIGHT = 500
+const drawGameState = ref(makeInitialDrawGameState())
+const drawWords = ref<string[]>([])
+let drawStrokes: DrawStroke[] = []
+let drawActiveStroke: DrawStroke | null = null
+const isDrawingActive = ref(true)
+const drawCursor = ref<{ x: number; y: number } | null>(null)
+const drawBrushWidth = 5
+let drawRafHandle: number | undefined
+let unsubscribeDrawKeydown: (() => void) | undefined
+let drawShouldBridge = false
+
+const drawTimeLabel = computed(() => {
+  const totalSeconds = Math.max(
+    Math.ceil(drawGameState.value.remainingMs / 1000),
+    0,
+  )
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
-  const tenths = holdElapsedTenths.value % 10
-
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths}`
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 })
+const drawDifficultyLabel = computed(
+  () => DRAWING_DIFFICULTY_LABEL[drawGameState.value.difficulty],
+)
+const currentDrawResult = computed(
+  () => drawGameState.value.history[drawGameState.value.round - 1],
+)
+const drawAccumulatedScore = computed(() => drawGameState.value.score)
 
-let holdTimer: ReturnType<typeof globalThis.setInterval> | undefined
+const { showToast } = useToast()
 
-async function initMedia() {
-  // 내 웹캠은 항상 표시한다(솔로 포함).
-  const stream = await startLocalCamera()
-  // 대결(친구/랜덤)이고 대기방에서 받은 접속 정보가 있으면 내 트랙을 송출하고 상대 웹캠을 구독한다.
+// --- 눈 깜빡이기: 실제 시선 인식 연동 ---
+// 다른 게임(hold/rhythm/draw/air)은 아직 mock 로직 그대로다 — blink만 먼저 실제 로직으로 바꾼다.
+// 카메라는 useLocalCamera가 아니라 이 게임 전용 useEyeTracking 인스턴스가 직접 관리한다(중복 촬영
+// 방지를 위해 blinkVideoRef를 화면에 보이는 <video>에도 그대로 바인딩한다 — GameReadyPage와 동일한 패턴).
+const blinkTracking = useEyeTracking()
+const calibrationStore = useCalibrationStore()
+const blinkVideoRef = blinkTracking.videoRef
+const blinkCameraActive = blinkTracking.isActive
+// vue-tsc가 문자열 템플릿 ref(ref="blinkVideoRef")를 '사용'으로 인식하지 못해 noUnusedLocals가
+// 오탐한다(remoteVideoRef/localCameraVideoRef와 동일한 이유). 실제로는 아래 <video ref="...">에
+// 런타임 바인딩된다.
+void blinkVideoRef
+const blinkGameState = ref(makeInitialBlinkState())
+const blinkCount = computed(() => blinkGameState.value.blinkCount)
+const blinkTimeLabel = computed(() =>
+  formatBlinkRemainingTime(blinkGameState.value.remainingMs),
+)
+const blinkProgressPercent = computed(() => {
+  const { durationMs, remainingMs } = blinkGameState.value
+  if (durationMs <= 0) return 0
+  return Math.min(100, Math.max(0, 100 - (remainingMs / durationMs) * 100))
+})
+let blinkRafHandle: number | undefined
+let unsubscribeBlinkEvents: (() => void) | undefined
+
+// 대결 모드에서 상대방 실시간 상태를 보여주기 위한 게임 세션 소켓(중계 전용, 판정은 안 함).
+const blinkGameSession = useGameSessionSocket({
+  onPlayerEvent: (event) => {
+    if (event.eventType !== 'BLINK_COUNT') return
+    const count = Number(event.payload?.count)
+    if (Number.isFinite(count)) opponentBlinkCount.value = count
+  },
+  onParticipantLeft: () => {
+    showToast('상대방이 게임을 나갔어요.')
+  },
+})
+const opponentBlinkCount = ref<number | null>(null)
+
+async function initBlinkGame() {
+  // 대기방에서 이미 캘리브레이션을 마쳤다면 그 결과를 그대로 이어받는다(재보정 불필요).
+  if (calibrationStore.eyeProfile) {
+    blinkTracking.applyEyeProfile(calibrationStore.eyeProfile)
+  }
+
+  const started = await blinkTracking.start()
+  if (!started) {
+    showToast('카메라를 시작하지 못했어요. 카메라 권한을 확인해 주세요.')
+    return
+  }
+
+  // 대결 모드면 상대에게 내 화면을 보내고 상대 화면을 구독한다 — 다른 게임의 initMedia()와 동일한 패턴.
   if (showsOpponentCamera.value && mediaSession.credentials) {
     await connectMedia(mediaSession.credentials, {
-      localTrack: stream?.getVideoTracks()[0] ?? null,
+      localTrack: blinkTracking.stream.value?.getVideoTracks()[0] ?? null,
     })
+  }
+
+  // 대결 모드면 게임 세션 소켓에 접속해 내 깜빡임 횟수를 실시간으로 상대에게 전달한다.
+  if (isCompetitive.value) {
+    const roomId = String(route.query.roomId ?? '')
+    const identity = resolveIdentity()
+    if (roomId && identity) {
+      blinkGameSession.connect(roomId, identity)
+    }
+  }
+
+  unsubscribeBlinkEvents = blinkTracking.onEyeEvent((event) => {
+    const changed = applyBlinkEvent(blinkGameState.value, event)
+    if (changed) {
+      blinkGameSession.sendPlayerEvent('BLINK_COUNT', {
+        count: blinkGameState.value.blinkCount,
+      })
+    }
+  })
+
+  startBlinkRound(blinkGameState.value, globalThis.performance.now())
+  runBlinkTimerLoop()
+}
+
+function runBlinkTimerLoop() {
+  const tick = (now: number) => {
+    const finished = updateBlinkTimer(blinkGameState.value, now)
+    if (finished) {
+      toResult()
+      return
+    }
+    blinkRafHandle = globalThis.requestAnimationFrame(tick)
+  }
+  blinkRafHandle = globalThis.requestAnimationFrame(tick)
+}
+
+function stopBlinkGame() {
+  if (blinkRafHandle !== undefined) {
+    globalThis.cancelAnimationFrame(blinkRafHandle)
+    blinkRafHandle = undefined
+  }
+  unsubscribeBlinkEvents?.()
+  unsubscribeBlinkEvents = undefined
+  blinkTracking.stop()
+  blinkGameSession.close()
+}
+
+// --- 눈싸움: 실제 시선 인식 연동 ---
+// blink와 같은 패턴으로 별도 useEyeTracking 인스턴스를 쓴다(카메라 중복 방지).
+const stareTracking = useEyeTracking()
+const stareVideoRef = stareTracking.videoRef
+const stareCameraActive = stareTracking.isActive
+// vue-tsc가 문자열 템플릿 ref(ref="stareVideoRef")를 '사용'으로 인식하지 못해 noUnusedLocals가
+// 오탐한다 — blinkVideoRef와 동일한 이유.
+void stareVideoRef
+
+// AI 대결 난이도(15/30/60초). 선택 UI는 아직 없어서 쿼리 파라미터가 없으면 normal로 기본 처리한다.
+const stareDifficulty = computed<'easy' | 'normal' | 'hard'>(() => {
+  const value = String(route.query.difficulty ?? 'normal')
+  return value === 'easy' || value === 'hard' ? value : 'normal'
+})
+const stareTargetMs = computed(() =>
+  mode.value === 'ai'
+    ? STARE_AI_DURATIONS_MS[
+        stareDifficulty.value.toUpperCase() as 'EASY' | 'NORMAL' | 'HARD'
+      ]
+    : null,
+)
+const stareGameState = ref(makeInitialStareState(null))
+const stareElapsedLabel = computed(() =>
+  formatStareDuration(stareGameState.value.elapsedMs),
+)
+const stareStatusLabel = computed(() => {
+  if (stareGameState.value.phase === 'finished') {
+    return stareGameState.value.outcome === 'WIN' ? '승리!' : '패배'
+  }
+  return '눈싸움 진행 중'
+})
+const stareWarningTone = computed(() =>
+  stareGameState.value.warning === '정상' ? 'ok' : 'warn',
+)
+let stareRafHandle: number | undefined
+
+// 친구/랜덤 대결 실시간 동기화 — 상대 생존 시간을 보여주고, 상대가 먼저 눈을 감으면 내 라운드도
+// 즉시 승리로 종료한다(눈싸움은 "먼저 감는 쪽이 패배"라 상대 패배 = 내 승리가 바로 확정된다).
+const stareOpponentElapsedMs = ref(0)
+const stareOpponentSynced = ref(false)
+const opponentStareLostFirst = ref(false)
+const stareGameSession = useGameSessionSocket({
+  onPlayerEvent: (event) => {
+    if (event.eventType !== 'STARE_STATE') return
+    const elapsedMs = Number(event.payload?.elapsedMs)
+    if (Number.isFinite(elapsedMs)) stareOpponentElapsedMs.value = elapsedMs
+    stareOpponentSynced.value = true
+    if (event.payload?.lost === true && !opponentStareLostFirst.value) {
+      opponentStareLostFirst.value = true
+      finishStareDuelEarly()
+    }
+  },
+  onParticipantLeft: () => {
+    showToast('상대방이 게임을 나갔어요.')
+  },
+})
+let stareLastStateSentAt = 0
+const STARE_STATE_SEND_INTERVAL_MS = 150
+
+function sendStareState(lost: boolean) {
+  stareGameSession.sendPlayerEvent('STARE_STATE', {
+    elapsedMs: stareGameState.value.elapsedMs,
+    lost,
+  })
+}
+
+async function initStareGame() {
+  if (calibrationStore.eyeProfile) {
+    stareTracking.applyEyeProfile(calibrationStore.eyeProfile)
+  }
+
+  const started = await stareTracking.start()
+  if (!started) {
+    showToast('카메라를 시작하지 못했어요. 카메라 권한을 확인해 주세요.')
+    return
+  }
+
+  if (showsOpponentCamera.value && mediaSession.credentials) {
+    await connectMedia(mediaSession.credentials, {
+      localTrack: stareTracking.stream.value?.getVideoTracks()[0] ?? null,
+    })
+  }
+
+  if (isStareDuel.value) {
+    const roomId = String(route.query.roomId ?? '')
+    const identity = resolveIdentity()
+    if (roomId && identity) stareGameSession.connect(roomId, identity)
+  }
+
+  stareGameState.value = makeInitialStareState(stareTargetMs.value)
+  startStareRound(stareGameState.value, globalThis.performance.now())
+  runStareLoop()
+}
+
+function runStareLoop() {
+  const tick = (now: number) => {
+    updateStareRound(stareGameState.value, now, {
+      faceDetected: stareTracking.faceDetected.value,
+      combinedState: stareTracking.combinedState.value,
+    })
+
+    if (isStareDuel.value && stareGameState.value.phase === 'running') {
+      if (now - stareLastStateSentAt >= STARE_STATE_SEND_INTERVAL_MS) {
+        stareLastStateSentAt = now
+        sendStareState(false)
+      }
+    }
+
+    if (stareGameState.value.phase === 'finished') {
+      // 내가 눈을 감아 패배한 경우에만 즉시 알린다 — finishStareDuelEarly()로 이미 승리 처리된
+      // 경우(상대가 먼저 짐)까지 다시 "내가 졌다"고 잘못 알리면 안 되므로 outcome을 확인한다.
+      if (isStareDuel.value && stareGameState.value.outcome === 'LOSE') {
+        sendStareState(true)
+      }
+      toResult()
+      return
+    }
+    stareRafHandle = globalThis.requestAnimationFrame(tick)
+  }
+  stareRafHandle = globalThis.requestAnimationFrame(tick)
+}
+
+/** 상대가 먼저 눈을 감았을 때 내 라운드도 승리로 종료 처리하고 결과 화면으로 넘어간다. */
+function finishStareDuelEarly() {
+  if (stareGameState.value.phase === 'finished') return
+  finishStareRoundAsWinner(stareGameState.value, globalThis.performance.now())
+  toResult()
+}
+
+function stopStareGame() {
+  if (stareRafHandle !== undefined) {
+    globalThis.cancelAnimationFrame(stareRafHandle)
+    stareRafHandle = undefined
+  }
+  stareTracking.stop()
+  stareGameSession.close()
+}
+
+// --- 리듬게임: 실제 시선 인식 연동 ---
+const rhythmTracking = useEyeTracking()
+const rhythmVideoRef = rhythmTracking.videoRef
+const rhythmCameraActive = rhythmTracking.isActive
+// vue-tsc가 문자열 템플릿 ref(ref="rhythmVideoRef")를 '사용'으로 인식하지 못해 noUnusedLocals가
+// 오탐한다 — blinkVideoRef/stareVideoRef와 동일한 이유.
+void rhythmVideoRef
+
+const rhythmGameSession = useGameSessionSocket({
+  onPlayerEvent: (event) => {
+    if (event.eventType !== 'RHYTHM_STATE') return
+    const score = Number(event.payload?.score)
+    const combo = Number(event.payload?.combo)
+    const health = Number(event.payload?.health)
+    if (Number.isFinite(score)) rhythmOpponent.value.score = score
+    if (Number.isFinite(combo)) rhythmOpponent.value.combo = combo
+    if (Number.isFinite(health)) rhythmOpponent.value.hearts = health
+    rhythmOpponentSynced.value = true
+
+    // 상대가 체력을 다 잃으면 승부가 이미 결정된 것이므로 내 게임도 바로 종료(승리 처리)한다.
+    if (Number.isFinite(health) && health <= 0) {
+      opponentHealthDepleted.value = true
+      finishRhythmDuelEarly()
+    }
+  },
+  onParticipantLeft: () => {
+    showToast('상대방이 게임을 나갔어요.')
+  },
+})
+
+const rhythmGameState = ref(makeInitialRhythmState())
+// 상대 상태는 실시간 동기화로만 채워진다 — 대결 시작 직후 첫 이벤트가 오기 전까지는 초기값(만점 체력)을 보여준다.
+const rhythmOpponent = ref({ score: 0, combo: 0, hearts: 5 })
+const rhythmOpponentSynced = ref(false)
+/** 상대가 먼저 체력을 다 잃어서 내가 이긴 경우를 표시한다(결과 화면 승패 판정에 사용). */
+const opponentHealthDepleted = ref(false)
+const rhythmMine = computed(() => ({
+  score: rhythmGameState.value.score,
+  combo: rhythmGameState.value.combo,
+  hearts: rhythmGameState.value.health,
+}))
+const rhythmNow = ref(0)
+const rhythmTimeLabel = computed(() =>
+  formatRhythmTime(rhythmGameState.value.remainingMs),
+)
+const rhythmAccuracyPercent = computed(() =>
+  Math.round(getRhythmAccuracy(rhythmGameState.value)),
+)
+const rhythmProgressPercent = computed(() => {
+  const { durationMs, remainingMs } = rhythmGameState.value
+  if (durationMs <= 0) return 0
+  return Math.min(100, Math.max(0, 100 - (remainingMs / durationMs) * 100))
+})
+const rhythmLeftNotes = computed(() =>
+  rhythmGameState.value.notes.filter(
+    (note) => note.lane === 'LEFT_EYE' && note.status === 'PENDING',
+  ),
+)
+const rhythmRightNotes = computed(() =>
+  rhythmGameState.value.notes.filter(
+    (note) => note.lane === 'RIGHT_EYE' && note.status === 'PENDING',
+  ),
+)
+let rhythmRafHandle: number | undefined
+let unsubscribeRhythmEvents: (() => void) | undefined
+
+/**
+ * 노트의 CSS `left`(%) 값을 계산한다. `.hit-zone`이 왼쪽 15% 지점에 고정돼 있어서(judge line),
+ * 노트는 오른쪽 끝(100%)에서 나타나 왼쪽 15%로 이동해야 한다 — progress 0~100을 100~15로 매핑.
+ */
+function noteLeftPercent(note: RhythmNote): number {
+  const { noteTravelMs } = rhythmGameState.value
+  if (noteTravelMs <= 0) return 15
+  const progress = (1 - (note.hitAt - rhythmNow.value) / noteTravelMs) * 100
+  const clamped = Math.min(140, Math.max(-20, progress))
+  return 100 - clamped * 0.85
+}
+
+// --- 배경 음악 + 실제 비트맵 ---
+// 곡(assets/ssafy.mp3)을 분석해 실제 박자에 맞는 노트를 만든다. 분석/재생이 실패해도(느린 네트워크,
+// 브라우저 자동재생 차단 등) 기존처럼 고정 BPM 랜덤 노트로 조용히 폴백한다 — 게임 자체는 항상 된다.
+const RHYTHM_AUDIO_URL = '/audio/ssafy.mp3'
+const rhythmIsAnalyzingAudio = ref(false)
+/** 오디오 재생이 실제로 성공했을 때만 true — true면 게임 시계를 audio.currentTime 기준으로 돌린다. */
+const rhythmUsesMusicClock = ref(false)
+let rhythmAudio: globalThis.HTMLAudioElement | undefined
+
+async function prepareRhythmBeatmap(): Promise<void> {
+  rhythmIsAnalyzingAudio.value = true
+  try {
+    const beatmap = await analyzeAudioUrlToBeatmap(RHYTHM_AUDIO_URL)
+    if (beatmap.notes.length === 0) return // 분석은 됐지만 쓸 만한 비트가 없으면 랜덤 생성 폴백
+
+    rhythmGameState.value = makeInitialRhythmState({
+      // 기획 확정본 기준 제한 시간(30초)은 그대로 지킨다 — 곡이 더 길어도 30초를 넘는 노트는
+      // rhythm-core의 generateBeatmapRhythmNotes가 자동으로 건너뛴다.
+      durationMs: rhythmGameState.value.durationMs,
+      bpm: beatmap.bpmEstimate || undefined,
+      beatmapEntries: beatmap.notes,
+    })
+
+    const audio = new globalThis.Audio(RHYTHM_AUDIO_URL)
+    audio.volume = 0.6
+    await audio.play()
+    rhythmAudio = audio
+    rhythmUsesMusicClock.value = true
+  } catch {
+    // 네트워크 실패, 디코딩 실패, 자동재생 차단(NotAllowedError) 등 — 조용히 랜덤 노트로 진행한다.
+    rhythmUsesMusicClock.value = false
+  } finally {
+    rhythmIsAnalyzingAudio.value = false
   }
 }
 
+function stopRhythmAudio(): void {
+  if (!rhythmAudio) return
+  rhythmAudio.pause()
+  rhythmAudio.currentTime = 0
+  rhythmAudio = undefined
+}
+
+async function initRhythmGame() {
+  // 대기방에서 이미 캘리브레이션을 마쳤다면 그 결과를 그대로 이어받는다(재보정 불필요).
+  if (calibrationStore.eyeProfile) {
+    rhythmTracking.applyEyeProfile(calibrationStore.eyeProfile)
+  }
+
+  const started = await rhythmTracking.start()
+  if (!started) {
+    showToast('카메라를 시작하지 못했어요. 카메라 권한을 확인해 주세요.')
+    return
+  }
+
+  if (showsOpponentCamera.value && mediaSession.credentials) {
+    await connectMedia(mediaSession.credentials, {
+      localTrack: rhythmTracking.stream.value?.getVideoTracks()[0] ?? null,
+    })
+  }
+
+  if (isRhythmDuel.value) {
+    const roomId = String(route.query.roomId ?? '')
+    const identity = resolveIdentity()
+    if (roomId && identity) rhythmGameSession.connect(roomId, identity)
+  }
+
+  unsubscribeRhythmEvents = rhythmTracking.onEyeEvent((event) => {
+    // 웹캠 영상은 거울처럼 좌우가 반전되어 보이므로, 감지된 왼쪽/오른쪽 눈을 뒤집어 매핑한다
+    // (실제 사용자 테스트로 확인된 보정값 — ai_game 프로토타입에서도 동일하게 처리).
+    let input: RhythmInput | null = null
+    if (event.type === 'LEFT_WINK') input = 'RIGHT_EYE'
+    else if (event.type === 'RIGHT_WINK') input = 'LEFT_EYE'
+    else if (
+      event.type === 'BLINK' ||
+      event.type === 'FAST_BLINK' ||
+      event.type === 'DOUBLE_BLINK'
+    ) {
+      input = 'BOTH_EYES'
+    }
+    if (!input) return
+
+    const now = rhythmUsesMusicClock.value
+      ? (rhythmAudio?.currentTime ?? 0) * 1000
+      : event.occurredAt
+    applyRhythmInput(rhythmGameState.value, input, now)
+    sendRhythmState()
+  })
+
+  await prepareRhythmBeatmap()
+  startRhythmRound(
+    rhythmGameState.value,
+    rhythmUsesMusicClock.value ? 0 : globalThis.performance.now(),
+  )
+  runRhythmLoop()
+}
+
+function sendRhythmState() {
+  rhythmGameSession.sendPlayerEvent('RHYTHM_STATE', {
+    score: rhythmGameState.value.score,
+    combo: rhythmGameState.value.combo,
+    health: rhythmGameState.value.health,
+  })
+}
+
+function runRhythmLoop() {
+  const tick = (rafNow: number) => {
+    // 음악이 실제로 재생 중이면 오디오 재생 위치를 게임 시계로 쓴다 — rAF 타이밍과 오디오 재생은
+    // 미세하게 어긋날 수 있어서, 판정 기준은 항상 "지금 들리는 소리"와 맞춰야 한다.
+    const now = rhythmUsesMusicClock.value
+      ? (rhythmAudio?.currentTime ?? 0) * 1000
+      : rafNow
+    rhythmNow.value = now
+    const result = updateRhythmRound(rhythmGameState.value, now)
+    // UPDATED(노트를 놓쳐 체력이 깎임)뿐 아니라 FINISHED(체력 소진으로 종료)도 상대에게 알려야
+    // 한다 — 안 그러면 내가 체력 0으로 죽었다는 마지막 상태가 상대에게 영영 전달되지 않는다.
+    if (result === 'UPDATED' || result === 'FINISHED') sendRhythmState()
+    if (result === 'FINISHED') {
+      stopRhythmAudio()
+      toResult()
+      return
+    }
+    rhythmRafHandle = globalThis.requestAnimationFrame(tick)
+  }
+  rhythmRafHandle = globalThis.requestAnimationFrame(tick)
+}
+
+/** 상대가 먼저 체력을 다 잃었을 때 내 라운드도 정식으로 종료 처리하고 결과 화면으로 넘어간다. */
+function finishRhythmDuelEarly() {
+  if (rhythmGameState.value.phase === 'finished') return
+  const now = rhythmUsesMusicClock.value
+    ? (rhythmAudio?.currentTime ?? 0) * 1000
+    : globalThis.performance.now()
+  finishRhythmRound(rhythmGameState.value, now, 'MANUAL')
+  stopRhythmAudio()
+  toResult()
+}
+
+function stopRhythmGame() {
+  if (rhythmRafHandle !== undefined) {
+    globalThis.cancelAnimationFrame(rhythmRafHandle)
+    rhythmRafHandle = undefined
+  }
+  unsubscribeRhythmEvents?.()
+  unsubscribeRhythmEvents = undefined
+  stopRhythmAudio()
+  rhythmTracking.stop()
+  rhythmGameSession.close()
+}
+
+// --- 에어하키: 실제 시선 인식 + 캔버스 물리엔진 연동 ---
+// 스펙상 혼자하기가 없다(친구 대결/랜덤 매칭/AI 대결뿐) — 그래서 항상 상대(AI 또는 실제 플레이어)가
+// 있다. 시선의 "좌표"(연속값)로 패들을 움직여야 해서 blink/hold/rhythm과 달리 이벤트가 아니라
+// 매 프레임 screenGaze를 읽는다. 친구/랜덤 대결은 각자 자기 화면에서 독립적으로 물리 연산을 하고
+// (상대 패들 위치·점수만 실시간으로 주고받는다) — 그래서 두 화면의 퍽 궤적이 아주 살짝 다르게 보일
+// 수 있다(네트워크 지연 때문에 상대 패들 위치를 몇십 ms 늦게 반영하니까). 카지노급 판정 공정성이
+// 필요한 게임이 아니라서 이 정도 오차는 허용한다 — 완벽한 서버 권위 동기화는 더 큰 작업이라 이후
+// 과제로 남긴다.
+const AIR_MALLET_SMOOTHING = 0.22
+const AIR_MOVE_SEND_INTERVAL_MS = 50
+
+const airTracking = useEyeTracking()
+const airVideoRef = airTracking.videoRef
+const airCameraActive = airTracking.isActive
+// vue-tsc가 문자열 템플릿 ref(ref="airVideoRef")를 '사용'으로 인식하지 못해 noUnusedLocals가
+// 오탐한다 — blinkVideoRef 등과 동일한 이유.
+void airVideoRef
+
+const airCanvasRef = ref<globalThis.HTMLCanvasElement | null>(null)
+const airGameState = ref<AirHockeyState>(makeInitialAirHockeyState())
+const isAirVsAi = computed(() => mode.value === 'ai')
+const airOpponentScore = ref(0)
+const airOpponentSynced = ref(false)
+const airMyScore = computed(() => airGameState.value.bottom.score)
+const airOpponentDisplayScore = computed(() =>
+  isAirVsAi.value ? airGameState.value.top.score : airOpponentScore.value,
+)
+const airTimeLabel = computed(() => {
+  const totalSeconds = Math.max(
+    Math.ceil(airGameState.value.remainingMs / 1000),
+    0,
+  )
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+})
+let airRafHandle: number | undefined
+let unsubscribeAirEvents: (() => void) | undefined
+let airLastFrameAt: number | undefined
+let airLastMoveSentAt = 0
+
+const airGameSession = useGameSessionSocket({
+  onPlayerEvent: (event) => {
+    if (event.eventType === 'AIR_HOCKEY_MOVE') {
+      const targetX = Number(event.payload?.targetX)
+      if (Number.isFinite(targetX)) airGameState.value.top.targetX = targetX
+      return
+    }
+    if (event.eventType === 'AIR_HOCKEY_ACTION') {
+      applyStrike(airGameState.value, 'top', globalThis.performance.now())
+      return
+    }
+    if (event.eventType === 'AIR_HOCKEY_SCORE') {
+      const score = Number(event.payload?.score)
+      if (Number.isFinite(score)) airOpponentScore.value = score
+      airOpponentSynced.value = true
+    }
+  },
+  onParticipantLeft: () => {
+    showToast('상대방이 게임을 나갔어요.')
+  },
+})
+
+async function initAirHockeyGame() {
+  if (calibrationStore.eyeProfile) {
+    airTracking.applyEyeProfile(calibrationStore.eyeProfile)
+  }
+  // 그림그리기와 마찬가지로 화면 좌표가 필요한 게임이라, 대기방에서 저장해 둔 9점 시선 보정
+  // 결과가 있으면 그대로 이어받는다.
+  if (calibrationStore.gazeProfile) {
+    airTracking.applyGazeProfile(calibrationStore.gazeProfile)
+  }
+
+  const started = await airTracking.start()
+  if (!started) {
+    showToast('카메라를 시작하지 못했어요. 카메라 권한을 확인해 주세요.')
+    return
+  }
+
+  if (showsOpponentCamera.value && mediaSession.credentials) {
+    await connectMedia(mediaSession.credentials, {
+      localTrack: airTracking.stream.value?.getVideoTracks()[0] ?? null,
+    })
+  }
+
+  if (!isAirVsAi.value) {
+    const roomId = String(route.query.roomId ?? '')
+    const identity = resolveIdentity()
+    if (roomId && identity) airGameSession.connect(roomId, identity)
+  }
+
+  unsubscribeAirEvents = airTracking.onEyeEvent((event) => {
+    if (
+      event.type === 'BLINK' ||
+      event.type === 'FAST_BLINK' ||
+      event.type === 'DOUBLE_BLINK'
+    ) {
+      applyStrike(airGameState.value, 'bottom', event.occurredAt)
+      if (!isAirVsAi.value) airGameSession.sendPlayerEvent('AIR_HOCKEY_ACTION')
+    }
+  })
+
+  startAirHockeyMatch(airGameState.value, globalThis.performance.now())
+  resetPuckForServe(airGameState.value)
+  runAirHockeyLoop()
+}
+
+function updateAirMalletFromGaze() {
+  const gaze = airTracking.screenGaze.value
+  if (!gaze) return
+  const normalizedX = Math.min(1, Math.max(0, gaze.x))
+  airGameState.value.bottom.targetX = normalizedX * AIR_HOCKEY_WIDTH
+}
+
+function updateAirAiTarget(dt: number) {
+  if (!isAirVsAi.value) return
+  const state = airGameState.value
+  const lead = state.puck.vy < 0 ? state.puck.vx * 0.18 : 0
+  const desired = state.puck.x + lead
+  const maxStep = 280 * dt
+  const delta = Math.min(
+    Math.max(desired - state.top.targetX, -maxStep),
+    maxStep,
+  )
+  state.top.targetX += delta
+
+  // AI가 서브를 쥐고 있으면 득점 0.7초 후 자동으로 발사한다(안 그러면 게임이 멈춘 채로 남는다).
+  if (state.puck.held && state.server === 'top') {
+    const now = globalThis.performance.now()
+    if (now - state.lastGoalAt > 700) {
+      launchPuck(state, 'top')
+    }
+  }
+}
+
+function clampMalletTarget(mallet: Mallet, now: number) {
+  const radius = mallet.boostUntil > now ? mallet.r + 4 : mallet.r
+  const min = radius + 24
+  const max = AIR_HOCKEY_WIDTH - radius - 24
+  mallet.targetX = Math.min(Math.max(mallet.targetX, min), max)
+}
+
+function updateAirMallet(mallet: Mallet, now: number) {
+  mallet.lastX = mallet.x
+  clampMalletTarget(mallet, now)
+  mallet.x += (mallet.targetX - mallet.x) * AIR_MALLET_SMOOTHING
+  clampMalletTarget(mallet, now)
+  mallet.x = Math.min(
+    Math.max(mallet.x, mallet.r + 24),
+    AIR_HOCKEY_WIDTH - mallet.r - 24,
+  )
+}
+
+function updateAirPuckPhysics(dt: number, now: number) {
+  const state = airGameState.value
+  if (state.puck.held) {
+    const holder = state.server
+    const mallet = state[holder]
+    state.puck.x = mallet.x
+    state.puck.y = holder === 'bottom' ? mallet.y - 68 : mallet.y + 68
+    return
+  }
+
+  state.puck.x += state.puck.vx * dt
+  state.puck.y += state.puck.vy * dt
+  state.puck.vx *= 0.999
+  state.puck.vy *= 0.999
+
+  if (
+    state.puck.x - state.puck.r <= 26 ||
+    state.puck.x + state.puck.r >= AIR_HOCKEY_WIDTH - 26
+  ) {
+    state.puck.x = Math.min(
+      Math.max(state.puck.x, 26 + state.puck.r),
+      AIR_HOCKEY_WIDTH - 26 - state.puck.r,
+    )
+    state.puck.vx *= -1
+  }
+
+  const goalResult = getGoalResult(state)
+  if (goalResult === 'wall') {
+    state.puck.y = Math.min(
+      Math.max(state.puck.y, state.puck.r + 2),
+      AIR_HOCKEY_HEIGHT - state.puck.r - 2,
+    )
+    state.puck.vy *= -1
+  } else if (goalResult === 'top' || goalResult === 'bottom') {
+    scoreGoal(state, goalResult, now)
+    if (goalResult === 'bottom' && !isAirVsAi.value) {
+      airGameSession.sendPlayerEvent('AIR_HOCKEY_SCORE', {
+        score: state.bottom.score,
+      })
+    }
+    return
+  }
+
+  resolveMalletCollision(state, 'bottom')
+  resolveMalletCollision(state, 'top')
+}
+
+function drawAirHockey() {
+  const canvas = airCanvasRef.value
+  const ctx = canvas?.getContext('2d')
+  if (!canvas || !ctx) return
+  const state = airGameState.value
+
+  ctx.clearRect(0, 0, AIR_HOCKEY_WIDTH, AIR_HOCKEY_HEIGHT)
+
+  ctx.fillStyle = '#111827'
+  ctx.fillRect(0, 0, AIR_HOCKEY_WIDTH, AIR_HOCKEY_HEIGHT)
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath()
+  ctx.roundRect(44, 32, AIR_HOCKEY_WIDTH - 88, AIR_HOCKEY_HEIGHT - 64, 28)
+  ctx.fill()
+  ctx.strokeStyle = '#cbd5e1'
+  ctx.lineWidth = 3
+  ctx.stroke()
+
+  ctx.strokeStyle = '#d1d5db'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(58, AIR_HOCKEY_HEIGHT / 2)
+  ctx.lineTo(AIR_HOCKEY_WIDTH - 58, AIR_HOCKEY_HEIGHT / 2)
+  ctx.stroke()
+
+  ctx.strokeStyle = '#ef4444'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.arc(AIR_HOCKEY_WIDTH / 2, AIR_HOCKEY_HEIGHT / 2, 54, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(AIR_HOCKEY_WIDTH / 2, 138, 52, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.strokeStyle = '#14b8a6'
+  ctx.beginPath()
+  ctx.arc(AIR_HOCKEY_WIDTH / 2, AIR_HOCKEY_HEIGHT - 138, 52, 0, Math.PI * 2)
+  ctx.stroke()
+
+  ctx.fillStyle = '#111827'
+  ctx.fillRect(AIR_HOCKEY_WIDTH / 2 - 138, 24, 276, 20)
+  ctx.fillRect(AIR_HOCKEY_WIDTH / 2 - 138, AIR_HOCKEY_HEIGHT - 44, 276, 20)
+
+  drawAirMallet(ctx, state.top, '#ef4444', '#fecaca')
+  drawAirMallet(ctx, state.bottom, '#14b8a6', '#ccfbf1')
+
+  ctx.fillStyle = 'rgba(15,23,42,0.24)'
+  ctx.beginPath()
+  ctx.ellipse(
+    state.puck.x + 8,
+    state.puck.y + 10,
+    state.puck.r * 1.1,
+    state.puck.r * 0.52,
+    0,
+    0,
+    Math.PI * 2,
+  )
+  ctx.fill()
+  ctx.fillStyle = '#0f172a'
+  ctx.beginPath()
+  ctx.arc(state.puck.x, state.puck.y, state.puck.r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#475569'
+  ctx.beginPath()
+  ctx.arc(
+    state.puck.x - 4,
+    state.puck.y - 4,
+    state.puck.r * 0.36,
+    0,
+    Math.PI * 2,
+  )
+  ctx.fill()
+
+  if (state.puck.held || state.gameOver) {
+    ctx.fillStyle = 'rgba(15,23,42,0.78)'
+    ctx.fillRect(74, AIR_HOCKEY_HEIGHT / 2 - 40, AIR_HOCKEY_WIDTH - 148, 80)
+    ctx.fillStyle = '#f8fafc'
+    ctx.font = '20px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(state.message, AIR_HOCKEY_WIDTH / 2, AIR_HOCKEY_HEIGHT / 2 + 8)
+    ctx.textAlign = 'left'
+  }
+}
+
+function drawAirMallet(
+  ctx: globalThis.CanvasRenderingContext2D,
+  mallet: Mallet,
+  color: string,
+  highlight: string,
+) {
+  ctx.fillStyle = 'rgba(15,23,42,0.24)'
+  ctx.beginPath()
+  ctx.ellipse(
+    mallet.x + 10,
+    mallet.y + 12,
+    mallet.r * 0.92,
+    mallet.r * 0.42,
+    0,
+    0,
+    Math.PI * 2,
+  )
+  ctx.fill()
+
+  ctx.fillStyle = color
+  ctx.beginPath()
+  ctx.arc(mallet.x, mallet.y, mallet.r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = highlight
+  ctx.beginPath()
+  ctx.arc(mallet.x, mallet.y - 4, mallet.r * 0.54, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = color
+  ctx.beginPath()
+  ctx.arc(mallet.x, mallet.y - 12, mallet.r * 0.28, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+function runAirHockeyLoop() {
+  const tick = (now: number) => {
+    const dt =
+      airLastFrameAt === undefined
+        ? 0
+        : Math.min((now - airLastFrameAt) / 1000, 0.033)
+    airLastFrameAt = now
+
+    updateAirMalletFromGaze()
+    updateAirAiTarget(dt)
+    updateAirMallet(airGameState.value.bottom, now)
+    updateAirMallet(airGameState.value.top, now)
+    updateAirPuckPhysics(dt, now)
+
+    if (
+      !isAirVsAi.value &&
+      now - airLastMoveSentAt >= AIR_MOVE_SEND_INTERVAL_MS
+    ) {
+      airLastMoveSentAt = now
+      airGameSession.sendPlayerEvent('AIR_HOCKEY_MOVE', {
+        targetX: airGameState.value.bottom.targetX,
+      })
+    }
+
+    const finished = updateAirHockeyMatch(airGameState.value, now)
+    drawAirHockey()
+
+    if (finished) {
+      toResult()
+      return
+    }
+    airRafHandle = globalThis.requestAnimationFrame(tick)
+  }
+  airRafHandle = globalThis.requestAnimationFrame(tick)
+}
+
+function stopAirHockeyGame() {
+  if (airRafHandle !== undefined) {
+    globalThis.cancelAnimationFrame(airRafHandle)
+    airRafHandle = undefined
+  }
+  unsubscribeAirEvents?.()
+  unsubscribeAirEvents = undefined
+  airTracking.stop()
+  airGameSession.close()
+}
+
 onMounted(() => {
-  if (usesLocalCamera.value) void initMedia()
   if (game.value?.id === 'hold') {
-    holdTimer = globalThis.setInterval(() => {
-      holdElapsedTenths.value += 1
-    }, 100)
+    void initStareGame()
+  }
+  if (game.value?.id === 'blink') {
+    void initBlinkGame()
+  }
+  if (game.value?.id === 'rhythm') {
+    void initRhythmGame()
+  }
+  if (game.value?.id === 'air') {
+    void initAirHockeyGame()
+  }
+  if (game.value?.id === 'draw') {
+    void initDrawGame()
   }
 })
 
 onUnmounted(() => {
-  if (holdTimer) globalThis.clearInterval(holdTimer)
+  if (game.value?.id === 'hold') stopStareGame()
+  if (game.value?.id === 'blink') stopBlinkGame()
+  if (game.value?.id === 'rhythm') stopRhythmGame()
+  if (game.value?.id === 'air') stopAirHockeyGame()
+  if (game.value?.id === 'draw') stopDrawGame()
 })
-
-const drawRoundResults = [
-  {
-    prompt: '안경',
-    score: 180,
-    timeBonus: 40,
-    confidenceBonus: 40,
-    confidence: '82%',
-  },
-  {
-    prompt: '우산',
-    score: 230,
-    timeBonus: 50,
-    confidenceBonus: 80,
-    confidence: '85%',
-  },
-  {
-    prompt: '고양이',
-    score: 270,
-    timeBonus: 60,
-    confidenceBonus: 110,
-    confidence: '90%',
-  },
-] as const
 
 const game = computed(() => {
   const id = String(route.params.gameId ?? '')
@@ -110,6 +1012,9 @@ const isRhythmDuel = computed(
   () =>
     game.value?.id === 'rhythm' && ['friends', 'random'].includes(mode.value),
 )
+const isStareDuel = computed(
+  () => game.value?.id === 'hold' && ['friends', 'random'].includes(mode.value),
+)
 
 // 눈싸움(hold) 대결: 상대 웹캠을 실제 미디어 서버로 주고받는다.
 const mediaSession = useMediaSessionStore()
@@ -120,23 +1025,11 @@ const {
 } = useLiveKitRoom()
 const hasPeerCamera = computed(() => hasRemoteVideo.value)
 
-// 내 웹캠(로컬 셀프뷰)은 미디어 서버와 무관하게 getUserMedia로 항상 보여준다(솔로 포함).
-const {
-  videoRef: localCameraVideoRef,
-  isActive: isLocalCameraActive,
-  start: startLocalCamera,
-} = useLocalCamera()
-
 // vue-tsc는 컴포저블이 소유한 ref를 문자열 템플릿 ref(ref="...")에 바인딩할 때 '사용'으로
 // 인식하지 못해 noUnusedLocals 오탐을 낸다. 실제로는 아래 <video ref="..."> 요소들에 런타임
 // 바인딩되므로, 여기서 명시적으로 참조만 남겨 둔다.
 void remoteVideoRef
-void localCameraVideoRef
 
-// 웹캠을 쓰는 게임.
-const usesLocalCamera = computed(() =>
-  ['hold', 'rhythm', 'draw', 'blink', 'air'].includes(game.value?.id ?? ''),
-)
 // 상대 웹캠까지 주고받는 게임(대결 모드 한정).
 const showsOpponentCamera = computed(
   () =>
@@ -155,24 +1048,37 @@ function heartStates(count: number) {
   return Array.from({ length: 5 }, (_, index) => index < count)
 }
 
-const currentDrawResult = computed(() => drawRoundResults[drawRound.value - 1])
-const drawAccumulatedScore = computed(() =>
-  drawRoundResults
-    .slice(0, drawRound.value)
-    .reduce((total, result) => total + result.score, 0),
-)
-
-// 게임 종료 시 결과를 저장하는 파이프라인(지금은 mock 값). 실패해도 화면 전환은 막지 않는다.
+// 게임 종료 시 결과를 저장하는 파이프라인. 실패해도 화면 전환은 막지 않는다.
 const { submitPlayedResult } = useGameResultSubmission()
+const lastGameResultStore = useLastGameResultStore()
 const playStartedAt = new Date().toISOString()
 
 function toResult() {
   if (!game.value) return
+  const score =
+    game.value.id === 'blink'
+      ? blinkGameState.value.score
+      : game.value.id === 'hold'
+        ? Math.round(stareGameState.value.elapsedMs / 1000)
+        : game.value.id === 'rhythm'
+          ? rhythmGameState.value.score
+          : game.value.id === 'air'
+            ? airGameState.value.bottom.score
+            : game.value.id === 'draw'
+              ? drawGameState.value.score
+              : (session.value?.score ?? 0)
+
+  if (game.value.id === 'blink') recordBlinkResult()
+  if (game.value.id === 'hold') recordStareResult()
+  if (game.value.id === 'rhythm') recordRhythmResult()
+  if (game.value.id === 'air') recordAirHockeyResult()
+  if (game.value.id === 'draw') recordDrawResult()
+
   void submitPlayedResult({
     gameSlug: game.value.id,
     mode: mode.value,
     startedAt: playStartedAt,
-    score: session.value?.score ?? 0,
+    score,
   })
   router.push({
     name: 'game-result',
@@ -181,41 +1087,431 @@ function toResult() {
   })
 }
 
-function leaveGame() {
-  if (game.value)
-    router.push({ name: 'game-detail', params: { gameId: game.value.id } })
+/** 눈 깜빡이기 실제 결과를 결과 화면용으로 기록한다. 대결 모드는 상대 실시간 횟수와 비교해 승패를 정한다. */
+function recordBlinkResult() {
+  const myCount = blinkGameState.value.blinkCount
+  const outcome: LastGameOutcome =
+    mode.value === 'solo'
+      ? 'COMPLETED'
+      : opponentBlinkCount.value === null
+        ? 'UNKNOWN'
+        : myCount > opponentBlinkCount.value
+          ? 'WIN'
+          : myCount < opponentBlinkCount.value
+            ? 'LOSE'
+            : 'DRAW'
+
+  lastGameResultStore.set({
+    gameId: 'blink',
+    mode: mode.value,
+    outcome,
+    scoreLabel: '깜빡임',
+    score: `${myCount}회`,
+    opponentScore:
+      opponentBlinkCount.value !== null
+        ? `${opponentBlinkCount.value}회`
+        : undefined,
+    headline:
+      outcome === 'WIN'
+        ? '승리했어요!'
+        : outcome === 'LOSE'
+          ? '아쉽게 졌어요'
+          : outcome === 'DRAW'
+            ? '무승부예요'
+            : '집중력 대성공!',
+    summary:
+      outcome === 'WIN'
+        ? '상대보다 더 많이 깜빡였어요!'
+        : outcome === 'LOSE'
+          ? '다음엔 더 빠르게 깜빡여 보세요!'
+          : outcome === 'DRAW'
+            ? '정말 팽팽한 대결이었어요!'
+            : '20초 동안 정확하게 눈을 깜빡였어요.',
+    stats: [
+      { label: '깜빡임 횟수', value: `${myCount}회` },
+      { label: '플레이 시간', value: '00:20' },
+    ],
+  })
 }
 
-function handleRhythmInput(
-  player: 'mine' | 'opponent' = 'mine',
-  isMiss = false,
-) {
-  const playerStatus =
-    player === 'mine' ? rhythmMine.value : rhythmOpponent.value
+/** 눈싸움 실제 결과를 결과 화면용으로 기록한다. */
+function recordStareResult() {
+  const survivalSeconds = stareGameState.value.elapsedMs / 1000
+  const scoreDisplay = `${survivalSeconds.toFixed(1)}초`
+  const opponentSurvivalSeconds = stareOpponentElapsedMs.value / 1000
+  const opponentScoreDisplay = `${opponentSurvivalSeconds.toFixed(1)}초`
+  const outcome: LastGameOutcome =
+    mode.value === 'solo'
+      ? 'COMPLETED'
+      : stareGameState.value.outcome === 'NONE'
+        ? 'UNKNOWN'
+        : stareGameState.value.outcome
 
-  if (isMiss) {
-    playerStatus.hearts = Math.max(0, playerStatus.hearts - 1)
-    playerStatus.combo = 0
+  lastGameResultStore.set({
+    gameId: 'hold',
+    mode: mode.value,
+    outcome,
+    scoreLabel: '생존 시간',
+    score: scoreDisplay,
+    opponentScore:
+      isStareDuel.value && stareOpponentSynced.value
+        ? opponentScoreDisplay
+        : undefined,
+    headline:
+      outcome === 'WIN'
+        ? 'AI보다 오래 버텼어요!'
+        : outcome === 'LOSE'
+          ? '아쉽게 눈을 감았어요'
+          : '기록 갱신!',
+    summary:
+      outcome === 'WIN'
+        ? '눈을 뜬 채로 목표 시간을 버텨냈어요!'
+        : outcome === 'LOSE'
+          ? '다음엔 더 오래 버텨보세요!'
+          : '시선을 끝까지 유지하며 기록을 만들었어요.',
+    stats: [
+      {
+        label: '생존 시간',
+        value: scoreDisplay,
+        opponentValue:
+          isStareDuel.value && stareOpponentSynced.value
+            ? opponentScoreDisplay
+            : undefined,
+      },
+      {
+        label: '패배 사유',
+        value:
+          stareGameState.value.loseReason === 'FACE_LOST'
+            ? '얼굴 인식 끊김'
+            : stareGameState.value.loseReason === 'NONE'
+              ? '-'
+              : '눈 감음',
+        // 상대가 왜 졌는지(혹은 안 졌는지)는 전송받지 않으므로 좌우 미러링하지 않는다.
+        opponentValue: '-',
+      },
+    ],
+  })
+}
 
-    if (playerStatus.hearts === 0) toResult()
+/** 리듬게임 실제 결과를 결과 화면용으로 기록한다. 대결 모드는 상대 실시간 점수와 비교해 승패를 정한다. */
+function recordRhythmResult() {
+  const myScore = rhythmGameState.value.score
+  const accuracy = Math.round(getRhythmAccuracy(rhythmGameState.value))
+  const outcome: LastGameOutcome =
+    mode.value === 'solo'
+      ? 'COMPLETED'
+      : opponentHealthDepleted.value
+        ? 'WIN'
+        : rhythmGameState.value.finishReason === 'HEALTH_EMPTY'
+          ? 'LOSE'
+          : !rhythmOpponentSynced.value
+            ? 'UNKNOWN'
+            : myScore > rhythmOpponent.value.score
+              ? 'WIN'
+              : myScore < rhythmOpponent.value.score
+                ? 'LOSE'
+                : 'DRAW'
 
+  lastGameResultStore.set({
+    gameId: 'rhythm',
+    mode: mode.value,
+    outcome,
+    scoreLabel: '점수',
+    score: `${myScore.toLocaleString()}점`,
+    opponentScore: rhythmOpponentSynced.value
+      ? `${rhythmOpponent.value.score.toLocaleString()}점`
+      : undefined,
+    headline:
+      outcome === 'WIN'
+        ? '리듬 마스터!'
+        : outcome === 'LOSE'
+          ? '아쉽게 졌어요'
+          : outcome === 'DRAW'
+            ? '무승부예요'
+            : 'RHYTHM CLEAR!',
+    summary:
+      outcome === 'WIN'
+        ? '완벽한 박자 감각이었어요!'
+        : outcome === 'LOSE'
+          ? '다음엔 더 정확하게 맞춰보세요!'
+          : outcome === 'DRAW'
+            ? '정말 팽팽한 대결이었어요!'
+            : '리듬을 놓치지 않고 끝까지 완주했어요.',
+    stats: [
+      { label: '최대 콤보', value: `${rhythmGameState.value.maxCombo}` },
+      { label: '남은 하트', value: `${rhythmGameState.value.health}` },
+      { label: '정확도', value: `${accuracy}%` },
+    ],
+  })
+}
+
+/** 에어하키 실제 결과를 결과 화면용으로 기록한다. */
+function recordAirHockeyResult() {
+  const myScore = airGameState.value.bottom.score
+  const opponentScore = airOpponentDisplayScore.value
+  const localWinner = determineAirHockeyWinner(airGameState.value)
+  const outcome: LastGameOutcome = isAirVsAi.value
+    ? localWinner === 'bottom'
+      ? 'WIN'
+      : localWinner === 'top'
+        ? 'LOSE'
+        : 'DRAW'
+    : !airOpponentSynced.value
+      ? 'UNKNOWN'
+      : myScore > opponentScore
+        ? 'WIN'
+        : myScore < opponentScore
+          ? 'LOSE'
+          : 'DRAW'
+
+  lastGameResultStore.set({
+    gameId: 'air',
+    mode: mode.value,
+    outcome,
+    scoreLabel: '득점',
+    score: `${myScore}`,
+    opponentScore:
+      isAirVsAi.value || airOpponentSynced.value
+        ? `${opponentScore}`
+        : undefined,
+    headline:
+      outcome === 'WIN'
+        ? '승리!'
+        : outcome === 'LOSE'
+          ? '아쉽게 졌어요'
+          : outcome === 'DRAW'
+            ? '무승부예요'
+            : '경기 종료!',
+    summary:
+      outcome === 'WIN'
+        ? '마지막 골까지 집중력을 유지했어요.'
+        : outcome === 'LOSE'
+          ? '다음엔 더 정확하게 시선을 노려보세요!'
+          : outcome === 'DRAW'
+            ? '한 골 차이도 안 나는 접전이었어요!'
+            : '1분 동안 최선을 다했어요.',
+    stats: [
+      {
+        label: '득점',
+        value: `${myScore}골`,
+        opponentValue: `${opponentScore}골`,
+      },
+      {
+        label: '실점',
+        value: `${opponentScore}골`,
+        opponentValue: `${myScore}골`,
+      },
+      { label: '경기 시간', value: '01:00' },
+    ],
+  })
+}
+
+async function initDrawGame() {
+  if (calibrationStore.eyeProfile) {
+    drawTracking.applyEyeProfile(calibrationStore.eyeProfile)
+  }
+  if (calibrationStore.gazeProfile) {
+    drawTracking.applyGazeProfile(calibrationStore.gazeProfile)
+  }
+
+  const started = await drawTracking.start()
+  if (!started) {
+    showToast('카메라를 시작하지 못했어요. 카메라 권한을 확인해 주세요.')
     return
   }
 
-  playerStatus.combo += 1
-  playerStatus.score += 100
+  drawWords.value = pickWordsForGame()
+  drawStrokes = []
+  drawActiveStroke = null
+  isDrawingActive.value = true
+  startDrawRound(drawGameState.value, drawWords.value)
+
+  unsubscribeDrawKeydown = onDrawKeydown()
+  runDrawLoop()
+}
+
+/** Space 키로 그리기를 일시정지/재개한다(기획 확정본 조작 방식). */
+function onDrawKeydown(): () => void {
+  const handler = (event: globalThis.KeyboardEvent) => {
+    if (event.code !== 'Space' && event.key !== ' ') return
+    // 답 입력 등 다른 텍스트 입력 중엔 Space가 그 입력에 쓰이도록 두고 그리기 토글은 막는다.
+    const target = event.target as globalThis.HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'))
+      return
+    event.preventDefault()
+    isDrawingActive.value = !isDrawingActive.value
+  }
+  globalThis.window.addEventListener('keydown', handler)
+  return () => globalThis.window.removeEventListener('keydown', handler)
+}
+
+function runDrawLoop() {
+  const tick = (now: number, previous?: number) => {
+    const deltaMs = previous === undefined ? 0 : now - previous
+
+    updateDrawCursorFromGaze()
+
+    if (drawGameState.value.phase === 'running') {
+      if (tickDrawRoundTimer(drawGameState.value, deltaMs)) {
+        void submitDrawRound('시간 종료')
+      }
+    }
+
+    renderDrawCanvas()
+    drawRafHandle = globalThis.requestAnimationFrame((next) => tick(next, now))
+  }
+  drawRafHandle = globalThis.requestAnimationFrame((first) => tick(first))
+}
+
+function updateDrawCursorFromGaze() {
+  const gaze = drawTracking.screenGaze.value
+  const faceOk =
+    drawTracking.faceDetected.value &&
+    drawTracking.combinedState.value === 'BOTH_OPEN'
+  if (!gaze || !faceOk) {
+    drawCursor.value = null
+    return
+  }
+
+  const point = {
+    x: Math.min(1, Math.max(0, gaze.x)),
+    y: Math.min(1, Math.max(0, gaze.y)),
+  }
+  drawCursor.value = point
+
+  if (
+    isDrawingActive.value &&
+    drawGameState.value.phase === 'running' &&
+    !drawScoreOpen.value
+  ) {
+    drawActiveStroke = addPointToStroke(drawStrokes, drawActiveStroke, point, {
+      color: selectedColor.value,
+      width: drawBrushWidth,
+      allowBridge: drawShouldBridge,
+    })
+    drawShouldBridge = false
+  }
+}
+
+function renderDrawCanvas() {
+  const canvas = drawCanvasRef.value
+  const ctx = canvas?.getContext('2d')
+  if (!canvas || !ctx) return
+
+  ctx.clearRect(0, 0, DRAW_CANVAS_WIDTH, DRAW_CANVAS_HEIGHT)
+  ctx.fillStyle = '#f8fbff'
+  ctx.fillRect(0, 0, DRAW_CANVAS_WIDTH, DRAW_CANVAS_HEIGHT)
+
+  for (const stroke of drawStrokes) {
+    if (stroke.points.length < 2) continue
+    ctx.strokeStyle = stroke.color
+    ctx.lineWidth = stroke.width
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    stroke.points.forEach((point, index) => {
+      const x = point.x * DRAW_CANVAS_WIDTH
+      const y = point.y * DRAW_CANVAS_HEIGHT
+      if (index === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.stroke()
+  }
+}
+
+function undoDrawStroke() {
+  drawStrokes.pop()
+  drawActiveStroke = null
+}
+
+function clearDrawCanvas() {
+  drawStrokes = []
+  drawActiveStroke = null
+}
+
+function createDrawSubmissionImage(): string {
+  return drawCanvasRef.value?.toDataURL('image/png') ?? ''
+}
+
+async function submitDrawRound(source: string) {
+  if (drawGameState.value.phase !== 'running') return
+  beginJudging(drawGameState.value)
+  isDrawingActive.value = false
+
+  try {
+    const recognition = await recognizeDrawing({
+      imageDataUrl: createDrawSubmissionImage(),
+      prompt: drawGameState.value.prompt,
+      candidates: [...DRAWING_ALL_WORDS],
+    })
+    // 기획 확정본엔 정답을 직접 입력하는 UI가 없어서(원본 프로토타입에만 있던 기능) 빈 문자열을
+    // 넘긴다 — AI 판정만으로 채점한다. draw-core.ts 쪽 로직 자체는 그대로 남겨 둬서, 나중에
+    // 정답 입력 UI를 추가하면 바로 활용할 수 있다.
+    applyDrawRoundResult(drawGameState.value, recognition, '')
+    drawScoreOpen.value = true
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'AI 채점 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'
+    reportDrawJudgingError(drawGameState.value, message)
+    isDrawingActive.value = true
+    showToast(message)
+  }
+  void source
 }
 
 function advanceDrawRound() {
   drawScoreOpen.value = false
 
-  if (drawRound.value < drawRoundResults.length) {
-    drawRound.value += 1
-    selectedColor.value = '#4f74db'
+  if (isDrawGameFinished(drawGameState.value)) {
+    toResult()
     return
   }
 
-  toResult()
+  clearDrawCanvas()
+  selectedColor.value = '#161c2d'
+  isDrawingActive.value = true
+  startDrawRound(drawGameState.value, drawWords.value)
+}
+
+function stopDrawGame() {
+  if (drawRafHandle !== undefined) {
+    globalThis.cancelAnimationFrame(drawRafHandle)
+    drawRafHandle = undefined
+  }
+  unsubscribeDrawKeydown?.()
+  unsubscribeDrawKeydown = undefined
+  drawTracking.stop()
+}
+
+/** 그림그리기 실제 결과를 결과 화면용으로 기록한다. */
+function recordDrawResult() {
+  const successCount = drawGameState.value.history.filter(
+    (round) => round.success,
+  ).length
+
+  lastGameResultStore.set({
+    gameId: 'draw',
+    mode: mode.value,
+    outcome: 'COMPLETED',
+    scoreLabel: '총점',
+    score: `${drawGameState.value.score}점`,
+    headline: 'AI 채점 완료!',
+    summary: `${DRAWING_TOTAL_ROUNDS}라운드 중 ${successCount}개를 맞혔어요.`,
+    stats: [
+      {
+        label: '맞힌 라운드',
+        value: `${successCount}/${DRAWING_TOTAL_ROUNDS}`,
+      },
+      { label: '총점', value: `${drawGameState.value.score}점` },
+    ],
+  })
+}
+
+function leaveGame() {
+  if (game.value)
+    router.push({ name: 'game-detail', params: { gameId: game.value.id } })
 }
 </script>
 
@@ -224,11 +1520,11 @@ function advanceDrawRound() {
     v-if="game && session"
     :title="game.id === 'draw' ? '눈으로 그리기' : displayTitle"
     :mode-label="gameModeLabels[mode]"
-    :time-label="game.id === 'hold' ? holdElapsedLabel : session.timeLabel"
+    :time-label="game.id === 'hold' ? stareElapsedLabel : session.timeLabel"
     :time-caption="game.id === 'hold' ? '현재 생존 시간' : undefined"
     :round-progress="
       game.id === 'draw'
-        ? { current: drawRound, total: drawRoundResults.length }
+        ? { current: drawGameState.round, total: DRAWING_TOTAL_ROUNDS }
         : undefined
     "
     :show-score="game.id !== 'draw' && game.id !== 'hold' && !isRhythmDuel"
@@ -253,23 +1549,23 @@ function advanceDrawRound() {
       ]"
     >
       <aside v-if="game.id === 'draw'" class="info-panel draw-info">
-        <p class="eyebrow">제시어</p>
-        <strong>{{ currentDrawResult.prompt }}</strong>
-        <DrawPromptIcon :prompt="currentDrawResult.prompt" />
+        <p class="eyebrow">제시어 · {{ drawDifficultyLabel }}</p>
+        <strong>{{ drawGameState.prompt }}</strong>
+        <DrawPromptIcon :prompt="drawGameState.prompt" />
         <ol aria-label="라운드 진행 상황">
           <li
-            v-for="round in drawRoundResults.length"
+            v-for="round in DRAWING_TOTAL_ROUNDS"
             :key="round"
             :class="{
-              active: drawRound === round,
-              complete: drawRound > round,
+              active: drawGameState.round === round,
+              complete: drawGameState.round > round,
             }"
           >
             Round {{ round }}
             <b>{{
-              drawRound > round
+              drawGameState.round > round
                 ? '완료'
-                : drawRound === round
+                : drawGameState.round === round
                   ? '진행 중'
                   : '대기'
             }}</b>
@@ -299,7 +1595,7 @@ function advanceDrawRound() {
         <p class="eyebrow">나</p>
         <div class="eye-see-camera">
           <video
-            ref="localCameraVideoRef"
+            ref="stareVideoRef"
             class="eye-see-camera__self"
             aria-label="내 웹캠 영상"
             autoplay
@@ -307,7 +1603,7 @@ function advanceDrawRound() {
             playsinline
           ></video>
           <img
-            v-if="!isLocalCameraActive"
+            v-if="!stareCameraActive"
             :src="game.mascotImage"
             alt="내 카메라 준비 마스코트"
             draggable="false"
@@ -315,7 +1611,7 @@ function advanceDrawRound() {
         </div>
         <p class="camera-state">
           {{
-            isLocalCameraActive
+            stareCameraActive
               ? '내 카메라가 연결되었습니다.'
               : '내 카메라를 준비하고 있어요.'
           }}
@@ -325,12 +1621,12 @@ function advanceDrawRound() {
       <aside v-else-if="game.id === 'air'" class="air-score-panel">
         <p class="air-score-label">SCORE</p>
         <div class="air-score-line">
-          <span>나</span><strong>{{ session.score }}</strong>
+          <span>나</span><strong>{{ airMyScore }}</strong>
         </div>
         <span class="air-score-vs">VS</span>
         <div class="air-score-line opponent">
           <span>{{ mode === 'ai' ? 'AI' : '상대' }}</span
-          ><strong>{{ session.opponentScore }}</strong>
+          ><strong>{{ airOpponentDisplayScore }}</strong>
         </div>
         <div class="air-time">
           <span>
@@ -353,7 +1649,7 @@ function advanceDrawRound() {
             </svg>
             남은 시간
           </span>
-          <strong>{{ session.timeLabel }}</strong>
+          <strong>{{ airTimeLabel }}</strong>
         </div>
         <p class="air-tip">
           <b>TIP</b> 시선으로 패들을 움직여 퍽을 상대 골대에 넣어보세요.
@@ -367,7 +1663,7 @@ function advanceDrawRound() {
         <p class="rhythm-duel-player__label">나 · PLAYER 1</p>
         <div class="rhythm-duel-player__camera">
           <video
-            ref="localCameraVideoRef"
+            ref="rhythmVideoRef"
             class="self-camera"
             aria-label="내 웹캠 영상"
             autoplay
@@ -375,7 +1671,7 @@ function advanceDrawRound() {
             playsinline
           ></video>
           <img
-            v-if="!isLocalCameraActive"
+            v-if="!rhythmCameraActive"
             :src="game.mascotImage"
             alt="내 웹캠 대기 마스코트"
             draggable="false"
@@ -384,7 +1680,7 @@ function advanceDrawRound() {
         </div>
         <p class="rhythm-duel-player__camera-note">
           {{
-            isLocalCameraActive
+            rhythmCameraActive
               ? '내 카메라가 연결되었습니다.'
               : '카메라를 준비하고 있어요.'
           }}
@@ -452,16 +1748,14 @@ function advanceDrawRound() {
         </div>
         <div class="blink-duel-player__camera">
           <video
-            ref="localCameraVideoRef"
+            ref="blinkVideoRef"
             class="self-camera"
             aria-label="내 웹캠 영상"
             autoplay
             muted
             playsinline
           ></video>
-          <p v-if="!isLocalCameraActive">
-            내 카메라를 준비하고 있어요.
-          </p>
+          <p v-if="!blinkCameraActive">내 카메라를 준비하고 있어요.</p>
         </div>
         <small>눈이 감지되면 카운터가 올라가요!</small>
       </aside>
@@ -490,12 +1784,34 @@ function advanceDrawRound() {
       <section class="gameplay-board" aria-live="polite">
         <template v-if="game.id === 'draw'">
           <div class="stage-toolbar">
-            <span class="status-dot">그리기 중</span
-            ><b>Round {{ drawRound }} / {{ drawRoundResults.length }}</b>
+            <span class="status-dot">{{
+              isDrawingActive ? '그리기 중' : '일시정지'
+            }}</span
+            ><b>{{ drawTimeLabel }} 남음</b>
           </div>
-          <div class="draw-canvas" aria-label="mock 드로잉 캔버스">
-            <i /><i /><i /><i />
-            <span>시선 입력과 AI 채점은 연결 준비 중입니다.</span>
+          <div class="draw-canvas-wrap">
+            <canvas
+              ref="drawCanvasRef"
+              class="draw-canvas-real"
+              :width="DRAW_CANVAS_WIDTH"
+              :height="DRAW_CANVAS_HEIGHT"
+              aria-label="눈으로 그리는 캔버스"
+            ></canvas>
+            <i
+              v-if="drawCursor"
+              class="draw-gaze-cursor"
+              :style="{
+                left: `${drawCursor.x * 100}%`,
+                top: `${drawCursor.y * 100}%`,
+                background: selectedColor,
+              }"
+            />
+            <p v-if="!isDrawingActive" class="draw-paused-badge">
+              Space 키를 눌러 다시 시작하세요
+            </p>
+            <p v-if="drawGameState.errorMessage" class="draw-error-badge">
+              {{ drawGameState.errorMessage }}
+            </p>
           </div>
           <div class="draw-tools" aria-label="드로잉 도구">
             <button
@@ -513,66 +1829,95 @@ function advanceDrawRound() {
               :style="{ background: color }"
               @click="selectedColor = color"
             />
-            <button type="button">되돌리기</button
-            ><button type="button">전체 지우기</button>
-            <button type="button" class="primary" @click="drawScoreOpen = true">
-              제출하기
+            <button type="button" @click="undoDrawStroke">되돌리기</button
+            ><button type="button" @click="clearDrawCanvas">전체 지우기</button>
+            <button
+              type="button"
+              class="primary"
+              :disabled="drawGameState.phase === 'judging'"
+              @click="submitDrawRound('수동 제출')"
+            >
+              {{
+                drawGameState.phase === 'judging' ? 'AI 채점 중…' : '제출하기'
+              }}
             </button>
           </div>
         </template>
 
         <template v-else-if="game.id === 'rhythm'">
           <div class="rhythm-top">
-            <span>시간 {{ session.timeLabel }} / 00:30</span
-            ><progress value="55" max="100">55%</progress>
+            <span>시간 {{ rhythmTimeLabel }} / 00:30</span
+            ><progress :value="rhythmProgressPercent" max="100" />
           </div>
           <div class="rhythm-stage">
             <div
-              v-for="lane in ['왼쪽 눈 감기', '오른쪽 눈 감기']"
-              :key="lane"
-              class="rhythm-lane"
+              v-if="rhythmIsAnalyzingAudio"
+              class="rhythm-analyzing"
+              aria-live="polite"
             >
-              <b>{{ lane }}</b
-              ><span class="hit-zone" />
+              <span class="rhythm-analyzing__spinner" aria-hidden="true" />
+              <p>곡을 분석하고 있어요…</p>
+            </div>
+            <div class="rhythm-lane">
+              <b>왼쪽 눈 감기</b><span class="hit-zone" />
               <i
-                v-for="note in 4"
-                :key="note"
-                :style="{ left: `${30 + note * 16}%` }"
+                v-for="note in rhythmLeftNotes"
+                :key="note.id"
+                :style="{ left: `${noteLeftPercent(note)}%` }"
+                >●</i
+              >
+            </div>
+            <div class="rhythm-lane">
+              <b>오른쪽 눈 감기</b><span class="hit-zone" />
+              <i
+                v-for="note in rhythmRightNotes"
+                :key="note.id"
+                :style="{ left: `${noteLeftPercent(note)}%` }"
                 >●</i
               >
             </div>
           </div>
-          <div class="rhythm-controls">
-            <button type="button" @click="handleRhythmInput('mine')">
-              왼쪽 눈 입력</button
-            ><button type="button" @click="handleRhythmInput('mine')">
-              오른쪽 눈 입력</button
-            ><button type="button" @click="handleRhythmInput('mine', true)">
-              miss (mock)
-            </button>
-            <button
-              v-if="isRhythmDuel"
-              type="button"
-              class="rhythm-opponent-miss"
-              data-testid="opponent-rhythm-miss"
-              @click="handleRhythmInput('opponent', true)"
+          <div class="rhythm-controls" aria-live="polite">
+            <span
+              class="rhythm-judgement"
+              :class="`rhythm-judgement--${rhythmGameState.lastJudgement.toLowerCase()}`"
             >
-              상대 miss (mock)
-            </button>
+              {{
+                rhythmGameState.lastJudgement === 'NONE'
+                  ? '준비하세요'
+                  : rhythmGameState.lastJudgement
+              }}
+            </span>
+            <span class="rhythm-accuracy-badge"
+              >정확도 {{ rhythmAccuracyPercent }}%</span
+            ><span v-if="rhythmUsesMusicClock" class="rhythm-music-badge"
+              >🎵 실제 음악</span
+            >
           </div>
         </template>
 
         <template v-else-if="game.id === 'blink' && isCompetitive">
           <section class="blink-duel-stage" aria-live="polite">
-            <article class="blink-duel-event">
-              <span>이벤트 발동!</span>
-              <strong>깜빡임 챌린지</strong>
-              <p>지금 3회 더 깜빡이면 보너스를 받아요.</p>
+            <article
+              class="blink-duel-event"
+              :class="{
+                'blink-duel-event--pending': opponentBlinkCount === null,
+              }"
+            >
+              <span>상대방 실시간 현황</span>
+              <strong v-if="opponentBlinkCount !== null"
+                >{{ opponentBlinkCount }}회</strong
+              >
+              <strong v-else>연결 중…</strong>
+              <p>
+                랜덤 이벤트 보너스는 아직 준비 중이에요. 서로의 깜빡임 횟수는
+                실시간으로 반영됩니다.
+              </p>
             </article>
             <section class="blink-duel-timer" aria-label="남은 시간">
               <span>남은 시간</span>
-              <strong>{{ session.timeLabel }}</strong>
-              <div><i></i></div>
+              <strong>{{ blinkTimeLabel }}</strong>
+              <div><i :style="{ width: `${blinkProgressPercent}%` }"></i></div>
               <small>20초</small>
             </section>
             <p class="blink-duel-rule">
@@ -580,36 +1925,33 @@ function advanceDrawRound() {
             </p>
             <section class="blink-duel-history" aria-label="이벤트 발동 내역">
               <b>이벤트 발동 내역</b>
-              <p>
-                <span>성공</span> 눈빛 좋은 플레이어 (나) <strong>+3회</strong>
-              </p>
-              <p><span>대기</span> 상대 플레이어의 다음 입력을 기다려요.</p>
+              <p><span>대기</span> 실시간 동기화 연동 후 표시될 예정이에요.</p>
             </section>
-            <button type="button" @click="blinkCount += 1">
-              mock 깜빡임 +1
-            </button>
           </section>
         </template>
 
         <template v-else-if="game.id === 'blink'">
           <section class="blink-stage" aria-label="눈 깜빡이기 플레이 영역">
             <video
-              ref="localCameraVideoRef"
+              ref="blinkVideoRef"
               class="blink-stage__camera self-camera"
               aria-label="내 웹캠 영상"
               autoplay
               muted
               playsinline
             ></video>
-            <p v-if="!isLocalCameraActive" class="blink-stage__camera-placeholder">
+            <p
+              v-if="!blinkCameraActive"
+              class="blink-stage__camera-placeholder"
+            >
               내 카메라를 준비하고 있어요.
             </p>
 
             <section class="blink-stage__metrics" aria-label="게임 진행 현황">
               <span>남은 시간</span>
-              <strong>{{ session.timeLabel }}</strong>
+              <strong>{{ blinkTimeLabel }}</strong>
               <div class="blink-stage__progress" aria-label="제한 시간 진행률">
-                <i></i>
+                <i :style="{ width: `${blinkProgressPercent}%` }"></i>
               </div>
               <small>20초</small>
               <span>현재 깜빡임 횟수</span>
@@ -625,41 +1967,43 @@ function advanceDrawRound() {
           </section>
           <footer class="blink-stage__footer">
             <p>20초가 끝나면 자동으로 기록이 저장돼요!</p>
-            <button type="button" @click="blinkCount += 1">
-              mock 깜빡임 +1
-            </button>
           </footer>
         </template>
 
         <template v-else-if="game.id === 'hold'">
           <div class="eye-see-status">
-            <span>눈싸움 진행 중</span>
-            <p>먼저 눈을 깜빡이면 지는 게임! 끝까지 시선을 유지해 보세요.</p>
+            <span>{{ stareStatusLabel }}</span>
+            <p>{{ stareGameState.message }}</p>
           </div>
-          <div class="hold-controls">
-            <button type="button" @click="eyeSeeState = 'playing'">진행</button
-            ><button type="button" @click="eyeSeeState = 'success'">
-              성공 (mock)</button
-            ><button type="button" @click="eyeSeeState = 'failed'">
-              실패 (mock)
-            </button>
+          <div class="hold-controls" aria-live="polite">
+            <span
+              class="hold-status-badge"
+              :class="`hold-status-badge--${stareWarningTone}`"
+            >
+              {{ stareGameState.warning }}
+            </span>
+            <span v-if="stareTargetMs !== null" class="hold-target-hint">
+              목표 시간 {{ formatStareDuration(stareTargetMs) }}
+            </span>
           </div>
         </template>
 
         <template v-else>
           <div class="hockey-status">
-            <b>{{ session.score }}</b
-            ><span>VS</span><b>{{ session.opponentScore }}</b
-            ><small>남은 시간 {{ session.timeLabel }}</small>
+            <b>{{ airMyScore }}</b
+            ><span>VS</span><b>{{ airOpponentDisplayScore }}</b
+            ><small>남은 시간 {{ airTimeLabel }}</small>
           </div>
-          <div class="hockey-rink" aria-label="mock 에어하키 보드">
-            <i class="goal goal--top" /><i class="goal goal--bottom" /><i
-              class="puck"
-            /><i class="paddle paddle--mine" /><i
-              class="paddle paddle--opponent"
-            />
-          </div>
-          <p class="tip">패들 이동과 물리 충돌은 게임 연동 후 적용됩니다.</p>
+          <canvas
+            ref="airCanvasRef"
+            class="hockey-canvas"
+            width="720"
+            height="900"
+            aria-label="에어하키 게임 화면"
+          ></canvas>
+          <p class="tip">
+            시선으로 패들을 움직이고, 눈을 깜빡이면 퍽을 발사·타격해요.
+          </p>
         </template>
       </section>
 
@@ -720,14 +2064,11 @@ function advanceDrawRound() {
           </div>
         </section>
       </aside>
-      <aside
-        v-else-if="game.id === 'draw' || game.id === 'rhythm'"
-        class="info-panel webcam-panel"
-      >
+      <aside v-else-if="game.id === 'draw'" class="info-panel webcam-panel">
         <p class="eyebrow">나의 웹캠</p>
         <div class="video-placeholder">
           <video
-            ref="localCameraVideoRef"
+            ref="drawVideoRef"
             class="self-camera"
             aria-label="내 웹캠 영상"
             autoplay
@@ -735,18 +2076,38 @@ function advanceDrawRound() {
             playsinline
           ></video
           ><img
-            v-if="!isLocalCameraActive"
+            v-if="!drawCameraActive"
             :src="game.mascotImage"
             alt="웹캠 대기 마스코트"
             draggable="false"
           />
         </div>
         <p class="camera-state">
-          {{ isLocalCameraActive ? '카메라 연결됨' : '카메라 준비 중' }}
+          {{ drawCameraActive ? '카메라 연결됨' : '카메라 준비 중' }}
         </p>
-        <p v-if="game.id === 'rhythm'" class="tip">
-          분홍 노트는 왼쪽, 파랑 노트는 오른쪽 눈 입력입니다.
+      </aside>
+      <aside v-else-if="game.id === 'rhythm'" class="info-panel webcam-panel">
+        <p class="eyebrow">나의 웹캠</p>
+        <div class="video-placeholder">
+          <video
+            ref="rhythmVideoRef"
+            class="self-camera"
+            aria-label="내 웹캠 영상"
+            autoplay
+            muted
+            playsinline
+          ></video
+          ><img
+            v-if="!rhythmCameraActive"
+            :src="game.mascotImage"
+            alt="웹캠 대기 마스코트"
+            draggable="false"
+          />
+        </div>
+        <p class="camera-state">
+          {{ rhythmCameraActive ? '카메라 연결됨' : '카메라 준비 중' }}
         </p>
+        <p class="tip">분홍 노트는 왼쪽, 파랑 노트는 오른쪽 눈 입력입니다.</p>
       </aside>
       <aside v-else-if="game.id === 'air'" class="air-players-panel">
         <article class="air-player-card">
@@ -773,7 +2134,7 @@ function advanceDrawRound() {
           <div><strong>나</strong><span>YOU</span></div>
           <div class="air-player-card__camera">
             <video
-              ref="localCameraVideoRef"
+              ref="airVideoRef"
               class="self-camera"
               aria-label="내 웹캠 영상"
               autoplay
@@ -781,7 +2142,7 @@ function advanceDrawRound() {
               playsinline
             ></video>
             <img
-              v-if="!isLocalCameraActive"
+              v-if="!airCameraActive"
               :src="game.mascotImage"
               alt="내 플레이어 마스코트"
               draggable="false"
@@ -795,7 +2156,12 @@ function advanceDrawRound() {
       >
         <div class="blink-duel-player__score">
           <span>{{ mode === 'friends' ? '친구' : '매칭된 상대' }}</span>
-          <strong>{{ session.opponentScore }}<em>회</em></strong>
+          <strong v-if="opponentBlinkCount !== null"
+            >{{ opponentBlinkCount }}<em>회</em></strong
+          >
+          <strong v-else class="blink-duel-player__score--pending"
+            >연결 중…</strong
+          >
         </div>
         <div class="blink-duel-player__camera">
           <video
@@ -831,6 +2197,13 @@ function advanceDrawRound() {
                 ? '친구 카메라가 연결되었습니다.'
                 : '친구 카메라를 기다리고 있어요.'
             }}
+          </p>
+          <p v-if="isStareDuel" class="hold-opponent-status">
+            상대 생존 시간
+            <strong v-if="stareOpponentSynced">{{
+              formatStareDuration(stareOpponentElapsedMs)
+            }}</strong>
+            <strong v-else>연결 중…</strong>
           </p>
         </template>
         <template v-else>
@@ -879,33 +2252,37 @@ function advanceDrawRound() {
             </button>
             <header class="draw-score-heading">
               <div>
-                <p class="eyebrow">AI 채점 결과 · mock</p>
+                <p class="eyebrow">AI 채점 결과</p>
                 <h2 id="draw-score-title">이번 라운드 그림을 분석했어요!</h2>
               </div>
             </header>
 
-            <div class="draw-score-columns">
+            <div v-if="currentDrawResult" class="draw-score-columns">
               <section class="draw-submission-card" aria-label="제출한 그림">
-                <p>제시어</p>
+                <p>
+                  제시어 ·
+                  {{ DRAWING_DIFFICULTY_LABEL[currentDrawResult.difficulty] }}
+                </p>
                 <strong>{{ currentDrawResult.prompt }}</strong>
                 <DrawPromptIcon
                   :prompt="currentDrawResult.prompt"
                   size="medium"
                 />
-                <div
-                  class="draw-score-sketch"
-                  aria-label="mock으로 표현한 제출 그림"
+                <p
+                  class="draw-correct"
+                  :class="{ 'draw-correct--fail': !currentDrawResult.success }"
                 >
-                  <i /><i /><i /><i />
-                </div>
-                <p class="draw-correct">
-                  정답입니다! {{ currentDrawResult.prompt }}을 맞혔어요!
+                  {{
+                    currentDrawResult.success
+                      ? `정답입니다! ${currentDrawResult.prompt}을 맞혔어요!`
+                      : `AI는 "${currentDrawResult.aiGuess}"로 인식했어요. 다음엔 더 또렷하게 그려보세요!`
+                  }}
                 </p>
               </section>
 
               <section class="draw-score-detail" aria-label="라운드 점수 상세">
                 <span class="draw-score-ribbon"
-                  >ROUND {{ drawRound }} 점수</span
+                  >ROUND {{ currentDrawResult.round }} 점수</span
                 >
                 <strong class="draw-round-total"
                   >{{ currentDrawResult.score }}점</strong
@@ -930,12 +2307,14 @@ function advanceDrawRound() {
                             fill="currentColor"
                           /></svg></b
                       ><span
-                        >기본 점수<small
-                          >정답을 맞혀 기본 점수를 획득했어요!</small
-                        ></span
+                        >기본 점수<small>{{
+                          currentDrawResult.success
+                            ? '정답을 맞혀 기본 점수를 획득했어요!'
+                            : '이번 라운드는 기본 점수를 못 받았어요.'
+                        }}</small></span
                       >
                     </dt>
-                    <dd>100점</dd>
+                    <dd>{{ currentDrawResult.baseScore }}점</dd>
                   </div>
                   <div>
                     <dt>
@@ -974,7 +2353,8 @@ function advanceDrawRound() {
                           /></svg></b
                       ><span
                         >AI Confidence 보너스<small
-                          >mock 분석 결과에 따른 보너스예요.</small
+                          >AI가 해당 그림을 얼마나 확신했는지에 따른
+                          보너스예요.</small
                         ></span
                       >
                     </dt>
@@ -982,7 +2362,7 @@ function advanceDrawRound() {
                   </div>
                 </dl>
                 <div class="draw-round-sum">
-                  <span>ROUND {{ drawRound }} 총점</span>
+                  <span>ROUND {{ currentDrawResult.round }} 총점</span>
                   <b>{{ currentDrawResult.score }}점</b>
                 </div>
                 <p class="draw-confidence">
@@ -1002,8 +2382,15 @@ function advanceDrawRound() {
                       stroke-linecap="round"
                     />
                   </svg>
-                  AI Confidence: <b>{{ currentDrawResult.confidence }}</b> (높은
-                  확신)
+                  AI Confidence:
+                  <b>{{ Math.round(currentDrawResult.confidence * 100) }}%</b>
+                  ({{
+                    currentDrawResult.confidence >= 0.7
+                      ? '높은 확신'
+                      : currentDrawResult.confidence >= 0.4
+                        ? '보통 확신'
+                        : '낮은 확신'
+                  }})
                 </p>
               </section>
             </div>
@@ -1012,15 +2399,17 @@ function advanceDrawRound() {
               <h3>전체 점수 현황</h3>
               <div class="draw-score-equation">
                 <template
-                  v-for="(round, index) in drawRoundResults.slice(0, drawRound)"
-                  :key="round.prompt"
+                  v-for="round in drawGameState.history"
+                  :key="round.round"
                 >
-                  <article :class="{ current: index + 1 === drawRound }">
-                    <span>ROUND {{ index + 1 }}</span>
+                  <article
+                    :class="{ current: round.round === drawGameState.round }"
+                  >
+                    <span>ROUND {{ round.round }}</span>
                     <strong>{{ round.score }}점</strong>
                   </article>
                   <b
-                    v-if="index < drawRound - 1"
+                    v-if="round.round < drawGameState.history.length"
                     class="equation-sign"
                     aria-hidden="true"
                     >+</b
@@ -1040,9 +2429,9 @@ function advanceDrawRound() {
               @click="advanceDrawRound"
             >
               {{
-                drawRound < drawRoundResults.length
-                  ? '다음 라운드로 이동'
-                  : '최종 결과 보기'
+                isDrawGameFinished(drawGameState)
+                  ? '최종 결과 보기'
+                  : '다음 라운드로 이동'
               }}
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -1248,51 +2637,48 @@ function advanceDrawRound() {
   font-size: 12px;
   font-weight: 900;
 }
-.draw-canvas {
+.draw-canvas-wrap {
   position: relative;
-  min-height: 350px;
   overflow: hidden;
   border: 1px solid #e2e4f3;
   border-radius: 16px;
-  background-color: #fff;
-  background-image: radial-gradient(#d9def2 1px, transparent 1px);
-  background-size: 18px 18px;
+  background: #fff;
 }
-.draw-canvas i {
+.draw-canvas-real {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 800 / 500;
+  cursor: none;
+}
+.draw-gaze-cursor {
   position: absolute;
-  width: 34%;
-  height: 7px;
-  border-radius: 99px;
-  background: v-bind(selectedColor);
-  transform: rotate(40deg);
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.25);
+  pointer-events: none;
 }
-.draw-canvas i:nth-child(1) {
-  top: 36%;
-  left: 18%;
-}
-.draw-canvas i:nth-child(2) {
-  top: 36%;
-  right: 18%;
-  transform: rotate(-40deg);
-}
-.draw-canvas i:nth-child(3) {
-  top: 57%;
-  left: 25%;
-  width: 50%;
-  transform: rotate(0);
-}
-.draw-canvas i:nth-child(4) {
-  top: 64%;
-  left: 47%;
-  width: 6%;
-  transform: rotate(90deg);
-}
-.draw-canvas span {
+.draw-paused-badge,
+.draw-error-badge {
   position: absolute;
   bottom: 14px;
   left: 14px;
-  color: var(--color-muted);
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: #fff;
   font-size: 12px;
+  font-weight: 800;
+}
+.draw-paused-badge {
+  background: rgba(15, 23, 42, 0.72);
+}
+.draw-error-badge {
+  right: 14px;
+  left: auto;
+  background: #e14b5c;
 }
 .draw-tools,
 .rhythm-controls,
@@ -1301,6 +2687,111 @@ function advanceDrawRound() {
   flex-wrap: wrap;
   justify-content: center;
   gap: 9px;
+}
+.hold-status-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.hold-status-badge--ok {
+  color: #278957;
+  background: #e6f7eb;
+}
+.hold-status-badge--warn {
+  color: #b75555;
+  background: #fff0f0;
+}
+.hold-target-hint {
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  background: var(--color-surface-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+.hold-opponent-status {
+  margin: 10px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.hold-opponent-status strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-ink);
+  font-size: 16px;
+  font-weight: 900;
+}
+.rhythm-judgement {
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-surface-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+.rhythm-judgement--perfect {
+  color: #278957;
+  background: #e6f7eb;
+}
+.rhythm-judgement--great {
+  color: #2864df;
+  background: var(--color-blue-soft);
+}
+.rhythm-judgement--good {
+  color: #b8730f;
+  background: #fff3e0;
+}
+.rhythm-judgement--miss {
+  color: #b75555;
+  background: #fff0f0;
+}
+.rhythm-accuracy-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  background: var(--color-surface-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+.rhythm-music-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: #278957;
+  background: #e6f7eb;
+  font-size: 13px;
+  font-weight: 800;
+}
+.rhythm-analyzing {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  border-radius: 16px;
+  background: rgba(21, 27, 77, 0.82);
+  color: #fff;
+  text-align: center;
+}
+.rhythm-analyzing p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+.rhythm-analyzing__spinner {
+  width: 32px;
+  height: 32px;
+  border: 4px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: rhythm-spin 0.8s linear infinite;
+}
+@keyframes rhythm-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .draw-tools button,
 .rhythm-controls button,
@@ -1668,6 +3159,12 @@ function advanceDrawRound() {
 }
 .blink-duel-player--opponent .blink-duel-player__score strong {
   color: #e14b5c;
+}
+.blink-duel-player__score strong.blink-duel-player__score--pending {
+  color: var(--color-muted);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.3;
 }
 .blink-duel-player__score em {
   margin-left: 5px;
@@ -2331,6 +3828,14 @@ function advanceDrawRound() {
   border-radius: 50%;
   transform: translate(-50%, -50%);
 }
+.hockey-canvas {
+  align-self: center;
+  width: min(100%, 380px);
+  height: auto;
+  aspect-ratio: 720 / 900;
+  border-radius: 20px;
+  box-shadow: 0 16px 38px rgba(50, 69, 155, 0.16);
+}
 .goal {
   z-index: 1;
   position: absolute;
@@ -2556,45 +4061,6 @@ function advanceDrawRound() {
   color: var(--color-ink);
   font-size: 36px;
 }
-.draw-score-sketch {
-  position: relative;
-  width: 100%;
-  min-height: 220px;
-  margin: 14px 0;
-  overflow: hidden;
-  border-top: 1px solid #edf0f7;
-  border-bottom: 1px solid #edf0f7;
-  background: #fff;
-}
-.draw-score-sketch i {
-  position: absolute;
-  width: 35%;
-  height: 6px;
-  border-radius: 999px;
-  background: #171b27;
-  transform: rotate(42deg);
-}
-.draw-score-sketch i:nth-child(1) {
-  top: 39%;
-  left: 14%;
-}
-.draw-score-sketch i:nth-child(2) {
-  top: 39%;
-  right: 14%;
-  transform: rotate(-42deg);
-}
-.draw-score-sketch i:nth-child(3) {
-  top: 59%;
-  left: 22%;
-  width: 56%;
-  transform: rotate(0);
-}
-.draw-score-sketch i:nth-child(4) {
-  top: 64%;
-  left: 47%;
-  width: 8%;
-  transform: rotate(90deg);
-}
 .draw-correct {
   width: 100%;
   margin: 0;
@@ -2604,6 +4070,10 @@ function advanceDrawRound() {
   background: #ecf8f0;
   font-size: 14px;
   font-weight: 800;
+}
+.draw-correct--fail {
+  color: #b75555;
+  background: #fff0f0;
 }
 .draw-score-detail {
   padding: 28px;
@@ -2939,9 +4409,6 @@ function advanceDrawRound() {
   .draw-submission-card,
   .draw-cumulative {
     padding: 16px;
-  }
-  .draw-score-sketch {
-    min-height: 165px;
   }
   .draw-score-equation {
     flex-wrap: wrap;

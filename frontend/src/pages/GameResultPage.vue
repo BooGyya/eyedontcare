@@ -6,6 +6,7 @@ import GameResultShell from '../components/games/GameResultShell.vue'
 import { gameModeLabels, getMockResult } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
+import { useLastGameResultStore } from '../stores/lastGameResult'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,9 +20,60 @@ const mode = computed<GameSessionMode>(() => {
     ? (value as GameSessionMode)
     : 'solo'
 })
-const result = computed(() =>
-  game.value ? getMockResult(game.value.id) : undefined,
+
+// blink/hold처럼 실제 로직이 연결된 게임은 방금 끝난 진짜 결과를 쓰고, 아직 연결 안 된 게임
+// (rhythm/draw/air)은 기존 mock 데이터로 자연스럽게 폴백된다.
+const lastResultStore = useLastGameResultStore()
+const hasRealResult = computed(
+  () =>
+    game.value !== undefined &&
+    lastResultStore.isFor(game.value.id, mode.value),
 )
+const result = computed(() => {
+  if (hasRealResult.value && lastResultStore.current)
+    return lastResultStore.current
+  return game.value ? getMockResult(game.value.id) : undefined
+})
+/** 실제 결과가 없는(mock) 화면은 기존 그대로 'WIN' 고정 — rhythm/draw/air는 아직 미연동. */
+const outcome = computed(() =>
+  hasRealResult.value ? (lastResultStore.current?.outcome ?? 'UNKNOWN') : 'WIN',
+)
+const outcomeHeadline = computed(() => {
+  switch (outcome.value) {
+    case 'WIN':
+      return 'YOU WIN!'
+    case 'LOSE':
+      return 'YOU LOSE'
+    case 'DRAW':
+      return 'DRAW'
+    default:
+      return '결과 확인 중'
+  }
+})
+const outcomeSummary = computed(() => {
+  switch (outcome.value) {
+    case 'WIN':
+      return '멋진 플레이로 이번 대결을 이겼어요.'
+    case 'LOSE':
+      return '아쉽게 졌어요. 다음엔 더 잘할 수 있을 거예요!'
+    case 'DRAW':
+      return '무승부예요. 다음엔 승부를 가려봐요!'
+    default:
+      return '상대방과의 결과 동기화를 기다리고 있어요.'
+  }
+})
+const myBadgeLabel = computed(() => {
+  if (outcome.value === 'WIN') return 'WIN'
+  if (outcome.value === 'LOSE') return 'LOSE'
+  if (outcome.value === 'DRAW') return 'DRAW'
+  return '확인 중'
+})
+const opponentBadgeLabel = computed(() => {
+  if (outcome.value === 'WIN') return 'LOSE'
+  if (outcome.value === 'LOSE') return 'WIN'
+  if (outcome.value === 'DRAW') return 'DRAW'
+  return '확인 중'
+})
 const title = computed(() =>
   game.value?.id === 'draw'
     ? '눈으로 그리기'
@@ -137,6 +189,7 @@ onBeforeUnmount(() => {
     globalThis.cancelAnimationFrame(soloCountFrame)
   if (drawCountFrame !== undefined)
     globalThis.cancelAnimationFrame(drawCountFrame)
+  if (hasRealResult.value) lastResultStore.clear()
 })
 
 function replay() {
@@ -418,12 +471,12 @@ function goToGames() {
 
         <template v-if="isCompetitive">
           <section class="versus-hero" aria-label="대결 승패 결과">
-            <strong>YOU WIN!</strong>
-            <p>멋진 플레이로 이번 대결을 이겼어요.</p>
+            <strong>{{ outcomeHeadline }}</strong>
+            <p>{{ outcomeSummary }}</p>
           </section>
           <article class="versus-result">
             <section class="player-result player-result--mine">
-              <b>WIN</b
+              <b>{{ myBadgeLabel }}</b
               ><img
                 :src="game.mascotImage"
                 alt="내 플레이어 마스코트"
@@ -439,11 +492,11 @@ function goToGames() {
               <div v-for="stat in result.stats" :key="stat.label">
                 <span>{{ stat.value }}</span
                 ><b>{{ stat.label }}</b
-                ><span>{{ stat.value }}</span>
+                ><span>{{ stat.opponentValue ?? stat.value }}</span>
               </div>
             </section>
             <section class="player-result player-result--opponent">
-              <b>LOSE</b
+              <b>{{ opponentBadgeLabel }}</b
               ><img
                 :src="opponentResultImage"
                 alt="상대 플레이어 프로필 이미지"
@@ -467,11 +520,8 @@ function goToGames() {
           </template>
           <div v-else class="versus-summary">
             <div>
-              <b>정말 잘했어요!</b
-              ><span
-                >정확한 눈 컨트롤이 빛났어요. 다음에도 멋진 플레이를
-                기대할게요!</span
-              >
+              <b>{{ outcomeHeadline }}</b
+              ><span>{{ outcomeSummary }}</span>
             </div>
             <dl>
               <div v-for="stat in result.stats" :key="stat.label">
@@ -509,9 +559,11 @@ function goToGames() {
           </dl>
           <p class="mock-note">
             {{
-              isCompetitive
-                ? '대결 결과는 mock 데이터입니다.'
-                : '좋은 기록이에요. 다음 게임에서도 도전해 보세요!'
+              !isCompetitive
+                ? '좋은 기록이에요. 다음 게임에서도 도전해 보세요!'
+                : hasRealResult
+                  ? '결과가 실제 플레이 기록으로 저장됐어요.'
+                  : '대결 결과는 mock 데이터입니다.'
             }}
           </p>
         </article>
