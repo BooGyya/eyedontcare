@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
-import { useToast } from '../composables/useToast'
 import type { GameAiDifficultyOption, GamePlayMode } from '../types/game-detail'
 import guideMascotImage from '../assets/images/brand/mascot-eye.png'
 import profileJoyImage from '../assets/images/profiles/profile-joy.png'
@@ -12,7 +11,6 @@ import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 
 const route = useRoute()
 const router = useRouter()
-const { showToast } = useToast()
 const roomFlow = ref<'friends' | 'random'>('friends')
 const isRoomDialogOpen = ref(false)
 const isDifficultyDialogOpen = ref(false)
