@@ -70,6 +70,21 @@ class PasswordUpdateRequestTest {
     }
 
     @Test
+    void newPasswordWithInternalWhitespaceFailsValidation() {
+        assertThat(validate("password123", "new Pass1"))
+            .extracting(ConstraintViolation::getMessage)
+            .contains(
+                "비밀번호에는 영문과 숫자가 각각 하나 이상 포함되어야 하며 공백은 사용할 수 없습니다."
+            );
+    }
+
+    @Test
+    void currentPasswordWithInternalWhitespaceIsNotRejectedByNewPolicy() {
+        assertThat(validate("pass word1", "newPass1"))
+            .isEmpty();
+    }
+
+    @Test
     void unknownFieldsAreCollectedAndKnownFieldsAreNot() {
         PasswordUpdateRequest known = objectMapper.readValue(
             """
