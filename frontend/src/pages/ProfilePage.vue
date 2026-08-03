@@ -15,6 +15,7 @@ import { useAuthStore } from '../stores/auth'
 import { PROFILE_OPTIONS, checkNickname as apiCheckNickname } from '../api/user'
 import { getMyResults, getResult } from '../api/gameResult'
 import { ApiError } from '../api/http'
+import { isValidPassword, PASSWORD_POLICY_MESSAGE } from '../utils/password'
 import { GAME_DISPLAY_NAME } from '../types/waitingRoom'
 import type { ProfileImageCode } from '../types/auth'
 import type {
@@ -356,6 +357,11 @@ async function handleSubmitPasswordChange() {
 
   if (!changePassword.value.trim()) {
     showToast('새 비밀번호를 입력해 주세요.')
+    return
+  }
+
+  if (!isValidPassword(changePassword.value)) {
+    showToast(PASSWORD_POLICY_MESSAGE)
     return
   }
 
@@ -885,6 +891,7 @@ async function handleConfirmWithdraw() {
               v-model="changePassword"
               type="password"
               autocomplete="new-password"
+              maxlength="16"
               placeholder="변경할 비밀번호를 입력해 주세요"
             />
           </label>
@@ -894,6 +901,7 @@ async function handleConfirmWithdraw() {
               v-model="changePasswordConfirmation"
               type="password"
               autocomplete="new-password"
+              maxlength="16"
               placeholder="비밀번호를 한 번 더 입력해 주세요"
             />
             <small

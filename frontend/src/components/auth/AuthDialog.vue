@@ -4,6 +4,7 @@ import kakaoTalkIcon from '../../assets/images/illustrations/kakao-talk.png'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
 import { ApiError } from '../../api/http'
+import { isValidPassword, PASSWORD_POLICY_MESSAGE } from '../../utils/password'
 
 const auth = useAuthStore()
 const { showToast } = useToast()
@@ -57,9 +58,9 @@ function validateSignup() {
       : '이메일 형식을 확인해주세요.'
     : '이메일을 입력해주세요.'
   signupErrors.password = signupForm.password
-    ? signupForm.password.length >= 8
+    ? isValidPassword(signupForm.password)
       ? ''
-      : '비밀번호는 8자 이상 입력해주세요.'
+      : PASSWORD_POLICY_MESSAGE
     : '비밀번호를 입력해주세요.'
   return !Object.values(signupErrors).some(Boolean)
 }
@@ -221,6 +222,8 @@ onBeforeUnmount(() => {
                   v-model="signupForm.password"
                   type="password"
                   autocomplete="new-password"
+                  maxlength="16"
+                  placeholder="8~16자, 영문+숫자 조합"
                   :aria-invalid="Boolean(signupErrors.password)"
                   aria-describedby="signup-password-error"
                 />
