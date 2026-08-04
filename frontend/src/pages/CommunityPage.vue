@@ -305,6 +305,7 @@ function handleCreateGroup() {
             v-model="searchQuery"
             data-testid="community-search"
             type="search"
+            maxlength="50"
             placeholder="소모임 검색"
           />
           <button
