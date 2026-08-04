@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CommunityPage from './CommunityPage.vue'
 import { useAuthStore } from '../stores/auth'
@@ -67,8 +68,22 @@ async function mountCommunityPage({ authed = true } = {}) {
   setActivePinia(pinia)
   if (authed) authenticate()
 
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/community', name: 'community', component: CommunityPage },
+      {
+        path: '/community/:groupId',
+        name: 'community-detail',
+        component: { template: '<div />' },
+      },
+    ],
+  })
+  await router.push('/community')
+  await router.isReady()
+
   const wrapper = mount(CommunityPage, {
-    global: { plugins: [pinia], stubs: { Teleport: true } },
+    global: { plugins: [pinia, router], stubs: { Teleport: true } },
   })
   await flushPromises()
   return wrapper

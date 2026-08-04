@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import PageHeader from '../components/common/PageHeader.vue'
 import CommunityDialog from '../components/groups/CommunityDialog.vue'
 import CommunityGroupCard from '../components/groups/CommunityGroupCard.vue'
@@ -25,6 +26,7 @@ import teamworkImage from '../assets/images/illustrations/illustration-teamwork.
 
 const { showToast } = useToast()
 const auth = useAuthStore()
+const router = useRouter()
 
 const isGuestUser = computed(() => !auth.isAuthenticated)
 
@@ -163,8 +165,7 @@ function upsertGroup(group: CommunityGroup) {
 
 async function handleGroupAction(group: CommunityGroup) {
   if (group.isJoined) {
-    // 상세 페이지는 후속 작업. 지금은 안내만 유지한다.
-    showToast(`${group.name} 상세 페이지를 준비하고 있어요.`)
+    void router.push({ name: 'community-detail', params: { groupId: group.id } })
     return
   }
   if (group.members >= group.capacity) {
