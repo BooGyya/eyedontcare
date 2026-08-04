@@ -1113,6 +1113,23 @@ function toResult() {
     mode: mode.value,
     startedAt: playStartedAt,
     score,
+    outcome:
+      game.value.id === 'air' && mode.value === 'ai'
+        ? resolveAirHockeyAiOutcome()
+        : undefined,
+    resultData:
+      game.value.id === 'hold'
+        ? { survivalTimeMs: Math.round(stareGameState.value.elapsedMs) }
+        : game.value.id === 'blink'
+          ? { blinkCount: blinkGameState.value.blinkCount }
+          : game.value.id === 'rhythm'
+            ? {
+                maxCombo: rhythmGameState.value.maxCombo,
+                remainingHearts: rhythmGameState.value.health,
+              }
+            : game.value.id === 'air' && mode.value === 'ai'
+              ? { opponentScore: airGameState.value.top.score }
+            : undefined,
   })
   router.push({
     name: 'game-result',
@@ -1163,7 +1180,6 @@ function recordBlinkResult() {
             : '20초 동안 정확하게 눈을 깜빡였어요.',
     stats: [
       { label: '깜빡임 횟수', value: `${myCount}회` },
-      { label: '플레이 시간', value: '00:20' },
     ],
   })
 }
@@ -1230,7 +1246,6 @@ function recordStareResult() {
 /** 리듬게임 실제 결과를 결과 화면용으로 기록한다. 대결 모드는 상대 실시간 점수와 비교해 승패를 정한다. */
 function recordRhythmResult() {
   const myScore = rhythmGameState.value.score
-  const accuracy = Math.round(getRhythmAccuracy(rhythmGameState.value))
   const outcome: LastGameOutcome =
     mode.value === 'solo'
       ? 'COMPLETED'
@@ -1274,7 +1289,6 @@ function recordRhythmResult() {
     stats: [
       { label: '최대 콤보', value: `${rhythmGameState.value.maxCombo}` },
       { label: '남은 하트', value: `${rhythmGameState.value.health}` },
-      { label: '정확도', value: `${accuracy}%` },
     ],
   })
 }
@@ -1283,13 +1297,8 @@ function recordRhythmResult() {
 function recordAirHockeyResult() {
   const myScore = airGameState.value.bottom.score
   const opponentScore = airOpponentDisplayScore.value
-  const localWinner = determineAirHockeyWinner(airGameState.value)
   const outcome: LastGameOutcome = isAirVsAi.value
-    ? localWinner === 'bottom'
-      ? 'WIN'
-      : localWinner === 'top'
-        ? 'LOSE'
-        : 'DRAW'
+    ? resolveAirHockeyAiOutcome()
     : !airOpponentSynced.value
       ? 'UNKNOWN'
       : myScore > opponentScore
@@ -1338,6 +1347,13 @@ function recordAirHockeyResult() {
       { label: '경기 시간', value: '01:00' },
     ],
   })
+}
+
+function resolveAirHockeyAiOutcome(): 'WIN' | 'LOSE' | 'DRAW' {
+  const winner = determineAirHockeyWinner(airGameState.value)
+  if (winner === 'bottom') return 'WIN'
+  if (winner === 'top') return 'LOSE'
+  return 'DRAW'
 }
 
 async function initDrawGame() {
