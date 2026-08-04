@@ -1523,8 +1523,9 @@ function createDrawSubmissionImage(): string {
 
 async function submitDrawRound(source: string) {
   if (drawGameState.value.phase !== 'running') return
+  // 제출은 스페이스 일시정지 상태(isDrawingActive)를 건드리지 않는다. 채점 중 그리기 입력은
+  // phase가 'running'이 아니게 되어(beginJudging) 자연히 막힌다.
   beginJudging(drawGameState.value)
-  isDrawingActive.value = false
 
   try {
     const recognition = await recognizeDrawing({
@@ -1543,7 +1544,6 @@ async function submitDrawRound(source: string) {
         ? error.message
         : 'AI 채점 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'
     reportDrawJudgingError(drawGameState.value, message)
-    isDrawingActive.value = true
     showToast(message)
   }
   void source
