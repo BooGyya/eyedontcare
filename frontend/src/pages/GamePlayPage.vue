@@ -114,8 +114,8 @@ const drawCameraActive = drawTracking.isActive
 void drawVideoRef
 
 const drawCanvasRef = ref<globalThis.HTMLCanvasElement | null>(null)
-const DRAW_CANVAS_WIDTH = 800
-const DRAW_CANVAS_HEIGHT = 500
+const DRAW_CANVAS_WIDTH = 1000
+const DRAW_CANVAS_HEIGHT = 640
 const drawGameState = ref(makeInitialDrawGameState())
 const drawWords = ref<string[]>([])
 let drawStrokes: DrawStroke[] = []
@@ -126,6 +126,10 @@ const drawBrushWidth = 5
 let drawRafHandle: number | undefined
 let unsubscribeDrawKeydown: (() => void) | undefined
 let drawShouldBridge = false
+/** 시선→펜 반응 속도 = 지수평활 계수. 낮을수록 부드럽고(떨림↓·반응 느림), 높을수록 즉각 반응. */
+const drawPenSpeed = ref(0.3)
+/** 평활된 커서 위치. 추적이 끊기면 null로 리셋해 다음 점부터 새로 시작(튐 방지). */
+let drawSmoothedCursor: { x: number; y: number } | null = null
 
 const drawTimeLabel = computed(() => {
   const totalSeconds = Math.max(
@@ -557,6 +561,9 @@ async function initRhythmGame() {
   startRhythmRound(
     rhythmGameState.value,
     rhythmUsesMusicClock.value ? 0 : globalThis.performance.now(),
+    // 랜덤 생성(음악 미사용) 모드에선 시작 2초 뒤부터 노트가 내려오도록 여유를 둔다.
+    // 음악 모드는 비트맵이 곡과 동기화돼야 하므로 지연을 넣지 않는다.
+    { startDelayMs: rhythmUsesMusicClock.value ? 0 : 2000 },
   )
   runRhythmLoop()
 }
@@ -722,6 +729,10 @@ async function initAirHockeyGame() {
 }
 
 function updateAirMalletFromGaze() {
+  // 눈을 감거나 깜빡이는 동안엔 시선 좌표가 튀어 말렛이 급가속하거나 반대 방향으로 움직인다.
+  // 두 눈이 모두 뜬 프레임에서만 목표 위치를 갱신하고, 그 외(깜빡임·윙크·미검출)엔 직전 위치를
+  // 유지한다. 서브용 깜빡임(applyStrike)은 별도 이벤트라 그대로 동작한다.
+  if (airTracking.combinedState.value !== 'BOTH_OPEN') return
   const gaze = airTracking.screenGaze.value
   if (!gaze) return
   const normalizedX = Math.min(1, Math.max(0, gaze.x))
@@ -1420,13 +1431,23 @@ function updateDrawCursorFromGaze() {
     drawTracking.combinedState.value === 'BOTH_OPEN'
   if (!gaze || !faceOk) {
     drawCursor.value = null
+    drawSmoothedCursor = null
     return
   }
 
-  const point = {
+  const raw = {
     x: Math.min(1, Math.max(0, gaze.x)),
     y: Math.min(1, Math.max(0, gaze.y)),
   }
+  // 지수평활으로 미세 떨림을 잡는다. drawPenSpeed가 낮을수록 더 부드럽고(반응 느림) 높을수록 즉각 반응.
+  const alpha = drawPenSpeed.value
+  drawSmoothedCursor = drawSmoothedCursor
+    ? {
+        x: drawSmoothedCursor.x + (raw.x - drawSmoothedCursor.x) * alpha,
+        y: drawSmoothedCursor.y + (raw.y - drawSmoothedCursor.y) * alpha,
+      }
+    : raw
+  const point = drawSmoothedCursor
   drawCursor.value = point
 
   if (
@@ -1871,6 +1892,17 @@ function leaveGame() {
               :style="{ background: color }"
               @click="selectedColor = color"
             />
+            <label class="draw-pen-speed">
+              <span>펜 속도</span>
+              <input
+                v-model.number="drawPenSpeed"
+                type="range"
+                min="0.15"
+                max="0.6"
+                step="0.05"
+                aria-label="펜 반응 속도"
+              />
+            </label>
             <button type="button" @click="undoDrawStroke">되돌리기</button
             ><button type="button" @click="clearDrawCanvas">전체 지우기</button>
             <button
@@ -2732,8 +2764,19 @@ function leaveGame() {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 800 / 500;
+  aspect-ratio: 1000 / 640;
   cursor: none;
+}
+.draw-pen-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-muted, #6b7280);
+}
+.draw-pen-speed input {
+  width: 96px;
 }
 .draw-gaze-cursor {
   position: absolute;
