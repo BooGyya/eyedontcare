@@ -1,22 +1,32 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import CommunityDialog from '../components/groups/CommunityDialog.vue'
 import CommunityGroupCard from '../components/groups/CommunityGroupCard.vue'
 import SegmentedTabs from '../components/common/SegmentedTabs.vue'
 import { useToast } from '../composables/useToast'
-import { communityGroups as initialCommunityGroups } from '../mocks/community'
-import { gameCatalog } from '../mocks/pages'
+import { useAuthStore } from '../stores/auth'
+import { ApiError } from '../api/http'
+import {
+  createGroup,
+  getGroups,
+  getMyGroups,
+  joinGroupByCode,
+  joinGroupById,
+  toCommunityGroup,
+} from '../api/group'
 import type {
   CommunityGroup,
   CommunityGroupDraft,
   CommunityGroupFilter,
   CommunityGroupSort,
 } from '../types/community'
-import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
 import teamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
 
 const { showToast } = useToast()
+const auth = useAuthStore()
+
+const isGuestUser = computed(() => !auth.isAuthenticated)
 
 const groupFilters: readonly CommunityGroupFilter[] = ['all', 'owned', 'joined']
 const filterLabels: Record<CommunityGroupFilter, string> = {
@@ -26,9 +36,9 @@ const filterLabels: Record<CommunityGroupFilter, string> = {
 }
 const groupFilterItems = groupFilters.map((filter) => filterLabels[filter])
 
-const groups = ref<CommunityGroup[]>(
-  initialCommunityGroups.map((group) => ({ ...group })),
-)
+const groups = ref<CommunityGroup[]>([])
+const isLoading = ref(false)
+const errorMessage = ref('')
 const searchQuery = ref('')
 const selectedFilter = ref<CommunityGroupFilter>('all')
 const selectedSort = ref<CommunityGroupSort>('latest')
@@ -37,24 +47,46 @@ const isJoinDialogOpen = ref(false)
 const joinCode = ref('')
 const joinCodeError = ref('')
 const createErrors = ref<Partial<Record<keyof CommunityGroupDraft, string>>>({})
-const isGuestUser = ref(false)
 
 const initialDraft = (): CommunityGroupDraft => ({
   name: '',
   description: '',
   capacity: 8,
   visibility: 'public',
-  joinCode: '',
-  activity: gameCatalog[0]?.title ?? '',
 })
 const createDraft = ref<CommunityGroupDraft>(initialDraft())
+
+/**
+ * 공개 목록(GET /groups)과 내 소모임(GET /groups/me)을 id 기준으로 합쳐 화면 목록을 만든다.
+ * 내가 만든/참여 중인 비공개 소모임은 공개 목록엔 안 뜨므로 두 소스를 합쳐야 필터가 맞다.
+ * 게스트는 인증 전용 API라 호출하지 않는다(화면은 로그인 유도).
+ */
+async function loadGroups() {
+  if (!auth.isAuthenticated) return
+  isLoading.value = true
+  errorMessage.value = ''
+  try {
+    const [publicList, myList] = await Promise.all([getGroups(), getMyGroups()])
+    const byId = new Map<string, CommunityGroup>()
+    for (const dto of [...publicList.groups, ...myList.groups]) {
+      const group = toCommunityGroup(dto)
+      byId.set(group.id, group)
+    }
+    groups.value = [...byId.values()]
+  } catch (error) {
+    errorMessage.value =
+      error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
+  } finally {
+    isLoading.value = false
+  }
+}
 
 const filteredGroups = computed(() => {
   const normalizedQuery = searchQuery.value.trim().toLocaleLowerCase()
   const visibleGroups = groups.value.filter((group) => {
     const matchesSearch =
       !normalizedQuery ||
-      [group.name, group.description, group.activity, group.leader]
+      [group.name, group.description, group.leader]
         .join(' ')
         .toLocaleLowerCase()
         .includes(normalizedQuery)
@@ -91,10 +123,9 @@ function resetFilters() {
 
 function openCreateDialog() {
   if (isGuestUser.value) {
-    showToast('소모임 기능은 로그인 후 이용할 수 있어요.')
+    auth.openLogin()
     return
   }
-
   createErrors.value = {}
   createDraft.value = initialDraft()
   isCreateDialogOpen.value = true
@@ -102,10 +133,9 @@ function openCreateDialog() {
 
 function openJoinDialog() {
   if (isGuestUser.value) {
-    showToast('소모임 기능은 로그인 후 이용할 수 있어요.')
+    auth.openLogin()
     return
   }
-
   joinCode.value = ''
   joinCodeError.value = ''
   isJoinDialogOpen.value = true
@@ -119,22 +149,28 @@ function closeJoinDialog() {
   isJoinDialogOpen.value = false
 }
 
-function handleGroupAction(group: CommunityGroup) {
-  if (isGuestUser.value) {
-    showToast('소모임 상세 정보와 입장은 로그인 후 이용할 수 있어요.')
-    return
+/** 목록에 반영: 있으면 갱신, 없으면 앞에 추가. 가입/생성 응답으로 즉시 화면을 맞춘다. */
+function upsertGroup(group: CommunityGroup) {
+  const index = groups.value.findIndex((item) => item.id === group.id)
+  if (index === -1) {
+    groups.value = [group, ...groups.value]
+  } else {
+    groups.value = groups.value.map((item) =>
+      item.id === group.id ? group : item,
+    )
   }
+}
 
+async function handleGroupAction(group: CommunityGroup) {
   if (group.isJoined) {
+    // 상세 페이지는 후속 작업. 지금은 안내만 유지한다.
     showToast(`${group.name} 상세 페이지를 준비하고 있어요.`)
     return
   }
-
   if (group.members >= group.capacity) {
     showToast('정원이 마감된 소모임이에요.')
     return
   }
-
   if (group.visibility === 'private') {
     joinCode.value = ''
     joinCodeError.value = ''
@@ -142,51 +178,29 @@ function handleGroupAction(group: CommunityGroup) {
     return
   }
 
-  joinGroup(group)
+  try {
+    upsertGroup(toCommunityGroup(await joinGroupById(group.id)))
+    showToast(`${group.name}에 가입했어요!`)
+  } catch (error) {
+    showToast(error instanceof ApiError ? error.message : '가입에 실패했어요.')
+  }
 }
 
-function joinGroup(group: CommunityGroup) {
-  if (group.isJoined) {
-    showToast('이미 참여 중인 소모임이에요.')
-    return
-  }
-
-  if (group.members >= group.capacity) {
-    showToast('정원이 마감된 소모임이에요.')
-    return
-  }
-
-  groups.value = groups.value.map((item) =>
-    item.id === group.id
-      ? { ...item, isJoined: true, members: item.members + 1 }
-      : item,
-  )
-  showToast(`${group.name}에 가입했어요!`)
-}
-
-function handleJoinByCode() {
-  const normalizedCode = joinCode.value.trim().toUpperCase()
-  if (!normalizedCode) {
+async function handleJoinByCode() {
+  const code = joinCode.value.trim().toUpperCase()
+  if (!code) {
     joinCodeError.value = '참여 코드를 입력해주세요.'
     return
   }
-
-  const target = groups.value.find((group) => group.joinCode === normalizedCode)
-  if (!target) {
-    joinCodeError.value = '일치하는 참여 코드를 찾지 못했어요.'
-    return
+  try {
+    const joined = toCommunityGroup(await joinGroupByCode(code))
+    upsertGroup(joined)
+    closeJoinDialog()
+    showToast(`${joined.name}에 가입했어요!`)
+  } catch (error) {
+    joinCodeError.value =
+      error instanceof ApiError ? error.message : '가입에 실패했어요.'
   }
-  if (target.isJoined) {
-    joinCodeError.value = '이미 참여 중인 소모임이에요.'
-    return
-  }
-  if (target.members >= target.capacity) {
-    joinCodeError.value = '정원이 마감된 소모임이에요.'
-    return
-  }
-
-  joinGroup(target)
-  closeJoinDialog()
 }
 
 function validateCreateDraft() {
@@ -195,47 +209,42 @@ function validateCreateDraft() {
     nextErrors.name = '소모임 이름을 입력해주세요.'
   if (!createDraft.value.description.trim())
     nextErrors.description = '소모임 소개를 입력해주세요.'
-  if (createDraft.value.capacity < 2 || createDraft.value.capacity > 30) {
-    nextErrors.capacity = '최대 인원은 2명부터 30명까지 설정할 수 있어요.'
-  }
-  if (
-    createDraft.value.visibility === 'private' &&
-    !createDraft.value.joinCode.trim()
-  ) {
-    nextErrors.joinCode = '비공개 소모임의 참여 코드를 입력해주세요.'
+  if (createDraft.value.capacity < 2 || createDraft.value.capacity > 100) {
+    nextErrors.capacity = '최대 인원은 2명부터 100명까지 설정할 수 있어요.'
   }
 
   createErrors.value = nextErrors
   return Object.keys(nextErrors).length === 0
 }
 
-function handleCreateGroup() {
+async function handleCreateGroup() {
   if (!validateCreateDraft()) return
-
   const draft = createDraft.value
-  const newGroup: CommunityGroup = {
-    id: `group-${Date.now()}`,
-    name: draft.name.trim(),
-    description: draft.description.trim(),
-    image: groupJoinImage,
-    members: 1,
-    capacity: draft.capacity,
-    visibility: draft.visibility,
-    activity: draft.activity,
-    leader: '눈썹 최강자',
-    isJoined: true,
-    isOwner: true,
-    createdAt: Date.now(),
-    ...(draft.visibility === 'private'
-      ? { joinCode: draft.joinCode.trim().toUpperCase() }
-      : {}),
+  try {
+    const created = toCommunityGroup(
+      await createGroup({
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        visibility: draft.visibility === 'private' ? 'PRIVATE' : 'PUBLIC',
+        capacity: draft.capacity,
+      }),
+    )
+    upsertGroup(created)
+    selectedFilter.value = 'all'
+    closeCreateDialog()
+    showToast(
+      created.joinCode
+        ? `${created.name} 소모임을 만들었어요! 참여 코드: ${created.joinCode}`
+        : `${created.name} 소모임을 만들었어요!`,
+    )
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '소모임 생성에 실패했어요.',
+    )
   }
-
-  groups.value = [newGroup, ...groups.value]
-  selectedFilter.value = 'all'
-  closeCreateDialog()
-  showToast(`${newGroup.name} 소모임을 만들었어요!`)
 }
+
+onMounted(loadGroups)
 </script>
 
 <template>
@@ -266,12 +275,33 @@ function handleCreateGroup() {
       </div>
     </div>
 
-    <p v-if="isGuestUser" class="community-page__guest-note" role="status">
-      게스트 모드에서는 소모임 목록만 둘러볼 수 있어요. 입장과 생성은 로그인 후
-      이용할 수 있습니다.
-    </p>
+    <div v-if="isGuestUser" class="community-page__guest" role="status">
+      <p>소모임은 로그인 후 이용할 수 있어요.</p>
+      <button
+        type="button"
+        class="community-page__primary-button"
+        @click="auth.openLogin"
+      >
+        로그인하기
+      </button>
+    </div>
 
-    <div class="community-page__toolbar">
+    <template v-else>
+      <p v-if="isLoading" class="community-page__status" role="status">
+        소모임을 불러오는 중이에요…
+      </p>
+      <div v-else-if="errorMessage" class="community-page__status" role="alert">
+        <p>{{ errorMessage }}</p>
+        <button
+          type="button"
+          class="community-page__empty-reset"
+          @click="loadGroups"
+        >
+          다시 시도
+        </button>
+      </div>
+      <template v-else>
+        <div class="community-page__toolbar">
       <SegmentedTabs
         label="소모임 필터"
         :items="groupFilterItems"
@@ -381,6 +411,8 @@ function handleCreateGroup() {
         </button>
       </div>
     </section>
+      </template>
+    </template>
 
     <CommunityDialog
       :open="isCreateDialogOpen"
@@ -423,23 +455,11 @@ function handleCreateGroup() {
               data-testid="create-group-capacity"
               type="number"
               min="2"
-              max="30"
+              max="100"
             />
             <small v-if="createErrors.capacity" role="alert">{{
               createErrors.capacity
             }}</small>
-          </label>
-          <label>
-            <span>주요 활동</span>
-            <select v-model="createDraft.activity">
-              <option
-                v-for="game in gameCatalog"
-                :key="game.id"
-                :value="game.title"
-              >
-                {{ game.title }}
-              </option>
-            </select>
           </label>
         </div>
         <fieldset>
@@ -461,18 +481,9 @@ function handleCreateGroup() {
             비공개</label
           >
         </fieldset>
-        <label v-if="createDraft.visibility === 'private'">
-          <span>참여 코드</span>
-          <input
-            v-model="createDraft.joinCode"
-            type="text"
-            maxlength="12"
-            placeholder="친구에게 공유할 코드를 입력해주세요"
-          />
-          <small v-if="createErrors.joinCode" role="alert">{{
-            createErrors.joinCode
-          }}</small>
-        </label>
+        <p v-if="createDraft.visibility === 'private'" class="community-form__hint">
+          비공개 소모임의 참여 코드는 생성 후 자동으로 발급돼요.
+        </p>
         <button
           data-testid="create-group-submit"
           class="community-form__submit"
@@ -515,6 +526,17 @@ function handleCreateGroup() {
 <style scoped>
 .community-page {
   padding: 32px 0 58px;
+}
+.community-page__guest,
+.community-page__status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 32px;
+  padding: 40px 20px;
+  color: var(--color-muted);
+  text-align: center;
 }
 .community-page__heading {
   display: flex;
