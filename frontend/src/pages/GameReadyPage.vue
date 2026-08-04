@@ -1743,7 +1743,7 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 .calibration-dialog {
-  width: min(100%, 760px);
+  width: min(100%, 960px);
 }
 .calibration-dialog header {
   display: flex;
@@ -1800,7 +1800,7 @@ onBeforeUnmount(() => {
 .calibration-stage {
   position: relative;
   display: grid;
-  min-height: 330px;
+  min-height: 460px;
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
@@ -1809,7 +1809,7 @@ onBeforeUnmount(() => {
 .calibration-stage video,
 .calibration-stage img {
   width: 100%;
-  height: 330px;
+  height: 460px;
   object-fit: contain;
 }
 .calibration-stage p {
