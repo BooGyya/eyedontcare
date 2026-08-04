@@ -186,9 +186,7 @@ const blinkGameSession = useGameSessionSocket({
     const count = Number(event.payload?.count)
     if (Number.isFinite(count)) opponentBlinkCount.value = count
   },
-  onParticipantLeft: () => {
-    showToast('상대방이 게임을 나갔어요.')
-  },
+  onParticipantLeft: handleOpponentLeft,
 })
 const opponentBlinkCount = ref<number | null>(null)
 
@@ -308,9 +306,7 @@ const stareGameSession = useGameSessionSocket({
       finishStareDuelEarly()
     }
   },
-  onParticipantLeft: () => {
-    showToast('상대방이 게임을 나갔어요.')
-  },
+  onParticipantLeft: handleOpponentLeft,
 })
 let stareLastStateSentAt = 0
 const STARE_STATE_SEND_INTERVAL_MS = 150
@@ -419,9 +415,7 @@ const rhythmGameSession = useGameSessionSocket({
       finishRhythmDuelEarly()
     }
   },
-  onParticipantLeft: () => {
-    showToast('상대방이 게임을 나갔어요.')
-  },
+  onParticipantLeft: handleOpponentLeft,
 })
 
 const rhythmGameState = ref(makeInitialRhythmState())
@@ -683,9 +677,7 @@ const airGameSession = useGameSessionSocket({
       airOpponentSynced.value = true
     }
   },
-  onParticipantLeft: () => {
-    showToast('상대방이 게임을 나갔어요.')
-  },
+  onParticipantLeft: handleOpponentLeft,
 })
 
 async function initAirHockeyGame() {
@@ -1691,6 +1683,14 @@ function closeActiveSession() {
     default:
       break
   }
+}
+
+// 대결 상대가 게임을 나가면(랜덤/친구 매칭) 게임을 종료한다. 지금까지의 점수로 결과를
+// 기록하고 결과 화면으로 이동한다. 정상 종료가 이미 진행 중이면(exiting) 무시한다.
+function handleOpponentLeft() {
+  if (exiting) return
+  showToast('상대방이 나가 게임을 종료합니다.')
+  toResult()
 }
 
 function handleCameraLost() {
