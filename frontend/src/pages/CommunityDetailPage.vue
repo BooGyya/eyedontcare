@@ -9,6 +9,7 @@ import {
   getGroup,
   joinGroupById,
   leaveGroup,
+  deleteGroup,
   type GroupDetailResponse,
 } from '../api/group'
 
@@ -51,6 +52,22 @@ async function handleLeave() {
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '나가기에 실패했어요.')
+  } finally {
+    isBusy.value = false
+  }
+}
+
+async function handleDelete() {
+  if (!detail.value || isBusy.value) return
+  // 삭제는 되돌릴 수 없으므로 한 번 더 확인한다.
+  if (!globalThis.confirm('소모임을 삭제하면 되돌릴 수 없어요. 삭제할까요?')) return
+  isBusy.value = true
+  try {
+    await deleteGroup(groupId.value)
+    showToast('소모임을 삭제했어요.')
+    void router.push({ name: 'community' })
+  } catch (error) {
+    showToast(error instanceof ApiError ? error.message : '삭제에 실패했어요.')
   } finally {
     isBusy.value = false
   }
@@ -131,7 +148,16 @@ watch(
 
         <div class="community-detail__actions">
           <button
-            v-if="detail.isJoined && !detail.isOwner"
+            v-if="detail.isOwner"
+            type="button"
+            class="community-detail__danger"
+            :disabled="isBusy"
+            @click="handleDelete"
+          >
+            소모임 삭제
+          </button>
+          <button
+            v-else-if="detail.isJoined"
             type="button"
             class="community-detail__ghost"
             :disabled="isBusy"
@@ -257,6 +283,15 @@ watch(
   border: 1px solid var(--color-line);
   color: var(--color-ink);
   background: #fff;
+}
+.community-detail__danger {
+  border: 1px solid #e2b4b4;
+  color: #c0392b;
+  background: #fff;
+}
+.community-detail__danger:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
 }
 .community-detail__hint {
   color: var(--color-muted);
