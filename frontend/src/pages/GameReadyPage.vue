@@ -459,7 +459,8 @@ function eyeSampleFailureMessage(
   if (reason === 'eyes_open') {
     return '이 단계는 눈을 감은 상태를 기록해요. 눈을 꼭 감고 다시 눌러주세요.'
   }
-  return '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.'
+  const targetLabel = kind === 'open' ? '눈을 뜬' : '눈을 감은'
+  return `${targetLabel} 상태를 기록하지 못했어요. 카메라를 정면으로 보고 다시 시도해 주세요.`
 }
 
 function recordGazeCalibrationPoint() {

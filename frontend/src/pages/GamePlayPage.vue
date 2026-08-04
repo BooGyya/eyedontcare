@@ -13,9 +13,10 @@ import { useToast } from '../composables/useToast'
 import { useEyeTracking } from '../composables/useEyeTracking'
 import { useCalibrationStore } from '../stores/calibration'
 import { useGameSessionSocket } from '../composables/useGameSessionSocket'
-import { resolveIdentity } from '../api/identity'
+import { currentParticipantKey, resolveIdentity } from '../api/identity'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
+import type { GameSessionStateData } from '../types/gameSession'
 import {
   applyBlinkEvent,
   formatRemainingTime as formatBlinkRemainingTime,
@@ -61,6 +62,7 @@ import {
 import { recognizeDrawing } from '../api/draw'
 import {
   AIR_HOCKEY_HEIGHT,
+  AIR_HOCKEY_MATCH_DURATION_MS,
   AIR_HOCKEY_WIDTH,
   applyStrike,
   determineAirHockeyWinner,
@@ -81,7 +83,7 @@ const route = useRoute()
 const router = useRouter()
 const drawScoreOpen = ref(false)
 const selectedColor = ref('#161c2d')
-const gameplayLayoutRef = ref<HTMLElement | null>(null)
+const gameplayLayoutRef = ref<globalThis.HTMLElement | null>(null)
 let airGameScrollTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 
 function scrollToAirGameStart() {
@@ -89,9 +91,8 @@ function scrollToAirGameStart() {
   if (!gameplayLayout || typeof globalThis.scrollTo !== 'function') return
 
   const headerHeight =
-    globalThis.document
-      ?.querySelector('.app-header')
-      ?.getBoundingClientRect().height ?? 0
+    globalThis.document?.querySelector('.app-header')?.getBoundingClientRect()
+      .height ?? 0
   const targetTop =
     globalThis.scrollY +
     gameplayLayout.getBoundingClientRect().top -
@@ -155,7 +156,7 @@ const drawAccumulatedScore = computed(() => drawGameState.value.score)
 const { showToast } = useToast()
 
 // --- 눈 깜빡이기: 실제 시선 인식 연동 ---
-// 다른 게임(hold/rhythm/draw/air)은 아직 mock 로직 그대로다 — blink만 먼저 실제 로직으로 바꾼다.
+// 각 게임 로직에서 계산한 상태를 결과 저장소와 결과 API에 전달한다.
 // 카메라는 useLocalCamera가 아니라 이 게임 전용 useEyeTracking 인스턴스가 직접 관리한다(중복 촬영
 // 방지를 위해 blinkVideoRef를 화면에 보이는 <video>에도 그대로 바인딩한다 — GameReadyPage와 동일한 패턴).
 const blinkTracking = useEyeTracking()
@@ -179,8 +180,31 @@ const blinkProgressPercent = computed(() => {
 let blinkRafHandle: number | undefined
 let unsubscribeBlinkEvents: (() => void) | undefined
 
+const opponentNickname = ref<string | undefined>()
+
+function resolveOpponentDisplayName(
+  participant: GameSessionStateData['participants'][number] | undefined,
+): string | undefined {
+  if (!participant) return undefined
+  if (participant.participantKey.startsWith('GUEST:')) {
+    return '게스트 플레이어'
+  }
+  const displayName = participant.displayName?.trim()
+  return displayName || undefined
+}
+
+function updateOpponentNickname(state: GameSessionStateData): void {
+  const participantKey = currentParticipantKey()
+  const opponent = state.participants.find(
+    (participant) => participant.participantKey !== participantKey,
+  )
+  const displayName = resolveOpponentDisplayName(opponent)
+  if (displayName) opponentNickname.value = displayName
+}
+
 // 대결 모드에서 상대방 실시간 상태를 보여주기 위한 게임 세션 소켓(중계 전용, 판정은 안 함).
 const blinkGameSession = useGameSessionSocket({
+  onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
     if (event.eventType !== 'BLINK_COUNT') return
     const count = Number(event.payload?.count)
@@ -296,6 +320,7 @@ const stareOpponentElapsedMs = ref(0)
 const stareOpponentSynced = ref(false)
 const opponentStareLostFirst = ref(false)
 const stareGameSession = useGameSessionSocket({
+  onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
     if (event.eventType !== 'STARE_STATE') return
     const elapsedMs = Number(event.payload?.elapsedMs)
@@ -399,6 +424,7 @@ const rhythmCameraActive = rhythmTracking.isActive
 void rhythmVideoRef
 
 const rhythmGameSession = useGameSessionSocket({
+  onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
     if (event.eventType !== 'RHYTHM_STATE') return
     const score = Number(event.payload?.score)
@@ -661,6 +687,7 @@ let airLastFrameAt: number | undefined
 let airLastMoveSentAt = 0
 
 const airGameSession = useGameSessionSocket({
+  onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
     if (event.eventType === 'AIR_HOCKEY_MOVE') {
       const targetX = Number(event.payload?.targetX)
@@ -1093,7 +1120,7 @@ const { submitPlayedResult } = useGameResultSubmission()
 const lastGameResultStore = useLastGameResultStore()
 const playStartedAt = new Date().toISOString()
 
-function toResult() {
+async function toResult() {
   if (!game.value) return
   exiting = true
   clearGameInProgress()
@@ -1127,29 +1154,47 @@ function toResult() {
     delete resultQuery.result
   }
 
-  void submitPlayedResult({
+  const storedOutcome = lastGameResultStore.current?.outcome
+  const submissionOutcome =
+    storedOutcome === 'UNKNOWN' ? undefined : storedOutcome
+  const resultData =
+    game.value.id === 'hold'
+      ? { survivalTimeMs: Math.round(stareGameState.value.elapsedMs) }
+      : game.value.id === 'blink'
+        ? { blinkCount: blinkGameState.value.blinkCount }
+        : game.value.id === 'rhythm'
+          ? {
+              maxCombo: rhythmGameState.value.maxCombo,
+              remainingHearts: rhythmGameState.value.health,
+            }
+          : game.value.id === 'air' && mode.value === 'ai'
+            ? { opponentScore: airGameState.value.top.score }
+            : game.value.id === 'air'
+              ? {}
+              : game.value.id === 'draw'
+                ? { drawRounds: [...drawGameState.value.history] }
+                : undefined
+  const persistedResultData =
+    resultData && opponentNickname.value
+      ? { ...resultData, opponentNickname: opponentNickname.value }
+      : resultData
+  const submission = await submitPlayedResult({
     gameSlug: game.value.id,
     mode: mode.value,
     startedAt: playStartedAt,
     score,
-    outcome:
-      game.value.id === 'air' && mode.value === 'ai'
-        ? resolveAirHockeyAiOutcome()
-        : undefined,
-    resultData:
-      game.value.id === 'hold'
-        ? { survivalTimeMs: Math.round(stareGameState.value.elapsedMs) }
-        : game.value.id === 'blink'
-          ? { blinkCount: blinkGameState.value.blinkCount }
-          : game.value.id === 'rhythm'
-            ? {
-                maxCombo: rhythmGameState.value.maxCombo,
-                remainingHearts: rhythmGameState.value.health,
-              }
-            : game.value.id === 'air' && mode.value === 'ai'
-              ? { opponentScore: airGameState.value.top.score }
-            : undefined,
+    outcome: submissionOutcome,
+    resultData: persistedResultData,
   })
+  if (submission !== null && lastGameResultStore.current) {
+    lastGameResultStore.set({
+      ...lastGameResultStore.current,
+      resultId: submission.resultId,
+      isNewRecord: submission.isNewRecord,
+      previousBestScore: submission.previousBestScore,
+    })
+    resultQuery.resultId = String(submission.resultId)
+  }
   router.push({
     name: 'game-result',
     params: { gameId: game.value.id },
@@ -1174,6 +1219,7 @@ function recordBlinkResult() {
   lastGameResultStore.set({
     gameId: 'blink',
     mode: mode.value,
+    opponentNickname: opponentNickname.value,
     outcome,
     scoreLabel: '깜빡임',
     score: `${myCount}회`,
@@ -1197,9 +1243,7 @@ function recordBlinkResult() {
           : outcome === 'DRAW'
             ? '정말 팽팽한 대결이었어요!'
             : '20초 동안 정확하게 눈을 깜빡였어요.',
-    stats: [
-      { label: '깜빡임 횟수', value: `${myCount}회` },
-    ],
+    stats: [{ label: '깜빡임 횟수', value: `${myCount}회` }],
   })
 }
 
@@ -1219,6 +1263,7 @@ function recordStareResult() {
   lastGameResultStore.set({
     gameId: 'hold',
     mode: mode.value,
+    opponentNickname: opponentNickname.value,
     outcome,
     scoreLabel: '생존 시간',
     score: scoreDisplay,
@@ -1283,6 +1328,7 @@ function recordRhythmResult() {
   lastGameResultStore.set({
     gameId: 'rhythm',
     mode: mode.value,
+    opponentNickname: opponentNickname.value,
     outcome,
     scoreLabel: '점수',
     score: `${myScore.toLocaleString()}점`,
@@ -1316,6 +1362,12 @@ function recordRhythmResult() {
 function recordAirHockeyResult() {
   const myScore = airGameState.value.bottom.score
   const opponentScore = airOpponentDisplayScore.value
+  const elapsedSeconds = Math.max(
+    0,
+    Math.round(
+      (AIR_HOCKEY_MATCH_DURATION_MS - airGameState.value.remainingMs) / 1000,
+    ),
+  )
   const outcome: LastGameOutcome = isAirVsAi.value
     ? resolveAirHockeyAiOutcome()
     : !airOpponentSynced.value
@@ -1329,6 +1381,7 @@ function recordAirHockeyResult() {
   lastGameResultStore.set({
     gameId: 'air',
     mode: mode.value,
+    opponentNickname: opponentNickname.value,
     outcome,
     scoreLabel: '득점',
     score: `${myScore}`,
@@ -1363,7 +1416,10 @@ function recordAirHockeyResult() {
         value: `${opponentScore}골`,
         opponentValue: `${myScore}골`,
       },
-      { label: '경기 시간', value: '01:00' },
+      {
+        label: '경기 시간',
+        value: `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`,
+      },
     ],
   })
 }
@@ -1598,6 +1654,7 @@ function recordDrawResult() {
       },
       { label: '총점', value: `${drawGameState.value.score}점` },
     ],
+    drawRounds: [...drawGameState.value.history],
   })
 }
 
@@ -1739,7 +1796,12 @@ function activeVideoElement(): globalThis.HTMLVideoElement | null {
 
 function pollCameraFrames() {
   const video = activeVideoElement()
-  if (exiting || !activeCameraActive.value || !video || globalThis.document.hidden) {
+  if (
+    exiting ||
+    !activeCameraActive.value ||
+    !video ||
+    globalThis.document.hidden
+  ) {
     videoStalledSince = 0
     lastVideoTime = video ? video.currentTime : -1
     return
@@ -1763,7 +1825,8 @@ function pollCameraFrames() {
 function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   if (exiting) return
   event.preventDefault()
-  event.returnValue = '게임이 진행 중이에요. 페이지를 벗어나면 게임이 종료됩니다.'
+  event.returnValue =
+    '게임이 진행 중이에요. 페이지를 벗어나면 게임이 종료됩니다.'
 }
 </script>
 
@@ -2377,10 +2440,11 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         </p>
       </aside>
       <aside v-else-if="game.id === 'air'" class="air-players-panel">
-        <article v-if="mode === 'ai'" class="air-player-card air-player-card--ai">
-          <div>
-            <strong>AI</strong><span>OPPONENT</span>
-          </div>
+        <article
+          v-if="mode === 'ai'"
+          class="air-player-card air-player-card--ai"
+        >
+          <div><strong>AI</strong><span>OPPONENT</span></div>
           <section class="air-player-card__ai-profile">
             <img
               :src="airAiRobotImage"
@@ -2436,7 +2500,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           </div>
           <p
             class="air-player-card__camera-status"
-            :class="{ 'air-player-card__camera-status--ready': airCameraActive }"
+            :class="{
+              'air-player-card__camera-status--ready': airCameraActive,
+            }"
           >
             {{ airCameraActive ? '카메라 연결됨' : '카메라 연결 대기' }}
           </p>
@@ -2512,7 +2578,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
       </aside>
     </section>
     <button type="button" class="finish" @click="toResult">
-      mock 게임 종료 · 결과 보기
+      게임 종료 · 결과 보기
     </button>
 
     <Teleport to="body"
