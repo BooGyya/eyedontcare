@@ -54,6 +54,7 @@ const cameraStream = ref<globalThis.MediaStream | null>(null)
 const eyeTracking = useEyeTracking()
 const calibrationStore = useCalibrationStore()
 const isSamplingEyeStep = ref(false)
+const isSamplingGaze = ref(false)
 const eyeSampleFeedback = ref<'idle' | 'success' | 'insufficient'>('idle')
 const gazeCalibrationTargetIndex = ref(0)
 const gazeCalibrationEvaluation = ref<CalibrationEvaluation | null>(null)
@@ -110,6 +111,7 @@ const calibrationPrimaryLabel = computed(() => {
     return '기록 시작'
   }
   if (calibrationStage.value === 'gaze') {
+    if (isSamplingGaze.value) return '기록 중…'
     const isLast =
       gazeCalibrationTargetIndex.value >=
       eyeTracking.gazeCalibrationTargets.length - 1
@@ -422,7 +424,7 @@ function handleCalibrationNext() {
     return
   }
   if (calibrationStage.value === 'gaze') {
-    recordGazeCalibrationPoint()
+    void recordGazeCalibrationPoint()
   }
 }
 
@@ -462,7 +464,8 @@ function eyeSampleFailureMessage(
   return '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.'
 }
 
-function recordGazeCalibrationPoint() {
+async function recordGazeCalibrationPoint() {
+  if (isSamplingGaze.value) return
   const target: Point | undefined =
     eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
   if (!target) return
@@ -478,7 +481,11 @@ function recordGazeCalibrationPoint() {
     return
   }
 
-  const captured = eyeTracking.addGazeCalibrationSample(target)
+  // 한 프레임이 아니라 잠깐(≈0.5초) 여러 프레임을 모아 평균낸다 — 클릭 수는 그대로,
+  // 점당 표본 품질만 높여 보정 정확도를 올린다.
+  isSamplingGaze.value = true
+  const captured = await eyeTracking.captureGazeCalibrationSample(target)
+  isSamplingGaze.value = false
   if (!captured) {
     playCalibrationSound('reject')
     showToast('시선이 감지되지 않았어요. 점을 계속 바라봐 주세요.')
@@ -505,7 +512,54 @@ function recordGazeCalibrationPoint() {
 
   gazeCalibrationEvaluation.value = result.evaluation
   calibrationStore.saveGazeProfile(result.profile)
+  // 보정 품질이 낮으면(타깃을 제대로 안 본 경우 등) 막지 않고 재보정을 권한다.
+  warnIfGazeCalibrationPoor(result.profile.pairs)
   advanceCalibrationStage()
+}
+
+/**
+ * 타깃을 실제로 따라봤는지 판정한다. 제대로 응시했다면 각 지점의 원시 시선이 타깃 방향과 함께
+ * 움직여 상관계수(절대값)가 높다. 딴 데를 보거나 한 곳만 응시하면 원시 시선이 거의 고정돼
+ * 상관계수가 낮다. (보정 후 훈련오차는 6계수 다항식이 9점을 과적합해 항상 낮게 나오므로 쓰지 않는다.)
+ * 낮으면 막지 않고 재보정을 권한다 — UX를 해치지 않는다.
+ */
+function warnIfGazeCalibrationPoor(
+  pairs: { raw: Point; target: Point }[],
+): void {
+  if (pairs.length < 6) return
+  const corrX = absCorrelation(
+    pairs.map((p) => p.raw.x),
+    pairs.map((p) => p.target.x),
+  )
+  const corrY = absCorrelation(
+    pairs.map((p) => p.raw.y),
+    pairs.map((p) => p.target.y),
+  )
+  if (corrX < 0.5 || corrY < 0.5) {
+    showToast(
+      '시선이 타깃을 잘 따라오지 않았어요. 정확도를 위해 다시 보정하는 걸 권해요.',
+    )
+  }
+}
+
+/** 두 수열의 피어슨 상관계수 절대값(0~1). 방향(부호)은 무시하고 함께 움직였는지만 본다. */
+function absCorrelation(a: number[], b: number[]): number {
+  const n = a.length
+  if (n === 0) return 0
+  const meanA = a.reduce((s, v) => s + v, 0) / n
+  const meanB = b.reduce((s, v) => s + v, 0) / n
+  let num = 0
+  let devA = 0
+  let devB = 0
+  for (let i = 0; i < n; i += 1) {
+    const da = a[i] - meanA
+    const db = b[i] - meanB
+    num += da * db
+    devA += da * da
+    devB += db * db
+  }
+  const den = Math.sqrt(devA * devB)
+  return den === 0 ? 0 : Math.abs(num / den)
 }
 
 function advanceCalibrationStage() {
@@ -536,7 +590,7 @@ function finishCalibration() {
 }
 
 function handleCalibrationBack() {
-  if (isSamplingEyeStep.value) return
+  if (isSamplingEyeStep.value || isSamplingGaze.value) return
   if (calibrationStageIndex.value > 0) {
     calibrationStageIndex.value -= 1
     eyeSampleFeedback.value = 'idle'
@@ -1280,7 +1334,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="secondary"
-              :disabled="isSamplingEyeStep"
+              :disabled="isSamplingEyeStep || isSamplingGaze"
               @click="handleCalibrationBack"
             >
               {{ calibrationBackLabel }}</button
@@ -1288,7 +1342,7 @@ onBeforeUnmount(() => {
               type="button"
               class="primary"
               data-dialog-initial-focus
-              :disabled="isSamplingEyeStep"
+              :disabled="isSamplingEyeStep || isSamplingGaze"
               @click="handleCalibrationNext"
             >
               {{ calibrationPrimaryLabel }}

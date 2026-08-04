@@ -19,6 +19,7 @@ import {
   CALIBRATION_TARGETS,
   GazeCalibrator,
   GazeSmoother,
+  averageGazeSamples,
   type CalibrationEvaluation,
   type GazeCalibrationProfile,
   type Point,
@@ -126,12 +127,11 @@ export function useEyeTracking() {
 
     const smoothed = gazeSmoother.update(frame.gaze)
     rawGaze.value = smoothed
-    // 실기기 확인 결과, 보정된 시선 x가 사용자가 보는 방향과 좌우로 반대였다(왼쪽을 보면 커서/패들이
-    // 오른쪽으로 이동). 저장된 보정 프로필과의 호환을 위해 raw 규약은 그대로 두고, 최종 화면 좌표의
-    // x만 뒤집어 모든 시선 게임(에어하키·그림 등)이 사용자 기준 방향과 일치하게 한다.
+    // 좌우 방향은 gaze 소스(eye-engine)에서 raw x를 한 번만 뒤집어 사용자 기준으로 정규화한다.
+    // 여기서 다시 뒤집으면 이중 반전이 되어 커서가 시선과 반대로 움직이므로 그대로 사용한다.
     const predicted = gazeCalibrator.predict(smoothed)
     screenGaze.value = predicted
-      ? { x: 1 - predicted.x, y: predicted.y, confidence: predicted.confidence }
+      ? { x: predicted.x, y: predicted.y, confidence: predicted.confidence }
       : null
 
     for (const event of frame.events) {
@@ -275,6 +275,30 @@ export function useEyeTracking() {
     return true
   }
 
+  /**
+   * 한 지점에서 {@code durationMs} 동안 원시 시선을 여러 프레임 모아 평균낸 뒤 타깃과 짝짓는다.
+   * 프레임마다 튀는 웹캠 시선을 한 프레임만 쓰면 보정이 흔들리므로, 점 개수(클릭 수)는 그대로
+   * 두고 점당 표본 품질을 높여 정확도를 올린다. 유효 표본이 없으면 false.
+   */
+  async function captureGazeCalibrationSample(
+    target: Point,
+    durationMs = 500,
+  ): Promise<boolean> {
+    const samples: Point[] = []
+    const startedAt = globalThis.performance.now()
+    while (globalThis.performance.now() - startedAt < durationMs) {
+      await nextAnimationFrame()
+      const current = rawGaze.value
+      if (current) {
+        samples.push({ x: current.x, y: current.y })
+      }
+    }
+    const averaged = averageGazeSamples(samples)
+    if (!averaged) return false
+    gazeCalibrator.addPair(averaged, target)
+    return true
+  }
+
   function finishGazeCalibration(): GazeCalibrationResult | null {
     try {
       const profile = gazeCalibrator.fit()
@@ -333,6 +357,7 @@ export function useEyeTracking() {
 
     beginGazeCalibration,
     addGazeCalibrationSample,
+    captureGazeCalibrationSample,
     finishGazeCalibration,
     applyGazeProfile,
     gazeCalibrationTargets: CALIBRATION_TARGETS,
