@@ -78,13 +78,20 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 공개_목록을_조회한다() throws Exception {
+	void 전체_목록을_조회한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.listResponse = new GroupListResponse(
-			List.of(new GroupResponse(
-				10L, "모임", "소개", 3, 30, GroupVisibility.PUBLIC,
-				"방장", false, false, null, CREATED_AT)),
-			1, 20, 1, 1
+			List.of(
+				new GroupResponse(
+					10L, "공개 모임", "소개", 3, 30,
+					GroupVisibility.PUBLIC, "방장", false, false,
+					null, CREATED_AT),
+				new GroupResponse(
+					11L, "비공개 모임", "소개", 2, 30,
+					GroupVisibility.PRIVATE, "방장", false, false,
+					null, CREATED_AT)
+			),
+			1, 20, 2, 1
 		);
 
 		mockMvc(service)
@@ -94,7 +101,9 @@ class GroupControllerTest {
 			.andExpect(jsonPath("$.data.groups[0].groupId").value(10))
 			.andExpect(jsonPath("$.data.groups[0].members").value(3))
 			.andExpect(jsonPath("$.data.groups[0].isJoined").value(false))
-			.andExpect(jsonPath("$.data.groups[0].joinCode").doesNotExist());
+			.andExpect(jsonPath("$.data.groups[0].joinCode").doesNotExist())
+			.andExpect(jsonPath("$.data.groups[1].visibility").value("PRIVATE"))
+			.andExpect(jsonPath("$.data.groups[1].joinCode").doesNotExist());
 
 		assertThat(service.capturedKeyword).isEqualTo("모");
 	}

@@ -1,8 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CommunityPage from './CommunityPage.vue'
+import { ApiError } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import type {
   GroupListResponse,
@@ -13,7 +14,7 @@ import type {
 const getGroups = vi.fn<() => Promise<GroupListResponse>>()
 const getMyGroups = vi.fn<() => Promise<MyGroupListResponse>>()
 const createGroup = vi.fn<() => Promise<GroupResponse>>()
-const joinGroupByCode = vi.fn<() => Promise<GroupResponse>>()
+const joinGroupByCode = vi.fn<(groupCode: string) => Promise<GroupResponse>>()
 const joinGroupById = vi.fn<() => Promise<GroupResponse>>()
 
 // REST 호출만 가짜로 바꾸고, toCommunityGroup(순수 변환)은 실제 구현을 쓴다.
@@ -24,7 +25,7 @@ vi.mock('../api/group', async (importOriginal) => {
     getGroups: () => getGroups(),
     getMyGroups: () => getMyGroups(),
     createGroup: () => createGroup(),
-    joinGroupByCode: () => joinGroupByCode(),
+    joinGroupByCode: (groupCode: string) => joinGroupByCode(groupCode),
     joinGroupById: () => joinGroupById(),
   }
 })
@@ -114,6 +115,10 @@ describe('CommunityPage', () => {
     getMyGroups.mockResolvedValue({ groups: [] })
   })
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('게스트에게는 API를 부르지 않고 로그인 유도를 보여준다', async () => {
     const wrapper = await mountCommunityPage({ authed: false })
 
@@ -125,7 +130,8 @@ describe('CommunityPage', () => {
   it('로그인 사용자에게 API 소모임을 렌더하고 정원 마감은 비활성화한다', async () => {
     const wrapper = await mountCommunityPage()
 
-    expect(getGroups).toHaveBeenCalled()
+    expect(getGroups).toHaveBeenCalledTimes(1)
+    expect(getMyGroups).toHaveBeenCalledTimes(1)
     expect(wrapper.findAll('.community-group-card')).toHaveLength(3)
     expect(wrapper.text()).toContain('눈 건강 루틴 연구소')
     expect(
@@ -167,6 +173,9 @@ describe('CommunityPage', () => {
       .trigger('click')
 
     expect(wrapper.find('[role="dialog"]').text()).toContain('코드로 참가하기')
+    expect(
+      wrapper.get('[data-testid="join-code-input"]').attributes('maxlength'),
+    ).toBe('6')
     expect(joinGroupById).not.toHaveBeenCalled()
   })
 
@@ -206,10 +215,92 @@ describe('CommunityPage', () => {
     const wrapper = await mountCommunityPage()
 
     await wrapper.get('[data-testid="open-join-dialog"]').trigger('click')
-    await wrapper.get('[data-testid="join-code-input"]').setValue('FOCUS7')
+    await wrapper.get('[data-testid="join-code-input"]').setValue(' focus7 ')
     await wrapper.find('.community-form').trigger('submit')
     await flushPromises()
 
-    expect(joinGroupByCode).toHaveBeenCalled()
+    expect(joinGroupByCode).toHaveBeenCalledWith('FOCUS7')
+  })
+
+  it('빈 참여 코드는 안내하고 API를 호출하지 않는다', async () => {
+    const wrapper = await mountCommunityPage()
+
+    await wrapper.get('[data-testid="open-join-dialog"]').trigger('click')
+    await wrapper.get('[data-testid="join-code-input"]').setValue('   ')
+    await wrapper.find('.community-form').trigger('submit')
+
+    expect(wrapper.text()).toContain('참여 코드를 입력해 주세요.')
+    expect(joinGroupByCode).not.toHaveBeenCalled()
+  })
+
+  it('6자리가 아닌 참여 코드는 안내하고 API를 호출하지 않는다', async () => {
+    const wrapper = await mountCommunityPage()
+
+    await wrapper.get('[data-testid="open-join-dialog"]').trigger('click')
+    await wrapper.get('[data-testid="join-code-input"]').setValue('A1B2C')
+    await wrapper.find('.community-form').trigger('submit')
+
+    expect(wrapper.text()).toContain('참여 코드는 6자리로 입력해 주세요.')
+    expect(joinGroupByCode).not.toHaveBeenCalled()
+  })
+
+  it('존재하지 않는 참여 코드는 전용 오류 문구를 보여준다', async () => {
+    joinGroupByCode.mockRejectedValue(
+      new ApiError('GROUP-002', '유효하지 않은 소모임 코드입니다.', 404),
+    )
+    const wrapper = await mountCommunityPage()
+
+    await wrapper.get('[data-testid="open-join-dialog"]').trigger('click')
+    await wrapper.get('[data-testid="join-code-input"]').setValue('NOPE00')
+    await wrapper.find('.community-form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('존재하지 않는 소모임이에요.')
+  })
+
+  it.each([
+    ['GROUP-003', '소모임 정원이 가득 찼습니다.'],
+    ['GROUP-004', '이미 가입한 소모임입니다.'],
+  ])('%s 오류는 기존 메시지를 유지한다', async (code, message) => {
+    joinGroupByCode.mockRejectedValue(new ApiError(code, message, 409))
+    const wrapper = await mountCommunityPage()
+
+    await wrapper.get('[data-testid="open-join-dialog"]').trigger('click')
+    await wrapper.get('[data-testid="join-code-input"]').setValue('NOPE00')
+    await wrapper.find('.community-form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(message)
+  })
+
+  it('인증 복원 후 목록을 다시 조회한다', async () => {
+    const wrapper = await mountCommunityPage({ authed: false })
+
+    expect(getGroups).not.toHaveBeenCalled()
+    authenticate()
+    await flushPromises()
+
+    expect(getGroups).toHaveBeenCalledTimes(1)
+    expect(getMyGroups).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.community-group-card')).toHaveLength(3)
+  })
+
+  it('로그아웃하면 기존 목록을 비운다', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'AUTH_LOGOUT_SUCCESS',
+        message: '로그아웃이 완료되었습니다.',
+        data: null,
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = await mountCommunityPage()
+
+    await useAuthStore().signOut()
+    await flushPromises()
+
+    expect(wrapper.findAll('.community-group-card')).toHaveLength(0)
   })
 })
