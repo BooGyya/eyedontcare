@@ -5,7 +5,7 @@ import AuthDialog from '../auth/AuthDialog.vue'
 import AppFooter from './AppFooter.vue'
 import AppHeader from './AppHeader.vue'
 
-const { isVisible, message } = useToast()
+const { isVisible, message, hideToast } = useToast()
 </script>
 
 <template>
@@ -15,7 +15,7 @@ const { isVisible, message } = useToast()
       <slot />
     </main>
     <AppFooter />
-    <ToastMessage :message="message" :visible="isVisible" />
+    <ToastMessage :message="message" :visible="isVisible" @dismiss="hideToast" />
     <AuthDialog />
   </div>
 </template>

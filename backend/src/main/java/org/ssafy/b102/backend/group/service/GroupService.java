@@ -191,6 +191,30 @@ public class GroupService {
 			.orElseThrow(() ->
 				new BusinessException(GroupErrorCode.INVALID_GROUP_CODE));
 
+		return joinAsMember(group, userId);
+	}
+
+	/**
+	 * 공개 소모임을 id로 바로 가입한다(코드 없이). 비공개 소모임은 코드로만 입장할 수 있으므로
+	 * 거부한다 — 코드 입장은 {@link #join(Long, String)}이 담당한다.
+	 */
+	@Transactional
+	public GroupResponse joinById(Long userId, Long groupId) {
+		Group group = findGroupOrThrow(groupId);
+
+		if (group.getVisibility() != GroupVisibility.PUBLIC) {
+			throw new BusinessException(
+				GroupErrorCode.PRIVATE_GROUP_REQUIRES_CODE);
+		}
+
+		return joinAsMember(group, userId);
+	}
+
+	/**
+	 * 중복 가입·정원 초과를 검증하고 MEMBER로 저장한다. 코드 입장과 공개 id 입장이 공유한다.
+	 * 동시성 최종 방어는 (group_id, user_id) 유니크 제약이 맡는다.
+	 */
+	private GroupResponse joinAsMember(Group group, Long userId) {
 		if (groupMemberRepository.existsByGroupIdAndUserId(
 			group.getId(),
 			userId

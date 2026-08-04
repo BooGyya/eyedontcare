@@ -48,7 +48,6 @@ function handleAction() {
     </div>
     <div class="community-group-card__content">
       <div class="community-group-card__meta">
-        <span>{{ group.activity }}</span>
         <span>{{ group.members }} / {{ group.capacity }}명</span>
       </div>
       <h2>{{ group.name }}</h2>

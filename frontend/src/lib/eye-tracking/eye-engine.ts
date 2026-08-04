@@ -444,8 +444,12 @@ export class EyeInteractionEngine {
     if (!left || !right) {
       return null
     }
+    // 카메라 원본 영상은 사용자가 보는 프리뷰(CSS `scaleX(-1)` 미러)와 x축이 반대다.
+    // 여기서 raw gaze x를 한 번 뒤집어 사용자 기준(user-facing) 좌표로 정규화한다. 이렇게 하면
+    // 프리뷰·캘리브레이션 타깃·게임(에어하키/그림)이 모두 같은 방향을 공유하고, 캘리브레이션은
+    // 좌우 반전이 아니라 왜곡 보정만 담당하게 된다. (y축은 미러 대상이 아니라 그대로 둔다.)
     const raw: GazeEstimate = {
-      x: (left.x + right.x) / 2,
+      x: 1 - (left.x + right.x) / 2,
       y: (left.y + right.y) / 2,
       confidence: Math.min(left.confidence, right.confidence),
     }

@@ -18,9 +18,19 @@ export function useToast() {
     }, 2600)
   }
 
+  /** 사용자가 직접 토스트를 닫는다(탭하여 닫기). auto-hide를 기다리지 않아도 되게 한다. */
+  function hideToast() {
+    if (closeTimer) {
+      clearTimeout(closeTimer)
+      closeTimer = undefined
+    }
+    isVisible.value = false
+  }
+
   return {
     message: readonly(message),
     isVisible: readonly(isVisible),
     showToast,
+    hideToast,
   }
 }

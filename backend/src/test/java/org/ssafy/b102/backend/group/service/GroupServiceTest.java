@@ -395,6 +395,64 @@ class GroupServiceTest {
 					.isEqualTo(GroupErrorCode.MEMBER_NOT_FOUND));
 	}
 
+	@Test
+	void 공개_소모임은_id로_바로_가입한다() {
+		Group group = group(GroupVisibility.PUBLIC, 30);
+		when(groupRepository.findById(GROUP_ID))
+			.thenReturn(Optional.of(group));
+		when(groupMemberRepository.existsByGroupIdAndUserId(GROUP_ID, MEMBER_ID))
+			.thenReturn(false);
+		when(groupMemberRepository.countByGroupId(GROUP_ID)).thenReturn(1);
+		when(userRepository.findById(OWNER_ID))
+			.thenReturn(Optional.of(user(OWNER_ID, "방장")));
+
+		GroupResponse response = groupService.joinById(MEMBER_ID, GROUP_ID);
+
+		assertThat(response.isJoined()).isTrue();
+		assertThat(response.isOwner()).isFalse();
+		assertThat(response.members()).isEqualTo(2);
+		assertThat(response.leader()).isEqualTo("방장");
+		verify(groupMemberRepository).save(any(GroupMember.class));
+	}
+
+	@Test
+	void 비공개_소모임_id_가입은_GROUP_011이다() {
+		when(groupRepository.findById(GROUP_ID))
+			.thenReturn(Optional.of(group(GroupVisibility.PRIVATE, 30)));
+
+		assertThatThrownBy(() -> groupService.joinById(MEMBER_ID, GROUP_ID))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(GroupErrorCode.PRIVATE_GROUP_REQUIRES_CODE));
+		verify(groupMemberRepository, never()).save(any());
+	}
+
+	@Test
+	void id_가입도_정원이_가득_차면_GROUP_003이다() {
+		Group group = group(GroupVisibility.PUBLIC, 2);
+		when(groupRepository.findById(GROUP_ID))
+			.thenReturn(Optional.of(group));
+		when(groupMemberRepository.existsByGroupIdAndUserId(GROUP_ID, MEMBER_ID))
+			.thenReturn(false);
+		when(groupMemberRepository.countByGroupId(GROUP_ID)).thenReturn(2);
+
+		assertThatThrownBy(() -> groupService.joinById(MEMBER_ID, GROUP_ID))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(GroupErrorCode.GROUP_FULL));
+		verify(groupMemberRepository, never()).save(any());
+	}
+
+	@Test
+	void 없는_소모임_id_가입은_GROUP_001이다() {
+		when(groupRepository.findById(GROUP_ID)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> groupService.joinById(MEMBER_ID, GROUP_ID))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(GroupErrorCode.GROUP_NOT_FOUND));
+	}
+
 	private static Group group(GroupVisibility visibility, int capacity) {
 		Group group = Group.create(
 			"모임", "소개", "A1B2C3", OWNER_ID, visibility, capacity);
