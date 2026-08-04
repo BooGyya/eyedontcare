@@ -157,6 +157,8 @@ const mediaSession = useMediaSessionStore()
 const liveRoomId = ref<string | null>(null)
 const liveRoomCode = ref<string | null>(null)
 const liveIdentity = ref<WaitingRoomIdentity | null>(null)
+/** 친구방 입장(생성/참가) 실패 메시지. 설정되면 유령 방 대신 실패 안내를 보여준다. */
+const inviteError = ref<string | null>(null)
 const isLiveSession = computed(() => liveRoomId.value !== null)
 
 const waitingSocket = useWaitingRoomSocket({
@@ -172,7 +174,9 @@ const liveOpponent = computed<WaitingRoomParticipant | null>(
     ) ?? null,
 )
 const isOpponentReady = computed(() => liveOpponent.value?.isReady ?? false)
-const displayRoomCode = computed(() => liveRoomCode.value ?? roomCode.value)
+// 실제 입장이 확정된 코드(liveRoomCode)만 노출한다. 참가자가 입력한 코드(roomCode)를 그대로
+// 보여주면 입장 실패 시에도 방이 생긴 것처럼 보이므로 쓰지 않는다.
+const displayRoomCode = computed(() => liveRoomCode.value ?? '')
 
 // 서버 ROOM_STATE 기준 준비 현황(가이드의 "N/2명 준비 완료" 표시에 사용).
 const readyCount = computed(
@@ -515,6 +519,7 @@ function handleGameStart(data: WaitingRoomGameStartData) {
 async function initInviteSession() {
   if (!isFriendRoom.value || !game.value) return
   try {
+    inviteError.value = null
     const token = currentAccessToken()
     const gameName = GAME_NAME_BY_ID[game.value.id]
     if (isHost.value) {
@@ -531,6 +536,7 @@ async function initInviteSession() {
       if (!roomCode.value) return
       const joined = await joinInviteRoom(roomCode.value, token)
       liveRoomId.value = joined.roomId
+      liveRoomCode.value = joined.roomCode
       if (joined.openviduUrl && joined.token) {
         mediaSession.setCredentials({
           openviduUrl: joined.openviduUrl,
@@ -552,6 +558,7 @@ async function initInviteSession() {
       error instanceof ApiError
         ? error.message
         : '대기방 연결에 실패했어요. 잠시 후 다시 시도해 주세요.'
+    inviteError.value = message
     showToast(message)
   }
 }
@@ -802,6 +809,31 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </header>
+
+    <section
+      v-if="isFriendRoom && inviteError && !isLiveSession"
+      class="room-join-error"
+      role="alert"
+    >
+      <strong>입장하지 못했어요</strong>
+      <p>{{ inviteError }}</p>
+      <div class="room-join-error__actions">
+        <button
+          type="button"
+          class="room-join-error__retry"
+          @click="initInviteSession"
+        >
+          다시 시도
+        </button>
+        <button
+          type="button"
+          class="room-join-error__back"
+          @click="handleLeaveRoom"
+        >
+          돌아가기
+        </button>
+      </div>
+    </section>
 
     <section
       class="participant-grid"
@@ -1402,6 +1434,49 @@ onBeforeUnmount(() => {
 }
 .complete {
   color: #278957;
+}
+.room-join-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 28px 20px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: #fff;
+  text-align: center;
+}
+.room-join-error strong {
+  font-size: 18px;
+}
+.room-join-error p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+.room-join-error__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.room-join-error__retry,
+.room-join-error__back {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.room-join-error__retry {
+  border: 0;
+  color: #fff;
+  background: var(--color-accent-blue);
+}
+.room-join-error__back {
+  border: 1px solid var(--color-line);
+  color: var(--color-ink);
+  background: #fff;
 }
 .participant-grid {
   display: grid;

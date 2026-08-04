@@ -45,8 +45,8 @@ describe('GameReadyPage', () => {
       global: { plugins: [router, createPinia()] },
     })
 
-    expect(wrapper.find('.room-code').text()).toContain('4827')
-    expect(wrapper.findAll('.participant-card')).toHaveLength(2)
+    // 입장이 확정되기 전에는 입력한 방 코드를 그대로 노출하지 않는다(유령 방 방지).
+    expect(wrapper.find('.room-code').text()).not.toContain('4827')
     expect(wrapper.find('.participant-card--me').text()).toContain('PLAYER')
     expect(wrapper.text()).toContain('친구와 대결 준비방')
     wrapper.unmount()
