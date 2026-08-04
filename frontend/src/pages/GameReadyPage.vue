@@ -449,6 +449,16 @@ function recordGazeCalibrationPoint() {
     eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
   if (!target) return
 
+  // 눈을 감았거나 깜빡이는 순간엔 시선 좌표가 부정확하므로 기록·다음 지점 이동을 막는다.
+  // 두 눈을 모두 뜨고 점을 바라본 상태에서만 샘플을 기록한다.
+  if (
+    !eyeTracking.faceDetected.value ||
+    eyeTracking.combinedState.value !== 'BOTH_OPEN'
+  ) {
+    showToast('눈을 뜨고 점을 바라본 상태에서 눌러주세요.')
+    return
+  }
+
   const captured = eyeTracking.addGazeCalibrationSample(target)
   if (!captured) {
     showToast('시선이 감지되지 않았어요. 점을 계속 바라봐 주세요.')
