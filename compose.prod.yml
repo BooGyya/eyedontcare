@@ -42,6 +42,11 @@ services:
       OPENVIDU_URL: ${OPENVIDU_URL:?OPENVIDU_URL is required}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # 눈으로 그리기 AI 채점(SSAFY GMS). 키 없이도 부팅되도록 선택값(:-)으로 두고,
+      # 없으면 그림 인식만 비활성(503)된다. 실제 키는 배포 환경 시크릿으로 주입한다.
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URI: ${GMS_BASE_URI:-https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions}
+      GMS_MODEL: ${GMS_MODEL:-gpt-4o}
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8102}:8080"
     depends_on:

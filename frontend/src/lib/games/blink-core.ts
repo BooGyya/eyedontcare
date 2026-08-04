@@ -9,7 +9,9 @@
 import type { EyeEventType } from '../eye-tracking/eye-engine'
 
 export const BLINK_GAME_SECONDS = 20
-export const BLINK_SCORE_UNIT = 10
+// 깜빡임 1회 = 1점. 랭킹 지표가 "깜빡인 횟수(count)"이므로 점수를 곧 횟수와 같게 둔다.
+// (이전에는 ×10이라 랭킹에 실제 횟수의 10배로 표시됐음)
+export const BLINK_SCORE_UNIT = 1
 
 export type BlinkGamePhase = 'ready' | 'running' | 'finished'
 

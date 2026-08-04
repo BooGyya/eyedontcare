@@ -9,6 +9,8 @@ import {
   getGroup,
   joinGroupById,
   leaveGroup,
+  deleteGroup,
+  kickMember,
   type GroupDetailResponse,
 } from '../api/group'
 
@@ -51,6 +53,37 @@ async function handleLeave() {
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '나가기에 실패했어요.')
+  } finally {
+    isBusy.value = false
+  }
+}
+
+async function handleDelete() {
+  if (!detail.value || isBusy.value) return
+  // 삭제는 되돌릴 수 없으므로 한 번 더 확인한다.
+  if (!globalThis.confirm('소모임을 삭제하면 되돌릴 수 없어요. 삭제할까요?')) return
+  isBusy.value = true
+  try {
+    await deleteGroup(groupId.value)
+    showToast('소모임을 삭제했어요.')
+    void router.push({ name: 'community' })
+  } catch (error) {
+    showToast(error instanceof ApiError ? error.message : '삭제에 실패했어요.')
+  } finally {
+    isBusy.value = false
+  }
+}
+
+async function handleKick(userId: number, nickname: string) {
+  if (!detail.value || isBusy.value) return
+  if (!globalThis.confirm(`'${nickname}' 님을 강퇴할까요?`)) return
+  isBusy.value = true
+  try {
+    await kickMember(groupId.value, userId)
+    showToast('멤버를 강퇴했어요.')
+    await load()
+  } catch (error) {
+    showToast(error instanceof ApiError ? error.message : '강퇴에 실패했어요.')
   } finally {
     isBusy.value = false
   }
@@ -131,7 +164,16 @@ watch(
 
         <div class="community-detail__actions">
           <button
-            v-if="detail.isJoined && !detail.isOwner"
+            v-if="detail.isOwner"
+            type="button"
+            class="community-detail__danger"
+            :disabled="isBusy"
+            @click="handleDelete"
+          >
+            소모임 삭제
+          </button>
+          <button
+            v-else-if="detail.isJoined"
             type="button"
             class="community-detail__ghost"
             :disabled="isBusy"
@@ -159,7 +201,18 @@ watch(
         <ul>
           <li v-for="member in detail.memberList" :key="member.userId">
             <span class="community-detail__member-name">{{ member.nickname }}</span>
-            <span class="community-detail__member-role">{{ roleLabel(member.role) }}</span>
+            <span class="community-detail__member-meta">
+              <span class="community-detail__member-role">{{ roleLabel(member.role) }}</span>
+              <button
+                v-if="detail.isOwner && member.role !== 'OWNER'"
+                type="button"
+                class="community-detail__kick"
+                :disabled="isBusy"
+                @click="handleKick(member.userId, member.nickname)"
+              >
+                강퇴
+              </button>
+            </span>
           </li>
         </ul>
       </section>
@@ -258,6 +311,15 @@ watch(
   color: var(--color-ink);
   background: #fff;
 }
+.community-detail__danger {
+  border: 1px solid #e2b4b4;
+  color: #c0392b;
+  background: #fff;
+}
+.community-detail__danger:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
+}
 .community-detail__hint {
   color: var(--color-muted);
   font-size: 13px;
@@ -285,9 +347,29 @@ watch(
   border-radius: 12px;
   background: #fff;
 }
+.community-detail__member-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .community-detail__member-role {
   color: var(--color-accent-blue);
   font-size: 12px;
   font-weight: 800;
+}
+.community-detail__kick {
+  padding: 4px 10px;
+  border: 1px solid #e2b4b4;
+  border-radius: 8px;
+  background: #fff;
+  color: #c0392b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.community-detail__kick:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
 }
 </style>
