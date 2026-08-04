@@ -81,7 +81,7 @@ public class DrawRecognitionService {
 
 	private Recognition requestRecognition(RecognizeDrawingRequest request) {
 		String imageDataUrl = request.imageDataUrl();
-		log.info("GMS 그림 인식 요청: model={} imageLen={} prefix={}",
+		log.debug("GMS 그림 인식 요청: model={} imageLen={} prefix={}",
 			properties.model(),
 			imageDataUrl == null ? 0 : imageDataUrl.length(),
 			imageDataUrl == null
