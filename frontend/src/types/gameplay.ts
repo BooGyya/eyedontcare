@@ -1,4 +1,5 @@
 import type { GameDetailId, GamePlayMode } from './game-detail'
+import type { DrawRoundResult } from '../lib/games/draw-core'
 
 export type GameSessionMode = GamePlayMode['id']
 
@@ -29,5 +30,7 @@ export type GameResult = {
   scoreLabel: string
   score: string
   opponentScore?: string
+  opponentNickname?: string
   stats: GameResultStat[]
+  drawRounds?: DrawRoundResult[]
 }

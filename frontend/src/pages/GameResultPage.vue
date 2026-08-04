@@ -9,18 +9,34 @@ import duelLoserImage from '../assets/images/profiles/profile-duel-loser.png'
 import duelWinnerImage from '../assets/images/profiles/profile-duel-winner.png'
 import duelWinnerBannerImage from '../assets/images/profiles/profile-duel-winner-banner.png'
 import GameResultShell from '../components/games/GameResultShell.vue'
-import { gameModeLabels, getMockResult } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
+import type { GameDetailId } from '../types/game-detail'
+import type {
+  GameResultDetailResponse,
+  GameResultPlayMode,
+} from '../types/gameResult'
 import type { GameSessionMode } from '../types/gameplay'
 import { useAuthStore } from '../stores/auth'
-import { useLastGameResultStore } from '../stores/lastGameResult'
+import {
+  useLastGameResultStore,
+  type LastGameResult,
+  type LastGameOutcome,
+} from '../stores/lastGameResult'
 import { useGameSessionSocket } from '../composables/useGameSessionSocket'
 import { resolveIdentity } from '../api/identity'
 import { useToast } from '../composables/useToast'
+import { DRAWING_DIFFICULTY_LABEL } from '../lib/games/draw-core'
+import { getResult } from '../api/gameResult'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const gameModeLabels: Record<GameSessionMode, string> = {
+  solo: '솔로 모드',
+  ai: 'AI 대결',
+  friends: '친구와 대결',
+  random: '랜덤 매칭',
+}
 const game = computed(() => {
   const id = String(route.params.gameId ?? '')
   return isGameDetailId(id) ? gameDetails[id] : undefined
@@ -32,18 +48,158 @@ const mode = computed<GameSessionMode>(() => {
     : 'solo'
 })
 
-// 실제 로직이 연결된 게임은 방금 끝난 결과를 쓰고, 그 외에는 mock 데이터로 폴백한다.
+// 결과 화면은 게임 종료 시 저장한 실제 결과만 렌더링한다.
 const lastResultStore = useLastGameResultStore()
+const routeResultId = computed(() => {
+  const value = Number(route.query.resultId)
+  return Number.isInteger(value) && value > 0 ? value : undefined
+})
 const hasRealResult = computed(
   () =>
     game.value !== undefined &&
-    lastResultStore.isFor(game.value.id, mode.value),
+    lastResultStore.current !== null &&
+    (lastResultStore.isFor(game.value.id, mode.value) ||
+      lastResultStore.current.resultId === routeResultId.value),
 )
 const result = computed(() => {
   if (hasRealResult.value && lastResultStore.current)
     return lastResultStore.current
-  return game.value ? getMockResult(game.value.id) : undefined
+  return undefined
 })
+
+const persistedResultLoading = ref(false)
+
+const GAME_SLUG_BY_NAME: Record<string, GameDetailId> = {
+  EYEFIGHT: 'hold',
+  BLINK: 'blink',
+  DRAWING: 'draw',
+  RHYTHM: 'rhythm',
+  HOCKEY: 'air',
+}
+
+const MODE_BY_PLAY_MODE: Record<GameResultPlayMode, GameSessionMode> = {
+  SOLO: 'solo',
+  AI: 'ai',
+  INVITE: 'friends',
+  RANDOM: 'random',
+}
+
+const RESULT_STAT_LABELS: Record<string, string> = {
+  survivalTimeMs: '생존 시간',
+  blinkCount: '깜빡임 횟수',
+  maxCombo: '최대 콤보',
+  remainingHearts: '남은 하트',
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function asOutcome(value: unknown): LastGameOutcome {
+  return value === 'WIN' || value === 'LOSE' || value === 'DRAW'
+    ? value
+    : 'COMPLETED'
+}
+
+function formatPersistedValue(key: string, value: unknown): string {
+  if (key === 'survivalTimeMs' && typeof value === 'number') {
+    return `${(value / 1000).toFixed(1)}초`
+  }
+  if (key === 'blinkCount' && typeof value === 'number') {
+    return `${value}회`
+  }
+  if (typeof value === 'number') {
+    return value.toLocaleString('ko-KR')
+  }
+  return String(value ?? '-')
+}
+
+function toLastGameResult(
+  detail: GameResultDetailResponse,
+): LastGameResult | null {
+  const gameId = GAME_SLUG_BY_NAME[detail.gameName]
+  const mode = MODE_BY_PLAY_MODE[detail.playMode]
+  if (!gameId || !mode) return null
+
+  const ownParticipant = detail.participants.find(
+    (participant) => participant.slotNo === 1,
+  )
+  const gameResult = asRecord(detail.gameResult)
+  const ownPayload = asRecord(gameResult[String(ownParticipant?.slotNo ?? 1)])
+  const opponentPayload = asRecord(gameResult['2'])
+  const score = ownPayload.score
+  const opponentScore = opponentPayload.score ?? ownPayload.opponentScore
+  const persistedOpponentNickname =
+    typeof ownPayload.opponentNickname === 'string' &&
+    ownPayload.opponentNickname.trim()
+      ? ownPayload.opponentNickname.trim()
+      : undefined
+  const opponentParticipant = detail.participants.find(
+    (participant) => participant.slotNo !== ownParticipant?.slotNo,
+  )
+  const opponentDisplayName =
+    opponentParticipant?.participantType === 'USER'
+      ? opponentParticipant.displayName
+      : opponentParticipant?.participantType === 'GUEST'
+        ? '게스트 플레이어'
+        : opponentParticipant?.participantType === 'BOT'
+          ? 'AI 플레이어'
+          : undefined
+  const stats = Object.entries(ownPayload)
+    .filter(
+      ([key]) =>
+        key !== 'score' &&
+        key !== 'drawRounds' &&
+        key !== 'opponentScore' &&
+        key !== 'opponentNickname',
+    )
+    .map(([key, value]) => ({
+      label: RESULT_STAT_LABELS[key] ?? key,
+      value: formatPersistedValue(key, value),
+      opponentValue: undefined,
+    }))
+
+  const drawRounds = Array.isArray(ownPayload.drawRounds)
+    ? (ownPayload.drawRounds as LastGameResult['drawRounds'])
+    : undefined
+
+  return {
+    gameId,
+    mode,
+    outcome: asOutcome(ownParticipant?.outcome),
+    headline: '게임 결과를 확인해보세요.',
+    summary: '저장된 플레이 결과입니다.',
+    scoreLabel: '최종 점수',
+    score: formatPersistedValue('score', score),
+    opponentScore:
+      opponentScore === undefined
+        ? undefined
+        : formatPersistedValue('score', opponentScore),
+    opponentNickname: persistedOpponentNickname ?? opponentDisplayName,
+    stats,
+    drawRounds,
+    resultId: detail.resultId,
+  }
+}
+
+async function loadPersistedResult(): Promise<void> {
+  if (hasRealResult.value) return
+  const resultId = routeResultId.value
+  if (resultId === undefined) return
+
+  persistedResultLoading.value = true
+  try {
+    const detail = await getResult(resultId)
+    const restored = toLastGameResult(detail)
+    if (restored) lastResultStore.set(restored)
+  } catch {
+    // 결과 조회 실패 시 빈 상태를 유지해 임의의 점수를 표시하지 않는다.
+  } finally {
+    persistedResultLoading.value = false
+  }
+}
 const visibleResultStats = computed(() =>
   (result.value?.stats ?? []).filter(
     (stat) =>
@@ -51,10 +207,8 @@ const visibleResultStats = computed(() =>
       (game.value?.id !== 'rhythm' || stat.label !== '정확도'),
   ),
 )
-/** 실제 결과가 없는 직접 URL 화면은 기존 mock 결과를 표시한다. */
-const outcome = computed(() =>
-  hasRealResult.value ? (lastResultStore.current?.outcome ?? 'UNKNOWN') : 'WIN',
-)
+/** 결과가 없는 직접 URL 접근은 빈 상태를 표시한다. */
+const outcome = computed(() => lastResultStore.current?.outcome ?? 'UNKNOWN')
 const outcomeHeadline = computed(() => {
   switch (outcome.value) {
     case 'WIN':
@@ -101,8 +255,14 @@ const isCompetitive = computed(
     game.value?.id !== 'draw' &&
     ['ai', 'friends', 'random'].includes(mode.value),
 )
+const hasKnownOutcome = computed(() =>
+  ['WIN', 'LOSE', 'DRAW'].includes(outcome.value),
+)
 const isShowcaseCompetitiveResult = computed(
-  () => ['air', 'hold'].includes(game.value?.id ?? '') && isCompetitive.value,
+  () =>
+    ['air', 'hold'].includes(game.value?.id ?? '') &&
+    isCompetitive.value &&
+    hasKnownOutcome.value,
 )
 const isDrawResult = computed(() => game.value?.id === 'draw')
 const isFailedResult = computed(() => route.query.result === 'failed')
@@ -110,7 +270,7 @@ const isHoldRecordMissed = computed(
   () =>
     game.value?.id === 'hold' &&
     mode.value === 'solo' &&
-    route.query.result === 'not-new-record',
+    result.value?.isNewRecord === false,
 )
 const isAirAiRecordedResult = computed(
   () => game.value?.id === 'air' && mode.value === 'ai' && hasRealResult.value,
@@ -120,8 +280,9 @@ const isCompetitiveLoss = computed(
     (isAirAiRecordedResult.value && outcome.value === 'LOSE') ||
     (((game.value?.id === 'rhythm' &&
       ['friends', 'random'].includes(mode.value)) ||
-      (['air', 'hold'].includes(game.value?.id ?? '') && isCompetitive.value)) &&
-      route.query.result === 'lose'),
+      (['air', 'hold'].includes(game.value?.id ?? '') &&
+        isCompetitive.value)) &&
+      outcome.value === 'LOSE'),
 )
 const isAirAiDraw = computed(
   () => isAirAiRecordedResult.value && outcome.value === 'DRAW',
@@ -131,37 +292,33 @@ const airOpponentScore = computed(() => result.value?.opponentScore ?? '-')
 const opponentResultImage = computed(() =>
   game.value?.id === 'hold' ? opponentProfileImage : game.value?.image,
 )
-const drawRoundResults = [
-  {
-    prompt: '안경',
-    difficulty: '쉬움',
-    score: 180,
-    timeBonus: 40,
-    confidenceBonus: 40,
-    correct: true,
-  },
-  {
-    prompt: '우산',
-    difficulty: '보통',
-    score: 230,
-    timeBonus: 50,
-    confidenceBonus: 80,
-    correct: true,
-  },
-  {
-    prompt: '강아지',
-    difficulty: '어려움',
-    score: 270,
-    timeBonus: 60,
-    confidenceBonus: 110,
-    correct: true,
-  },
-] as const
-const drawTotalScore = computed(() =>
-  drawRoundResults.reduce((total, round) => total + round.score, 0),
-)
+const drawRoundResults = computed(() => result.value?.drawRounds ?? [])
+const drawTotalScore = computed(() => {
+  const roundsTotal = drawRoundResults.value.reduce(
+    (total, round) => total + round.score,
+    0,
+  )
+  if (roundsTotal > 0) return roundsTotal
+
+  const score = String(result.value?.score ?? '').replace(/[^0-9.-]/g, '')
+  return Number(score) || 0
+})
 const myNickname = computed(() => auth.displayName)
-const mockOpponentNickname = '신나는 플레이어'
+const opponentNickname = computed(
+  () =>
+    result.value?.opponentNickname ??
+    (mode.value === 'ai' ? 'AI 플레이어' : '상대 플레이어'),
+)
+const holdRecordDifference = computed(() => {
+  const previousBest = result.value?.previousBestScore
+  const currentScore = Number.parseFloat(
+    String(result.value?.score ?? '').replace(/[^0-9.-]/g, ''),
+  )
+  if (previousBest === null || previousBest === undefined) return '-'
+  if (!Number.isFinite(currentScore)) return '-'
+  const difference = currentScore - previousBest
+  return `${difference >= 0 ? '+' : ''}${difference.toFixed(1)}초`
+})
 
 const soloScoreDisplay = ref('0')
 const drawScoreDisplay = ref(0)
@@ -221,7 +378,9 @@ function animateDrawScore(final: number) {
   drawCountFrame = globalThis.requestAnimationFrame(tick)
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadPersistedResult()
+
   if (isDrawResult.value) {
     animateDrawScore(drawTotalScore.value)
   } else if (!isCompetitive.value && result.value) {
@@ -327,8 +486,14 @@ function goToGames() {
     v-if="game && result"
     :title="isShowcaseCompetitiveResult ? '게임' : title"
     :mode-label="gameModeLabels[mode]"
-    :headline="isFailedResult ? '아쉽지만, 게임에 실패했어요!' : result.headline"
-    :summary="isFailedResult ? '하트를 모두 사용해 게임이 종료되었어요.' : result.summary"
+    :headline="
+      isFailedResult ? '아쉽지만, 게임에 실패했어요!' : result.headline
+    "
+    :summary="
+      isFailedResult
+        ? '하트를 모두 사용해 게임이 종료되었어요.'
+        : result.summary
+    "
     :hide-outcome-intro="isCompetitive || isFailedResult || isHoldRecordMissed"
     :hide-header="isCompetitive || isDrawResult || isHoldRecordMissed"
     :hide-title="game.id === 'hold'"
@@ -347,12 +512,27 @@ function goToGames() {
     >
       <template v-if="isShowcaseCompetitiveResult">
         <section class="air-result" :aria-label="`${title} 대결 결과`">
-          <header class="duel-loss__hero" aria-labelledby="air-duel-result-title">
+          <header
+            class="duel-loss__hero"
+            aria-labelledby="air-duel-result-title"
+          >
             <div>
               <p>{{ title }} 결과</p>
-              <span>{{ isAirAiDraw ? '팽팽했어요!' : isCompetitiveLoss ? '아쉽다!' : '최고에요!' }}</span>
+              <span>{{
+                isAirAiDraw
+                  ? '팽팽했어요!'
+                  : isCompetitiveLoss
+                    ? '아쉽다!'
+                    : '최고에요!'
+              }}</span>
               <h2 id="air-duel-result-title">
-                {{ isAirAiDraw ? 'DRAW' : isCompetitiveLoss ? 'YOU LOSE...' : 'YOU WIN!' }}
+                {{
+                  isAirAiDraw
+                    ? 'DRAW'
+                    : isCompetitiveLoss
+                      ? 'YOU LOSE...'
+                      : 'YOU WIN!'
+                }}
               </h2>
               <strong>
                 {{
@@ -366,7 +546,11 @@ function goToGames() {
             </div>
             <img
               :src="isCompetitiveLoss ? duelLoserImage : duelWinnerBannerImage"
-              :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어 캐릭터' : '승리한 내 플레이어 캐릭터'"
+              :alt="
+                isCompetitiveLoss
+                  ? '아쉬워하는 내 플레이어 캐릭터'
+                  : '승리한 내 플레이어 캐릭터'
+              "
               draggable="false"
             />
           </header>
@@ -374,28 +558,40 @@ function goToGames() {
             class="air-duel-scoreboard"
             :class="{ 'air-duel-scoreboard--no-score': game.id === 'hold' }"
           >
-            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--mine">
+            <article
+              class="air-duel-scoreboard__player air-duel-scoreboard__player--mine"
+            >
               <div>
                 <strong>{{ myNickname }}</strong>
                 <span>나</span>
               </div>
               <img
                 :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
-                :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어' : '승리한 내 플레이어'"
+                :alt="
+                  isCompetitiveLoss
+                    ? '아쉬워하는 내 플레이어'
+                    : '승리한 내 플레이어'
+                "
                 draggable="false"
               />
               <b v-if="game.id === 'air'">{{ airMyScore }}</b>
             </article>
             <div
               class="air-duel-scoreboard__outcome"
-              :class="{ 'air-duel-scoreboard__outcome--lose': isCompetitiveLoss }"
+              :class="{
+                'air-duel-scoreboard__outcome--lose': isCompetitiveLoss,
+              }"
             >
               <span aria-hidden="true">🏆</span>
-              <strong>{{ isAirAiDraw ? '무승부' : isCompetitiveLoss ? '패배' : '승리!' }}</strong>
+              <strong>{{
+                isAirAiDraw ? '무승부' : isCompetitiveLoss ? '패배' : '승리!'
+              }}</strong>
             </div>
-            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--ai">
+            <article
+              class="air-duel-scoreboard__player air-duel-scoreboard__player--ai"
+            >
               <div>
-                <strong>{{ mode === 'ai' ? 'AI' : mockOpponentNickname }}</strong>
+                <strong>{{ opponentNickname }}</strong>
                 <span>{{ mode === 'ai' ? 'BOT' : '상대' }}</span>
               </div>
               <img
@@ -408,15 +604,27 @@ function goToGames() {
                       ? duelWinnerImage
                       : duelLoserImage
                 "
-                :alt="isCompetitiveLoss ? '승리한 상대 플레이어' : '아쉬워하는 상대 플레이어'"
+                :alt="
+                  isCompetitiveLoss
+                    ? '승리한 상대 플레이어'
+                    : '아쉬워하는 상대 플레이어'
+                "
                 draggable="false"
               />
               <b v-if="game.id === 'air'">{{ airOpponentScore }}</b>
             </article>
           </section>
-          <footer class="duel-loss__summary duel-loss__summary--air-ai air-result__summary">
+          <footer
+            class="duel-loss__summary duel-loss__summary--air-ai air-result__summary"
+          >
             <p>
-              <b>{{ isAirAiDraw ? '팽팽한 한 판이었어요!' : isCompetitiveLoss ? '괜찮아요! 다시 도전해요!' : '재미있는 한 판이었어요!' }}</b>
+              <b>{{
+                isAirAiDraw
+                  ? '팽팽한 한 판이었어요!'
+                  : isCompetitiveLoss
+                    ? '괜찮아요! 다시 도전해요!'
+                    : '재미있는 한 판이었어요!'
+              }}</b>
               <span>
                 {{
                   isAirAiDraw
@@ -455,7 +663,11 @@ function goToGames() {
             </div>
             <img
               :src="isCompetitiveLoss ? duelLoserImage : duelWinnerBannerImage"
-              :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어 캐릭터' : '승리한 내 플레이어 캐릭터'"
+              :alt="
+                isCompetitiveLoss
+                  ? '아쉬워하는 내 플레이어 캐릭터'
+                  : '승리한 내 플레이어 캐릭터'
+              "
               draggable="false"
             />
           </header>
@@ -465,74 +677,86 @@ function goToGames() {
             class="air-duel-scoreboard"
             aria-label="에어하키 대결 결과"
           >
-            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--mine">
+            <article
+              class="air-duel-scoreboard__player air-duel-scoreboard__player--mine"
+            >
               <div><strong>나</strong><span>YOU</span></div>
               <img
                 :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
-                :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어' : '승리한 내 플레이어'"
+                :alt="
+                  isCompetitiveLoss
+                    ? '아쉬워하는 내 플레이어'
+                    : '승리한 내 플레이어'
+                "
                 draggable="false"
               />
-              <b>{{ isCompetitiveLoss ? '2' : '5' }}</b>
+              <b>{{ airMyScore }}</b>
             </article>
             <div
               class="air-duel-scoreboard__outcome"
-              :class="{ 'air-duel-scoreboard__outcome--lose': isCompetitiveLoss }"
+              :class="{
+                'air-duel-scoreboard__outcome--lose': isCompetitiveLoss,
+              }"
             >
               <span aria-hidden="true">🏆</span>
               <strong>{{ isCompetitiveLoss ? '패배' : '승리!' }}</strong>
             </div>
-            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--ai">
+            <article
+              class="air-duel-scoreboard__player air-duel-scoreboard__player--ai"
+            >
               <div><strong>AI</strong><span>BOT</span></div>
               <img
                 :src="isCompetitiveLoss ? airAiRobotImage : airAiRobotLoseImage"
-                :alt="isCompetitiveLoss ? '웃고 있는 AI 로봇' : '아쉬워하는 AI 로봇'"
+                :alt="
+                  isCompetitiveLoss ? '웃고 있는 AI 로봇' : '아쉬워하는 AI 로봇'
+                "
                 draggable="false"
               />
-              <b>3</b>
+              <b>{{ airOpponentScore }}</b>
             </article>
           </section>
 
-          <section v-else class="duel-loss__scoreboard" aria-label="대결 결과 비교">
+          <section
+            v-else
+            class="duel-loss__scoreboard"
+            aria-label="대결 결과 비교"
+          >
             <article class="duel-loss__player duel-loss__player--mine">
               <div class="duel-loss__identity">
-                <strong>{{ myNickname }}</strong><span>나</span>
+                <strong>{{ myNickname }}</strong
+                ><span>나</span>
               </div>
               <img
                 :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
-                :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어' : '승리한 내 플레이어'"
+                :alt="
+                  isCompetitiveLoss
+                    ? '아쉬워하는 내 플레이어'
+                    : '승리한 내 플레이어'
+                "
                 draggable="false"
               />
             </article>
 
             <article class="duel-loss__stats">
               <div class="duel-loss__score-row">
-                <strong>{{ game.id === 'air' ? (isCompetitiveLoss ? '2' : '5') : (isCompetitiveLoss ? '8,750' : '11,230') }}</strong
-                ><b>VS</b><strong>{{ game.id === 'air' ? '3' : (isCompetitiveLoss ? '11,230' : '8,750') }}</strong>
+                <strong>{{ result.score }}</strong
+                ><b>VS</b><strong>{{ result.opponentScore ?? '-' }}</strong>
               </div>
               <dl>
-                <template v-if="game.id === 'air'">
-                  <div><dd>{{ isCompetitiveLoss ? '2' : '5' }}</dd><dt>최종 점수</dt><dd>3</dd></div>
-                  <div><dd>00:34</dd><dt>경기 시간</dt><dd>00:34</dd></div>
-                  <div><dd>{{ isCompetitiveLoss ? '1' : '+2' }}</dd><dt>득점 차</dt><dd>{{ isCompetitiveLoss ? '+1' : '2' }}</dd></div>
-                </template>
-                <template v-else>
-                  <div><dd>{{ isCompetitiveLoss ? '89.2%' : '93.1%' }}</dd><dt>정확도</dt><dd>{{ isCompetitiveLoss ? '93.1%' : '89.2%' }}</dd></div>
-                  <div><dd>{{ isCompetitiveLoss ? '32' : '42' }}</dd><dt>COMBO</dt><dd>{{ isCompetitiveLoss ? '42' : '32' }}</dd></div>
-                  <div class="duel-loss__hearts-row">
-                    <dd>
-                      <i v-for="index in 5" :key="`mine-${index}`" :class="{ empty: index === 5 }">♥</i>
-                    </dd>
-                    <dt>체력</dt>
-                    <dd><i v-for="index in 5" :key="`opponent-${index}`">♥</i></dd>
-                  </div>
-                </template>
+                <div v-for="stat in visibleResultStats" :key="stat.label">
+                  <dd>{{ stat.value }}</dd>
+                  <dt>{{ stat.label }}</dt>
+                  <dd>{{ stat.opponentValue ?? '-' }}</dd>
+                </div>
               </dl>
             </article>
 
             <article class="duel-loss__player duel-loss__player--opponent">
               <div class="duel-loss__identity">
-                <strong>{{ game.id === 'air' && mode === 'ai' ? 'AI' : mockOpponentNickname }}</strong>
-                <span>{{ game.id === 'air' && mode === 'ai' ? 'BOT' : '상대' }}</span>
+                <strong>{{ opponentNickname }}</strong>
+                <span>{{
+                  game.id === 'air' && mode === 'ai' ? 'BOT' : '상대'
+                }}</span>
               </div>
               <img
                 :src="
@@ -544,7 +768,11 @@ function goToGames() {
                         : duelLoserImage
                       : opponentProfileImage
                 "
-                :alt="isCompetitiveLoss ? '승리한 상대 플레이어' : '아쉬워하는 상대 플레이어'"
+                :alt="
+                  isCompetitiveLoss
+                    ? '승리한 상대 플레이어'
+                    : '아쉬워하는 상대 플레이어'
+                "
                 draggable="false"
               />
             </article>
@@ -552,10 +780,16 @@ function goToGames() {
 
           <footer
             class="duel-loss__summary"
-            :class="{ 'duel-loss__summary--air-ai': game.id === 'air' && mode === 'ai' }"
+            :class="{
+              'duel-loss__summary--air-ai': game.id === 'air' && mode === 'ai',
+            }"
           >
             <p>
-              <b>{{ isCompetitiveLoss ? '괜찮아요! 다시 도전해요!' : '재미있는 한 판이었어요!' }}</b>
+              <b>{{
+                isCompetitiveLoss
+                  ? '괜찮아요! 다시 도전해요!'
+                  : '재미있는 한 판이었어요!'
+              }}</b>
               <span>
                 {{
                   isCompetitiveLoss
@@ -566,28 +800,29 @@ function goToGames() {
                 }}
               </span>
             </p>
-            <dl v-if="!(game.id === 'air' && mode === 'ai')">
-              <template v-if="game.id === 'air'">
-                <div><dt>경기 시간</dt><dd>00:34</dd></div>
-                <div><dt>내 득점</dt><dd>2</dd></div>
-                <div><dt>상대 득점</dt><dd>3</dd></div>
-              </template>
-              <template v-else>
-                <div><dt>게임 시간</dt><dd>00:30</dd></div>
-                <div><dt>최대 콤보</dt><dd>32</dd></div>
-                <div><dt>정확도</dt><dd>89.2%</dd></div>
-              </template>
+            <dl v-if="visibleResultStats.length">
+              <div v-for="stat in visibleResultStats" :key="stat.label">
+                <dt>{{ stat.label }}</dt>
+                <dd>{{ stat.value }}</dd>
+              </div>
             </dl>
             <button type="button" @click="replay">다시 플레이</button>
           </footer>
           <p class="duel-loss__note">
-            {{ mode === 'friends' ? '친구와의 게임은 랭킹에 반영되지 않습니다.' : '대결 결과는 mock 데이터입니다.' }}
+            {{
+              mode === 'friends'
+                ? '친구와의 게임은 랭킹에 반영되지 않습니다.'
+                : '결과가 실제 플레이 기록으로 저장됐어요.'
+            }}
           </p>
         </section>
       </template>
 
       <template v-else-if="isHoldRecordMissed">
-        <section class="hold-record-missed" aria-labelledby="hold-record-missed-title">
+        <section
+          class="hold-record-missed"
+          aria-labelledby="hold-record-missed-title"
+        >
           <header class="hold-record-missed__header">
             <span>눈싸움 · 솔로 모드</span>
             <h2 id="hold-record-missed-title">게임 결과!</h2>
@@ -605,29 +840,44 @@ function goToGames() {
               />
               <div class="hold-record-missed__time">
                 <span>최종 생존 시간</span>
-                <strong>00:45.27</strong>
-                <small>이전 최고 기록 <b>01:02.38</b></small>
+                <strong>{{ result.score }}</strong>
+                <small
+                  >이전 최고 기록
+                  <b>{{ result.previousBestScore ?? '-' }}초</b></small
+                >
               </div>
             </article>
 
             <div class="hold-record-missed__side">
               <article class="hold-record-missed__rank">
-                <span>2</span>
+                <span>-</span>
                 <p>내 순위</p>
-                <strong>2등</strong>
-                <small>조금만 더 집중하면 1등이 될 수 있어요!</small>
+                <strong>확인 불가</strong>
+                <small>전체 랭킹에서 순위를 확인할 수 있어요.</small>
               </article>
               <article class="hold-record-missed__summary">
                 <h3>기록 요약</h3>
                 <dl>
-                  <div><dt>내 최고 기록</dt><dd>01:02.38</dd></div>
-                  <div><dt>기록 차이</dt><dd>-00:17.11</dd></div>
-                  <div><dt>순위</dt><dd>2등</dd></div>
+                  <div>
+                    <dt>내 최고 기록</dt>
+                    <dd>{{ result.previousBestScore ?? '-' }}초</dd>
+                  </div>
+                  <div>
+                    <dt>기록 차이</dt>
+                    <dd>{{ holdRecordDifference }}</dd>
+                  </div>
+                  <div>
+                    <dt>순위</dt>
+                    <dd>-</dd>
+                  </div>
                 </dl>
               </article>
               <aside class="hold-record-missed__tip">
                 <b>TIP!</b>
-                <span>집중력과 순발력이 높은 시간대에 도전해보세요!<br />짧은 휴식 후 다시 도전하면 더 좋은 결과를 얻을 수 있어요.</span>
+                <span
+                  >집중력과 순발력이 높은 시간대에 도전해보세요!<br />짧은 휴식
+                  후 다시 도전하면 더 좋은 결과를 얻을 수 있어요.</span
+                >
               </aside>
               <button type="button" @click="replay">다시 도전하기</button>
             </div>
@@ -651,8 +901,16 @@ function goToGames() {
             <div class="failed-result__heart-card">
               <strong>하트를 모두 사용했어요!</strong>
               <div class="failed-result__hearts" aria-label="사용한 하트 5개">
-                <svg v-for="index in 5" :key="index" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 20.3 3.8 12.8A5.3 5.3 0 0 1 11.3 5L12 5.7l.7-.7a5.3 5.3 0 0 1 7.5 7.8z" fill="currentColor" />
+                <svg
+                  v-for="index in 5"
+                  :key="index"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 20.3 3.8 12.8A5.3 5.3 0 0 1 11.3 5L12 5.7l.7-.7a5.3 5.3 0 0 1 7.5 7.8z"
+                    fill="currentColor"
+                  />
                 </svg>
               </div>
             </div>
@@ -712,7 +970,10 @@ function goToGames() {
               </svg>
             </span>
           </h1>
-          <p>3개 라운드의 그림 인식 결과를 확인해보세요.</p>
+          <p>
+            {{ drawRoundResults.length }}개 라운드의 그림 인식 결과를
+            확인해보세요.
+          </p>
         </header>
 
         <section class="draw-total-card" aria-label="최종 총점">
@@ -739,7 +1000,7 @@ function goToGames() {
             >{{ drawScoreDisplay }}점</strong
           >
           <p class="draw-total-card__message">신기록을 달성했어요!</p>
-          <p class="draw-total-card__meta">
+          <p v-if="result.isNewRecord === true" class="draw-total-card__meta">
             <b>NEW RECORD</b>
           </p>
         </section>
@@ -758,7 +1019,7 @@ function goToGames() {
                     >ROUND {{ index + 1 }}</span
                   >
                   <span class="draw-round-card__difficulty">{{
-                    round.difficulty
+                    DRAWING_DIFFICULTY_LABEL[round.difficulty]
                   }}</span>
                 </span>
               </p>
@@ -766,11 +1027,11 @@ function goToGames() {
                 <b
                   class="draw-round-card__answer"
                   :class="
-                    round.correct
+                    round.success
                       ? 'draw-round-card__answer--correct'
                       : 'draw-round-card__answer--wrong'
                   "
-                  >{{ round.correct ? '정답' : '오답' }}</b
+                  >{{ round.success ? '정답' : '오답' }}</b
                 >
                 {{ round.prompt }}
               </p>
@@ -786,7 +1047,9 @@ function goToGames() {
                   role="tooltip"
                 >
                   <b>상세 점수</b>
-                  <span><i>기본 점수</i><em>100점</em></span>
+                  <span
+                    ><i>기본 점수</i><em>{{ round.baseScore }}점</em></span
+                  >
                   <span
                     ><i>시간 보너스</i><em>{{ round.timeBonus }}점</em></span
                   >
@@ -831,29 +1094,19 @@ function goToGames() {
                     stroke="#8f97a6"
                     stroke-width="1"
                   />
-                  <text
-                    x="12"
-                    y="18.5"
-                    text-anchor="middle"
-                    font-size="9"
-                    font-weight="800"
-                    fill="#fff"
-                  >
-                    2
-                  </text>
+                  <path d="M8.5 15h7" stroke="#fff" stroke-width="1.5" />
                 </svg>
               </span>
-              <p>내 순위 <strong>2위</strong> <small>/ 154명</small></p>
-              <b>상위 1.3%</b>
+              <p>
+                이번 게임 점수 <strong>{{ drawTotalScore }}점</strong>
+              </p>
+              <b>랭킹은 전체 랭킹에서 확인할 수 있어요.</b>
             </div>
             <ol class="draw-ranking__list">
-              <li><b>1</b><span>눈빛 마스터</span><strong>785점</strong></li>
               <li class="draw-ranking__list-item--mine">
-                <b>2</b><span>{{ myNickname }} (나)</span
+                <b>-</b><span>{{ myNickname }} (나)</span
                 ><strong>{{ drawTotalScore }}점</strong>
               </li>
-              <li><b>3</b><span>시선의 지배자</span><strong>698점</strong></li>
-              <li><b>4</b><span>집중하는 눈빛</span><strong>645점</strong></li>
             </ol>
           </div>
         </section>
@@ -922,7 +1175,8 @@ function goToGames() {
                 alt="내 플레이어 마스코트"
                 draggable="false"
               />
-              <span>{{ myNickname }} · 나</span><strong>{{ myNickname }}</strong>
+              <span>{{ myNickname }} · 나</span
+              ><strong>{{ myNickname }}</strong>
             </section>
             <section class="versus-stats">
               <div>
@@ -942,10 +1196,10 @@ function goToGames() {
                 alt="상대 플레이어 프로필 이미지"
                 draggable="false"
               />
-              <span>{{ mode === 'ai' ? 'AI · BOT' : `${mockOpponentNickname} · 상대` }}</span
-              ><strong>{{
-                mode === 'ai' ? 'AI 플레이어' : mockOpponentNickname
-              }}</strong>
+              <span>{{
+                mode === 'ai' ? 'AI · BOT' : `${opponentNickname} · 상대`
+              }}</span
+              ><strong>{{ opponentNickname }}</strong>
             </section>
           </article>
         </template>
@@ -954,7 +1208,9 @@ function goToGames() {
           <template v-if="!isCompetitive">
             <div class="result-summary__heading">
               <p class="result-summary__eyebrow">기록 요약</p>
-              <span class="record-badge">NEW RECORD</span>
+              <span v-if="result.isNewRecord === true" class="record-badge"
+                >NEW RECORD</span
+              >
             </div>
             <h3>{{ title }} 플레이 기록</h3>
           </template>
@@ -1004,13 +1260,11 @@ function goToGames() {
               <dd>{{ stat.value }}</dd>
             </div>
           </dl>
-          <p class="mock-note">
+          <p class="result-note">
             {{
               !isCompetitive
                 ? '좋은 기록이에요. 다음 게임에서도 도전해 보세요!'
-                : hasRealResult
-                  ? '결과가 실제 플레이 기록으로 저장됐어요.'
-                  : '대결 결과는 mock 데이터입니다.'
+                : '결과가 실제 플레이 기록으로 저장됐어요.'
             }}
           </p>
         </article>
@@ -1021,7 +1275,12 @@ function goToGames() {
       class="result-actions"
       aria-label="결과 화면 동작"
     >
-      <button v-if="!isCompetitive" type="button" class="primary" @click="replay">
+      <button
+        v-if="!isCompetitive"
+        type="button"
+        class="primary"
+        @click="replay"
+      >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
             d="M20 11A8 8 0 1 0 18 16"
@@ -1045,8 +1304,11 @@ function goToGames() {
       ><RouterLink to="/games">게임 목록</RouterLink>
     </nav>
   </GameResultShell>
+  <section v-else-if="persistedResultLoading" class="missing">
+    <h1>게임 결과를 불러오는 중이에요.</h1>
+  </section>
   <section v-else class="missing">
-    <h1>게임을 찾을 수 없어요.</h1>
+    <h1>게임 결과를 찾을 수 없어요.</h1>
     <RouterLink to="/games">게임 목록으로</RouterLink>
   </section>
 </template>
@@ -1318,7 +1580,10 @@ function goToGames() {
 }
 .duel-loss__scoreboard {
   display: grid;
-  grid-template-columns: minmax(150px, 0.68fr) minmax(360px, 1.35fr) minmax(150px, 0.68fr);
+  grid-template-columns: minmax(150px, 0.68fr) minmax(360px, 1.35fr) minmax(
+      150px,
+      0.68fr
+    );
   gap: 18px;
   align-items: stretch;
 }
@@ -1956,7 +2221,7 @@ function goToGames() {
   color: var(--color-ink);
   font-weight: 900;
 }
-.mock-note {
+.result-note {
   margin: 0;
   color: var(--color-muted);
   font-size: 12px;

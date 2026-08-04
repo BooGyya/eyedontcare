@@ -52,7 +52,9 @@ function stubFetch({ postOk = true } = {}): FetchCall[] {
           json: async () => ({
             code: postOk ? 'OK' : 'ERR',
             message: '',
-            data: postOk ? { resultId: 1 } : null,
+            data: postOk
+              ? { resultId: 1, isNewRecord: true, previousBestScore: null }
+              : null,
           }),
         }
       }
@@ -83,18 +85,28 @@ describe('useGameResultSubmission', () => {
     globalThis.localStorage.setItem(ACCESS_TOKEN_KEY, fakeAccessToken(8))
     const calls = stubFetch()
 
-    await useGameResultSubmission().submitPlayedResult({
+    const submitted = await useGameResultSubmission().submitPlayedResult({
       gameSlug: 'hold',
       mode: 'solo',
       startedAt: '2026-08-01T10:00:00.000Z',
       score: 120,
     })
 
+    expect(submitted).toEqual({
+      resultId: 1,
+      isNewRecord: true,
+      previousBestScore: null,
+    })
+
     const post = calls.find((c) => c.url.includes('/game-results'))
     expect(post).toBeTruthy()
     const body = post?.body as {
       gameId: number
-      participants: { participantKey: string; participantType: string; outcome: string }[]
+      participants: {
+        participantKey: string
+        participantType: string
+        outcome: string
+      }[]
       gameResult: Record<string, unknown>
     }
     expect(body.gameId).toBe(4) // EYEFIGHT + SOLO
@@ -226,11 +238,15 @@ describe('useGameResultSubmission', () => {
 
     const post = calls.find((c) => c.url.includes('/game-results'))
     const body = post?.body as {
-      participants: { participantKey: string; participantType: string; outcome: string }[]
+      participants: {
+        participantKey: string
+        participantType: string
+        outcome: string
+      }[]
     }
     expect(body.participants[0].participantKey).toBe('GUEST:guest-abc')
     expect(body.participants[0].participantType).toBe('GUEST')
-    expect(body.participants[0].outcome).toBe('WIN') // non-solo, non-draw
+    expect(body.participants[0].outcome).toBe('COMPLETED') // 승패를 확정하지 못한 경우
   })
 
   it('does not throw when submission fails', async () => {
@@ -244,6 +260,6 @@ describe('useGameResultSubmission', () => {
         startedAt: '2026-08-01T10:00:00.000Z',
         score: 1,
       }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBeNull()
   })
 })
