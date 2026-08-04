@@ -3,6 +3,8 @@ package org.ssafy.b102.backend.game.service;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -10,6 +12,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.ssafy.b102.backend.game.config.GmsProperties;
 import org.ssafy.b102.backend.game.dto.request.RecognizeDrawingRequest;
 import org.ssafy.b102.backend.game.dto.response.RecognizeDrawingResponse;
@@ -25,6 +28,9 @@ import org.ssafy.b102.backend.global.error.BusinessException;
  */
 @Service
 public class DrawRecognitionService {
+
+	private static final Logger log =
+		LoggerFactory.getLogger(DrawRecognitionService.class);
 
 	private static final String SYSTEM_PROMPT =
 		"너는 사용자가 눈으로 그린 낙서를 보고 무엇을 그렸는지 판별하는 채점자야. "
@@ -74,6 +80,14 @@ public class DrawRecognitionService {
 	}
 
 	private Recognition requestRecognition(RecognizeDrawingRequest request) {
+		String imageDataUrl = request.imageDataUrl();
+		log.info("GMS 그림 인식 요청: model={} imageLen={} prefix={}",
+			properties.model(),
+			imageDataUrl == null ? 0 : imageDataUrl.length(),
+			imageDataUrl == null
+				? "null"
+				: imageDataUrl.substring(0, Math.min(45, imageDataUrl.length())));
+
 		Map<String, Object> body = Map.of(
 			"model", properties.model(),
 			"temperature", 0,
@@ -110,6 +124,13 @@ public class DrawRecognitionService {
 		} catch (BusinessException exception) {
 			throw exception;
 		} catch (RestClientException | tools.jackson.core.JacksonException exception) {
+			if (exception instanceof RestClientResponseException responseException) {
+				log.warn("GMS 그림 인식 실패: status={} body={}",
+					responseException.getStatusCode(),
+					responseException.getResponseBodyAsString());
+			} else {
+				log.warn("GMS 그림 인식 실패", exception);
+			}
 			throw new BusinessException(
 				GameErrorCode.DRAWING_RECOGNITION_FAILED);
 		}
