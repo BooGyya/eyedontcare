@@ -51,9 +51,11 @@ const description = computed(() =>
     ? '방을 만들거나 친구에게 받은 코드로 참여해 보세요.'
     : '실력이 비슷한 상대를 찾고 있어요.',
 )
-const matchingTime = computed(
-  () => `00:${String(matchingSeconds.value).padStart(2, '0')}`,
-)
+const matchingTime = computed(() => {
+  const minutes = Math.floor(matchingSeconds.value / 60)
+  const seconds = matchingSeconds.value % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+})
 
 function clearMatching() {
   if (matchInterval) globalThis.clearInterval(matchInterval)
