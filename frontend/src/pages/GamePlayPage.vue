@@ -182,6 +182,10 @@ let unsubscribeBlinkEvents: (() => void) | undefined
 // 대결 모드에서 상대방 실시간 상태를 보여주기 위한 게임 세션 소켓(중계 전용, 판정은 안 함).
 const blinkGameSession = useGameSessionSocket({
   onPlayerEvent: (event) => {
+    if (event.eventType === 'GAME_OVER') {
+      opponentFinished = true
+      return
+    }
     if (event.eventType !== 'BLINK_COUNT') return
     const count = Number(event.payload?.count)
     if (Number.isFinite(count)) opponentBlinkCount.value = count
@@ -297,6 +301,10 @@ const stareOpponentSynced = ref(false)
 const opponentStareLostFirst = ref(false)
 const stareGameSession = useGameSessionSocket({
   onPlayerEvent: (event) => {
+    if (event.eventType === 'GAME_OVER') {
+      opponentFinished = true
+      return
+    }
     if (event.eventType !== 'STARE_STATE') return
     const elapsedMs = Number(event.payload?.elapsedMs)
     if (Number.isFinite(elapsedMs)) stareOpponentElapsedMs.value = elapsedMs
@@ -400,6 +408,10 @@ void rhythmVideoRef
 
 const rhythmGameSession = useGameSessionSocket({
   onPlayerEvent: (event) => {
+    if (event.eventType === 'GAME_OVER') {
+      opponentFinished = true
+      return
+    }
     if (event.eventType !== 'RHYTHM_STATE') return
     const score = Number(event.payload?.score)
     const combo = Number(event.payload?.combo)
@@ -662,6 +674,10 @@ let airLastMoveSentAt = 0
 
 const airGameSession = useGameSessionSocket({
   onPlayerEvent: (event) => {
+    if (event.eventType === 'GAME_OVER') {
+      opponentFinished = true
+      return
+    }
     if (event.eventType === 'AIR_HOCKEY_MOVE') {
       const targetX = Number(event.payload?.targetX)
       if (Number.isFinite(targetX)) airGameState.value.top.targetX = targetX
@@ -1097,6 +1113,8 @@ function toResult() {
   if (!game.value) return
   exiting = true
   clearGameInProgress()
+  // 정상 종료를 상대에게 알린다(이후 소켓 종료를 상대가 이탈로 오인해 몰수 처리하지 않게).
+  sendActiveGameOver()
   const score =
     game.value.id === 'blink'
       ? blinkGameState.value.score
@@ -1612,6 +1630,9 @@ function leaveGame() {
 // 정책: 멀티(친구/랜덤)는 몰수패 — 세션 소켓을 닫아 상대에게 이탈을 알린다. 솔로/AI는 그냥 종료.
 // `exiting`은 정상 종료(toResult/leaveGame) 중에 카메라가 꺼지며 중복 처리되는 것을 막는다.
 let exiting = false
+// 상대가 GAME_OVER(정상 종료)를 보냈는지. 이후 오는 소켓 종료(PARTICIPANT_LEFT)는 정상 종료의
+// 일부이지 중도 이탈이 아니므로 몰수 처리하지 않기 위한 구분값.
+let opponentFinished = false
 
 // 진행 중 표시. 새로고침(브라우저 경고가 억제되는 경우 포함)으로 게임이 끊겼는지 판별한다.
 // 마운트 시 표시를 남기고, 정상 종료 때만 지운다. 새로고침하면 표시가 남아 있어 재마운트에서 감지된다.
@@ -1685,12 +1706,58 @@ function closeActiveSession() {
   }
 }
 
-// 대결 상대가 게임을 나가면(랜덤/친구 매칭) 게임을 종료한다. 지금까지의 점수로 결과를
-// 기록하고 결과 화면으로 이동한다. 정상 종료가 이미 진행 중이면(exiting) 무시한다.
+/** 현재 게임의 대결 세션으로 GAME_OVER를 보낸다(정상 종료 알림). 세션 없으면 무해한 no-op. */
+function sendActiveGameOver() {
+  switch (game.value?.id) {
+    case 'blink':
+      blinkGameSession.sendPlayerEvent('GAME_OVER')
+      break
+    case 'hold':
+      stareGameSession.sendPlayerEvent('GAME_OVER')
+      break
+    case 'rhythm':
+      rhythmGameSession.sendPlayerEvent('GAME_OVER')
+      break
+    case 'air':
+      airGameSession.sendPlayerEvent('GAME_OVER')
+      break
+    default:
+      break
+  }
+}
+
+/**
+ * 상대 소켓이 닫혔을 때. 상대가 GAME_OVER를 먼저 보냈으면 정상 종료의 일부이므로 무시하고
+ * 내 게임은 내 흐름대로 끝난다. GAME_OVER 없이 끊겼으면 중도 이탈이므로 몰수승으로 종료한다.
+ */
 function handleOpponentLeft() {
-  if (exiting) return
-  showToast('상대방이 나가 게임을 종료합니다.')
-  toResult()
+  if (exiting || opponentFinished) return
+  exiting = true
+  clearGameInProgress()
+  showToast('상대방이 나가 승리했어요.')
+  recordForfeitWin()
+  if (game.value) {
+    void router.push({
+      name: 'game-result',
+      params: { gameId: game.value.id },
+      query: { ...route.query, result: 'opponent-left' },
+    })
+  }
+}
+
+/** 상대 이탈 몰수승 결과를 결과 화면용으로 기록한다. */
+function recordForfeitWin() {
+  if (!game.value) return
+  lastGameResultStore.set({
+    gameId: game.value.id,
+    mode: mode.value,
+    outcome: 'WIN',
+    headline: '상대방이 나갔어요',
+    summary: '상대방이 게임을 나가 승리했어요.',
+    scoreLabel: '결과',
+    score: '상대 이탈 승리',
+    stats: [],
+  })
 }
 
 function handleCameraLost() {
