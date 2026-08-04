@@ -19,6 +19,7 @@ import {
   CALIBRATION_TARGETS,
   GazeCalibrator,
   GazeSmoother,
+  averageGazeSamples,
   type CalibrationEvaluation,
   type GazeCalibrationProfile,
   type Point,
@@ -274,6 +275,30 @@ export function useEyeTracking() {
     return true
   }
 
+  /**
+   * 한 지점에서 {@code durationMs} 동안 원시 시선을 여러 프레임 모아 평균낸 뒤 타깃과 짝짓는다.
+   * 프레임마다 튀는 웹캠 시선을 한 프레임만 쓰면 보정이 흔들리므로, 점 개수(클릭 수)는 그대로
+   * 두고 점당 표본 품질을 높여 정확도를 올린다. 유효 표본이 없으면 false.
+   */
+  async function captureGazeCalibrationSample(
+    target: Point,
+    durationMs = 500,
+  ): Promise<boolean> {
+    const samples: Point[] = []
+    const startedAt = globalThis.performance.now()
+    while (globalThis.performance.now() - startedAt < durationMs) {
+      await nextAnimationFrame()
+      const current = rawGaze.value
+      if (current) {
+        samples.push({ x: current.x, y: current.y })
+      }
+    }
+    const averaged = averageGazeSamples(samples)
+    if (!averaged) return false
+    gazeCalibrator.addPair(averaged, target)
+    return true
+  }
+
   function finishGazeCalibration(): GazeCalibrationResult | null {
     try {
       const profile = gazeCalibrator.fit()
@@ -332,6 +357,7 @@ export function useEyeTracking() {
 
     beginGazeCalibration,
     addGazeCalibrationSample,
+    captureGazeCalibrationSample,
     finishGazeCalibration,
     applyGazeProfile,
     gazeCalibrationTargets: CALIBRATION_TARGETS,
