@@ -10,6 +10,7 @@ import {
   joinGroupById,
   leaveGroup,
   deleteGroup,
+  kickMember,
   type GroupDetailResponse,
 } from '../api/group'
 
@@ -68,6 +69,21 @@ async function handleDelete() {
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '삭제에 실패했어요.')
+  } finally {
+    isBusy.value = false
+  }
+}
+
+async function handleKick(userId: number, nickname: string) {
+  if (!detail.value || isBusy.value) return
+  if (!globalThis.confirm(`'${nickname}' 님을 강퇴할까요?`)) return
+  isBusy.value = true
+  try {
+    await kickMember(groupId.value, userId)
+    showToast('멤버를 강퇴했어요.')
+    await load()
+  } catch (error) {
+    showToast(error instanceof ApiError ? error.message : '강퇴에 실패했어요.')
   } finally {
     isBusy.value = false
   }
@@ -185,7 +201,18 @@ watch(
         <ul>
           <li v-for="member in detail.memberList" :key="member.userId">
             <span class="community-detail__member-name">{{ member.nickname }}</span>
-            <span class="community-detail__member-role">{{ roleLabel(member.role) }}</span>
+            <span class="community-detail__member-meta">
+              <span class="community-detail__member-role">{{ roleLabel(member.role) }}</span>
+              <button
+                v-if="detail.isOwner && member.role !== 'OWNER'"
+                type="button"
+                class="community-detail__kick"
+                :disabled="isBusy"
+                @click="handleKick(member.userId, member.nickname)"
+              >
+                강퇴
+              </button>
+            </span>
           </li>
         </ul>
       </section>
@@ -320,9 +347,29 @@ watch(
   border-radius: 12px;
   background: #fff;
 }
+.community-detail__member-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .community-detail__member-role {
   color: var(--color-accent-blue);
   font-size: 12px;
   font-weight: 800;
+}
+.community-detail__kick {
+  padding: 4px 10px;
+  border: 1px solid #e2b4b4;
+  border-radius: 8px;
+  background: #fff;
+  color: #c0392b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.community-detail__kick:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
 }
 </style>

@@ -133,6 +133,16 @@ export async function deleteGroup(groupId: string): Promise<void> {
   await apiRequest<null>(`/groups/${groupId}`, { method: 'DELETE' })
 }
 
+/** 소모임 멤버 강퇴(방장 전용). */
+export async function kickMember(
+  groupId: string,
+  userId: number,
+): Promise<void> {
+  await apiRequest<null>(`/groups/${groupId}/members/${userId}`, {
+    method: 'DELETE',
+  })
+}
+
 // --- 변환 ---
 
 /** 백엔드 GroupResponse를 화면용 CommunityGroup으로 바꾼다(activity는 백엔드에 없어 제외). */
