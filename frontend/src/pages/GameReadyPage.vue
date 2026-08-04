@@ -435,9 +435,7 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
   if (!result.success) {
     eyeSampleFeedback.value = 'insufficient'
     playCalibrationSound('reject')
-    showToast(
-      '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.',
-    )
+    showToast(eyeSampleFailureMessage(kind, result.reason))
     return
   }
 
@@ -445,6 +443,23 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
   playCalibrationSound('step')
   // 성공 표시를 잠깐 보여준 뒤 다음 단계로 넘어간다.
   globalThis.setTimeout(advanceCalibrationStage, 500)
+}
+
+/**
+ * 눈 상태 기록 실패 안내. 요청한 단계(open/closed)와 실제 상태가 반대이면 어떻게
+ * 다시 시도해야 하는지 구체적으로 알려준다.
+ */
+function eyeSampleFailureMessage(
+  kind: 'open' | 'closed',
+  reason: 'no_face' | 'eyes_open' | 'eyes_closed' | undefined,
+): string {
+  if (reason === 'eyes_closed') {
+    return '이 단계는 눈을 뜬 상태를 기록해요. 눈을 크게 뜨고 다시 눌러주세요.'
+  }
+  if (reason === 'eyes_open') {
+    return '이 단계는 눈을 감은 상태를 기록해요. 눈을 꼭 감고 다시 눌러주세요.'
+  }
+  return '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.'
 }
 
 function recordGazeCalibrationPoint() {

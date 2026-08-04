@@ -27,7 +27,18 @@ import {
 export interface EyeSampleResult {
   success: boolean
   sampleCount: number
+  /**
+   * 실패 사유. `no_face`는 얼굴 인식 부족, `eyes_open`/`eyes_closed`는 요청한 단계와
+   * 실제 눈 상태가 반대여서 거절된 경우(감아야 하는데 떴거나, 떠야 하는데 감음).
+   */
+  reason?: 'no_face' | 'eyes_open' | 'eyes_closed'
 }
+
+/**
+ * 눈 감기 단계에서 측정한 감은 ratio가 (본인의) 뜬 ratio 대비 이 비율보다 작아야
+ * "확실히 감았다"고 본다. 눈을 뜬 채로 감기 단계를 누르면 두 값이 비슷해져 거절된다.
+ */
+const CLOSED_EYE_SEPARATION = 0.7
 
 export interface GazeCalibrationResult {
   profile: GazeCalibrationProfile
@@ -182,21 +193,47 @@ export function useEyeTracking() {
     durationMs = 1200,
   ): Promise<EyeSampleResult> {
     const samples: { left: number; right: number }[] = []
+    let closedFrameCount = 0
     const startedAt = globalThis.performance.now()
     while (globalThis.performance.now() - startedAt < durationMs) {
       await nextAnimationFrame()
       const latest = engine.lastResult
       if (latest.faceDetected && latest.confidence > 0.45) {
         samples.push(latest.ratios)
+        if (latest.combinedState === 'BOTH_CLOSED') closedFrameCount += 1
       }
     }
 
     if (samples.length < 8) {
-      return { success: false, sampleCount: samples.length }
+      return { success: false, sampleCount: samples.length, reason: 'no_face' }
     }
 
     const left = trimmedMean(samples.map((sample) => sample.left))
     const right = trimmedMean(samples.map((sample) => sample.right))
+
+    // 요청한 단계와 실제 눈 상태가 반대이면 잘못된 기준이 저장되므로 거절한다(프로필 미변경).
+    // - open : 대부분 프레임이 감긴 상태면 사용자가 눈을 감고 있었던 것
+    // - closed: 감은 값이 방금 기록한 본인 뜬 값 대비 충분히 낮지 않으면 눈을 안 감은 것
+    if (kind === 'open' && closedFrameCount > samples.length / 2) {
+      return {
+        success: false,
+        sampleCount: samples.length,
+        reason: 'eyes_closed',
+      }
+    }
+    if (kind === 'closed') {
+      const notClearlyClosed =
+        left >= engine.profile.openEyeRatioLeft * CLOSED_EYE_SEPARATION ||
+        right >= engine.profile.openEyeRatioRight * CLOSED_EYE_SEPARATION
+      if (notClearlyClosed) {
+        return {
+          success: false,
+          sampleCount: samples.length,
+          reason: 'eyes_open',
+        }
+      }
+    }
+
     const patch: Partial<EyeCalibrationProfile> =
       kind === 'open'
         ? { openEyeRatioLeft: left, openEyeRatioRight: right }
