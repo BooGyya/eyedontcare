@@ -55,6 +55,10 @@ services:
       OPENVIDU_URL: ${OPENVIDU_URL:-wss://localhost:7443}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      # 눈으로 그리기 AI 채점(SSAFY GMS). 키는 .env(GMS_API_KEY)로만 주입한다(커밋 금지).
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URI: ${GMS_BASE_URI:-https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions}
+      GMS_MODEL: ${GMS_MODEL:-gpt-4o}
       SERVER_PORT: "8080"
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8102}:8080"
