@@ -59,7 +59,9 @@ class GameResultControllerTest {
 				.content(VALID_BODY))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.code").value("RESULT_SUBMITTED"))
-			.andExpect(jsonPath("$.data.resultId").value(CREATED_RESULT_ID));
+			.andExpect(jsonPath("$.data.resultId").value(CREATED_RESULT_ID))
+			.andExpect(jsonPath("$.data.isNewRecord").value(true))
+			.andExpect(jsonPath("$.data.previousBestScore").value(310));
 	}
 
 	@Test
@@ -201,12 +203,12 @@ class GameResultControllerTest {
 	private static class StubGameResultService extends GameResultService {
 
 		private StubGameResultService() {
-			super(null, null, null);
+			super(null, null, null, null);
 		}
 
 		@Override
 		public SubmitGameResultResponse submit(String participantKey, SubmitGameResultRequest request) {
-			return new SubmitGameResultResponse(CREATED_RESULT_ID);
+			return new SubmitGameResultResponse(CREATED_RESULT_ID, true, 310L);
 		}
 	}
 

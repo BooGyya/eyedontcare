@@ -270,6 +270,72 @@ class GameResultServiceTest {
 		assertThat(response.resultId()).isNotNull();
 	}
 
+	@Test
+	void submitMarksNewRecordWhenNoPreviousScore() {
+		SubmitGameResultResponse response =
+			gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 360));
+
+		assertThat(response.isNewRecord()).isTrue();
+		assertThat(response.previousBestScore()).isNull();
+	}
+
+	@Test
+	void submitMarksNewRecordWhenScoreBeatsPreviousBest() {
+		gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 300));
+
+		SubmitGameResultResponse response =
+			gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 360));
+
+		assertThat(response.isNewRecord()).isTrue();
+		assertThat(response.previousBestScore()).isEqualTo(300L);
+	}
+
+	@Test
+	void submitDoesNotMarkNewRecordWhenScoreBelowPreviousBest() {
+		gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 360));
+
+		SubmitGameResultResponse response =
+			gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 300));
+
+		assertThat(response.isNewRecord()).isFalse();
+		assertThat(response.previousBestScore()).isEqualTo(360L);
+	}
+
+	/**
+	 * 동점은 신기록이 아니다(엄격히 커야 함).
+	 */
+	@Test
+	void submitDoesNotMarkNewRecordOnTie() {
+		gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 360));
+
+		SubmitGameResultResponse response =
+			gameResultService.submit(REQUESTER_KEY, soloScoreRequest(UUID.randomUUID(), 360));
+
+		assertThat(response.isNewRecord()).isFalse();
+		assertThat(response.previousBestScore()).isEqualTo(360L);
+	}
+
+	/**
+	 * 게스트는 개인 최고 기록을 추적하지 않으므로 신기록 판정 대상이 아니다.
+	 */
+	@Test
+	void submitDoesNotMarkNewRecordForGuestRequester() {
+		guestSessionStub.register(guestSession(GUEST_ID, "게스트수달"));
+		SubmitGameResultRequest request = new SubmitGameResultRequest(
+			UUID.randomUUID(),
+			gameId,
+			STARTED_AT,
+			ENDED_AT,
+			List.of(new ParticipantResultRequest(GUEST_KEY, ParticipantType.GUEST, 1, "게스트", Outcome.WIN, 1)),
+			Map.of("1", Map.of("score", 360))
+		);
+
+		SubmitGameResultResponse response = gameResultService.submit(GUEST_KEY, request);
+
+		assertThat(response.isNewRecord()).isFalse();
+		assertThat(response.previousBestScore()).isNull();
+	}
+
 	private static GuestSession guestSession(UUID id, String nickname) {
 		Instant createdAt = Instant.parse("2026-07-28T00:00:00Z");
 		return new GuestSession(id, nickname, createdAt, createdAt.plus(Duration.ofHours(24)));
@@ -281,6 +347,20 @@ class GameResultServiceTest {
 			gameId,
 			new ParticipantResultRequest(REQUESTER_KEY, ParticipantType.USER, 1, "A", Outcome.WIN, 1),
 			new ParticipantResultRequest(OPPONENT_KEY, ParticipantType.USER, 2, "B", Outcome.LOSE, 2)
+		);
+	}
+
+	/**
+	 * 슬롯 1에 점수를 담은 솔로(1인) 제출 요청. 통일 구조 {@code {"1": {"score": N}}}를 쓴다.
+	 */
+	private SubmitGameResultRequest soloScoreRequest(UUID playId, long score) {
+		return new SubmitGameResultRequest(
+			playId,
+			gameId,
+			STARTED_AT,
+			ENDED_AT,
+			List.of(new ParticipantResultRequest(REQUESTER_KEY, ParticipantType.USER, 1, "A", Outcome.WIN, 1)),
+			Map.of("1", Map.of("score", score))
 		);
 	}
 
