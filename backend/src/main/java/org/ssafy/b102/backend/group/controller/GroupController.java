@@ -106,6 +106,20 @@ public class GroupController {
 		));
 	}
 
+	@PostMapping("/{groupId}/join")
+	public ResponseEntity<ApiResponse<GroupResponse>> joinById(
+		@AuthenticationPrincipal AuthenticatedUser member,
+		@PathVariable Long groupId
+	) {
+		GroupResponse response =
+			groupService.joinById(member.userId(), groupId);
+
+		return ResponseEntity.ok(ApiResponse.success(
+			GroupSuccessCode.GROUP_JOIN_SUCCESS,
+			response
+		));
+	}
+
 	@PostMapping("/{groupId}/leave")
 	public ResponseEntity<ApiResponse<Void>> leave(
 		@AuthenticationPrincipal AuthenticatedUser member,
