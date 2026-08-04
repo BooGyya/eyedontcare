@@ -1504,7 +1504,7 @@ onBeforeUnmount(() => {
   margin-top: 16px;
 }
 .participant-grid--solo {
-  grid-template-columns: minmax(0, 560px);
+  grid-template-columns: minmax(0, 760px);
   justify-content: center;
 }
 .participant-card {
@@ -1546,7 +1546,7 @@ onBeforeUnmount(() => {
 .participant-visual {
   position: relative;
   display: grid;
-  min-height: 165px;
+  min-height: 340px;
   place-items: center;
   margin-top: 13px;
   overflow: hidden;
@@ -1743,7 +1743,8 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 .calibration-dialog {
-  width: min(100%, 960px);
+  width: min(96vw, 1400px);
+  max-height: min(94vh, 960px);
 }
 .calibration-dialog header {
   display: flex;
@@ -1800,7 +1801,7 @@ onBeforeUnmount(() => {
 .calibration-stage {
   position: relative;
   display: grid;
-  min-height: 460px;
+  min-height: min(64vh, 620px);
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
@@ -1809,7 +1810,7 @@ onBeforeUnmount(() => {
 .calibration-stage video,
 .calibration-stage img {
   width: 100%;
-  height: 460px;
+  height: min(64vh, 620px);
   object-fit: contain;
 }
 .calibration-stage p {

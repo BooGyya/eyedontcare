@@ -126,9 +126,13 @@ const drawBrushWidth = 5
 let drawRafHandle: number | undefined
 let unsubscribeDrawKeydown: (() => void) | undefined
 let drawShouldBridge = false
-/** 시선→펜 반응 속도 = 지수평활 계수. 낮을수록 부드럽고(떨림↓·반응 느림), 높을수록 즉각 반응. */
-const drawPenSpeed = ref(0.3)
-/** 평활된 커서 위치. 추적이 끊기면 null로 리셋해 다음 점부터 새로 시작(튐 방지). */
+/**
+ * 펜 속도 = 프레임당 커서가 시선을 따라 이동하는 최대 거리(0~1 정규화). 낮을수록 펜이 천천히
+ * 따라오고(느림·안정), 높을수록 즉각 따라온다. 지수평활 계수와 달리 '지연'이 아니라 실제 '이동
+ * 속도'를 제한하므로 슬라이더 조절이 눈에 띄게 반영된다.
+ */
+const drawPenSpeed = ref(0.03)
+/** 커서 위치. 추적이 끊기면 null로 리셋해 다음 점부터 새로 시작(튐 방지). */
 let drawSmoothedCursor: { x: number; y: number } | null = null
 
 const drawTimeLabel = computed(() => {
@@ -1439,14 +1443,27 @@ function updateDrawCursorFromGaze() {
     x: Math.min(1, Math.max(0, gaze.x)),
     y: Math.min(1, Math.max(0, gaze.y)),
   }
-  // 지수평활으로 미세 떨림을 잡는다. drawPenSpeed가 낮을수록 더 부드럽고(반응 느림) 높을수록 즉각 반응.
-  const alpha = drawPenSpeed.value
-  drawSmoothedCursor = drawSmoothedCursor
-    ? {
-        x: drawSmoothedCursor.x + (raw.x - drawSmoothedCursor.x) * alpha,
-        y: drawSmoothedCursor.y + (raw.y - drawSmoothedCursor.y) * alpha,
+  if (!drawSmoothedCursor) {
+    drawSmoothedCursor = raw
+  } else {
+    const dx = raw.x - drawSmoothedCursor.x
+    const dy = raw.y - drawSmoothedCursor.y
+    const dist = Math.hypot(dx, dy)
+    const maxStep = drawPenSpeed.value
+    if (dist > maxStep && dist > 0) {
+      // 시선이 멀리 있으면 펜 속도(maxStep)만큼만 따라가 '느린/빠른 펜'이 체감되게 한다.
+      drawSmoothedCursor = {
+        x: drawSmoothedCursor.x + (dx / dist) * maxStep,
+        y: drawSmoothedCursor.y + (dy / dist) * maxStep,
       }
-    : raw
+    } else {
+      // 시선에 가까우면 가볍게 평활해 미세 떨림을 잡는다.
+      drawSmoothedCursor = {
+        x: drawSmoothedCursor.x + dx * 0.5,
+        y: drawSmoothedCursor.y + dy * 0.5,
+      }
+    }
+  }
   const point = drawSmoothedCursor
   drawCursor.value = point
 
@@ -1897,9 +1914,9 @@ function leaveGame() {
               <input
                 v-model.number="drawPenSpeed"
                 type="range"
-                min="0.15"
-                max="0.6"
-                step="0.05"
+                min="0.01"
+                max="0.08"
+                step="0.005"
                 aria-label="펜 반응 속도"
               />
             </label>
