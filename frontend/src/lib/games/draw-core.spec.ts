@@ -36,14 +36,14 @@ describe('draw-core', () => {
     const words = pickWordsForGame(() => 0)
     expect(words).toHaveLength(DRAWING_TOTAL_ROUNDS)
     // random()이 항상 0이면 각 난이도 목록의 첫 단어가 뽑힌다.
-    expect(words[0]).toBe('하트') // EASY[0]
-    expect(words[1]).toBe('나무') // MEDIUM[0]
-    expect(words[2]).toBe('자동차') // HARD[0]
+    expect(words[0]).toBe('달') // EASY[0]
+    expect(words[1]).toBe('사과') // MEDIUM[0]
+    expect(words[2]).toBe('배') // HARD[0]
   })
 
   it('라운드가 올라갈수록 난이도가 EASY→MEDIUM→HARD 순서로 상승한다', () => {
     const state = makeInitialDrawGameState()
-    const words = ['하트', '나무', '자동차']
+    const words = ['하트', '나무', '배']
 
     startDrawRound(state, words)
     expect(state.round).toBe(1)
@@ -62,7 +62,7 @@ describe('draw-core', () => {
 
   it('3라운드를 마치면 finished 상태가 된다', () => {
     const state = makeInitialDrawGameState()
-    const words = ['하트', '나무', '자동차']
+    const words = ['하트', '나무', '배']
 
     for (let round = 0; round < DRAWING_ROUND_DIFFICULTY.length; round += 1) {
       startDrawRound(state, words)

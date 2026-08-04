@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DrawPromptIcon from '../components/games/DrawPromptIcon.vue'
 import GamePlayShell from '../components/games/GamePlayShell.vue'
@@ -75,11 +75,31 @@ import {
   type AirHockeyState,
   type Mallet,
 } from '../lib/games/air-hockey-core'
+import airAiRobotImage from '../assets/images/games/game-air-ai-robot.png'
 
 const route = useRoute()
 const router = useRouter()
 const drawScoreOpen = ref(false)
 const selectedColor = ref('#161c2d')
+const gameplayLayoutRef = ref<HTMLElement | null>(null)
+let airGameScrollTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+
+function scrollToAirGameStart() {
+  const gameplayLayout = gameplayLayoutRef.value
+  if (!gameplayLayout || typeof globalThis.scrollTo !== 'function') return
+
+  const headerHeight =
+    globalThis.document
+      ?.querySelector('.app-header')
+      ?.getBoundingClientRect().height ?? 0
+  const targetTop =
+    globalThis.scrollY +
+    gameplayLayout.getBoundingClientRect().top -
+    headerHeight -
+    28
+
+  globalThis.scrollTo({ top: Math.max(0, targetTop), behavior: 'instant' })
+}
 
 // --- 그림그리기: 실제 시선 좌표 기반 캔버스 + AI 채점 연동 ---
 // 기획 확정본 기준 모드는 'ai' 하나뿐이라(친구/랜덤 없음) 상대 동기화가 필요 없다. 대신
@@ -969,6 +989,8 @@ onMounted(() => {
   }
   if (game.value?.id === 'air') {
     void initAirHockeyGame()
+    void nextTick(scrollToAirGameStart)
+    airGameScrollTimer = globalThis.setTimeout(scrollToAirGameStart, 250)
   }
   if (game.value?.id === 'draw') {
     void initDrawGame()
@@ -976,6 +998,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (airGameScrollTimer) globalThis.clearTimeout(airGameScrollTimer)
   if (game.value?.id === 'hold') stopStareGame()
   if (game.value?.id === 'blink') stopBlinkGame()
   if (game.value?.id === 'rhythm') stopRhythmGame()
@@ -1074,6 +1097,17 @@ function toResult() {
   if (game.value.id === 'air') recordAirHockeyResult()
   if (game.value.id === 'draw') recordDrawResult()
 
+  const resultQuery = { ...route.query }
+  if (
+    game.value.id === 'rhythm' &&
+    mode.value === 'solo' &&
+    rhythmGameState.value.finishReason === 'HEALTH_EMPTY'
+  ) {
+    resultQuery.result = 'failed'
+  } else {
+    delete resultQuery.result
+  }
+
   void submitPlayedResult({
     gameSlug: game.value.id,
     mode: mode.value,
@@ -1083,7 +1117,7 @@ function toResult() {
   router.push({
     name: 'game-result',
     params: { gameId: game.value.id },
-    query: route.query,
+    query: resultQuery,
   })
 }
 
@@ -1538,10 +1572,12 @@ function leaveGame() {
     @leave="leaveGame"
   >
     <section
+      ref="gameplayLayoutRef"
       class="gameplay-layout"
       :class="[
         `gameplay-layout--${game.id}`,
         { 'gameplay-layout--hold-solo': game.id === 'hold' && mode === 'solo' },
+        { 'gameplay-layout--air-ai': game.id === 'air' && mode === 'ai' },
         {
           'gameplay-layout--blink-solo': game.id === 'blink' && mode === 'solo',
         },
@@ -1592,7 +1628,16 @@ function leaveGame() {
       </aside>
 
       <aside v-else-if="game.id === 'hold'" class="info-panel eye-see-info">
-        <p class="eyebrow">나</p>
+        <header class="eye-see-camera-header">
+          <p>나의 웹캠</p>
+          <span
+            :class="{
+              'eye-see-camera-header__status--ready': stareCameraActive,
+            }"
+          >
+            {{ stareCameraActive ? '연결됨' : '준비 중' }}
+          </span>
+        </header>
         <div class="eye-see-camera">
           <video
             ref="stareVideoRef"
@@ -1608,47 +1653,28 @@ function leaveGame() {
             alt="내 카메라 준비 마스코트"
             draggable="false"
           />
+          <div class="eye-see-camera__timer" aria-live="polite">
+            <span>현재 생존 시간</span>
+            <strong>{{ stareElapsedLabel }}</strong>
+          </div>
         </div>
-        <p class="camera-state">
-          {{
-            stareCameraActive
-              ? '내 카메라가 연결되었습니다.'
-              : '내 카메라를 준비하고 있어요.'
-          }}
-        </p>
+        <p class="eye-see-camera-guide">눈을 오래 뜨고 시선을 유지해 보세요.</p>
       </aside>
 
       <aside v-else-if="game.id === 'air'" class="air-score-panel">
         <p class="air-score-label">SCORE</p>
-        <div class="air-score-line">
-          <span>나</span><strong>{{ airMyScore }}</strong>
-        </div>
-        <span class="air-score-vs">VS</span>
-        <div class="air-score-line opponent">
-          <span>{{ mode === 'ai' ? 'AI' : '상대' }}</span
-          ><strong>{{ airOpponentDisplayScore }}</strong>
+        <div class="air-score-matchup">
+          <div class="air-score-line opponent">
+            <span>{{ mode === 'ai' ? 'AI' : '상대' }}</span
+            ><strong>{{ airOpponentDisplayScore }}</strong>
+          </div>
+          <span class="air-score-vs">VS</span>
+          <div class="air-score-line">
+            <span>나</span><strong>{{ airMyScore }}</strong>
+          </div>
         </div>
         <div class="air-time">
-          <span>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle
-                cx="12"
-                cy="12"
-                r="8.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <path
-                d="M12 7.5V12l3.2 2.2"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-            </svg>
-            남은 시간
-          </span>
+          <span>남은 시간</span>
           <strong>{{ airTimeLabel }}</strong>
         </div>
         <p class="air-tip">
@@ -1947,27 +1973,34 @@ function leaveGame() {
               내 카메라를 준비하고 있어요.
             </p>
 
-            <section class="blink-stage__metrics" aria-label="게임 진행 현황">
+            <section
+              class="blink-stage__stat-card blink-stage__time-card"
+              aria-label="남은 시간"
+            >
               <span>남은 시간</span>
               <strong>{{ blinkTimeLabel }}</strong>
               <div class="blink-stage__progress" aria-label="제한 시간 진행률">
                 <i :style="{ width: `${blinkProgressPercent}%` }"></i>
               </div>
-              <small>20초</small>
-              <span>현재 깜빡임 횟수</span>
-              <b>{{ blinkCount }}<em>회</em></b>
+              <small>총 20초</small>
             </section>
 
-            <aside class="blink-stage__tip" aria-label="게임 팁">
-              <b>TIP</b>
-              <p>
-                눈을 자연스럽게 깜빡여요!<br />너무 세게 감지 않아도 괜찮아요.
-              </p>
-            </aside>
+            <section
+              class="blink-stage__stat-card blink-stage__count-card"
+              aria-label="현재 깜빡임 횟수와 게임 팁"
+            >
+              <span>현재 깜빡임 횟수</span>
+              <b>{{ blinkCount }}<em>회</em></b>
+              <section class="blink-stage__tip" aria-label="게임 팁">
+                <b>TIP</b>
+                <p>눈을 자연스럽게 깜빡여요!</p>
+              </section>
+            </section>
+
+            <footer class="blink-stage__footer">
+              <p>20초가 끝나면 자동으로 기록이 저장돼요!</p>
+            </footer>
           </section>
-          <footer class="blink-stage__footer">
-            <p>20초가 끝나면 자동으로 기록이 저장돼요!</p>
-          </footer>
         </template>
 
         <template v-else-if="game.id === 'hold'">
@@ -2085,6 +2118,9 @@ function leaveGame() {
         <p class="camera-state">
           {{ drawCameraActive ? '카메라 연결됨' : '카메라 준비 중' }}
         </p>
+        <p class="webcam-panel__hint">
+          얼굴과 눈이 화면 안에 함께 보이도록<br />카메라 위치를 조정해 주세요.
+        </p>
       </aside>
       <aside v-else-if="game.id === 'rhythm'" class="info-panel webcam-panel">
         <p class="eyebrow">나의 웹캠</p>
@@ -2107,15 +2143,29 @@ function leaveGame() {
         <p class="camera-state">
           {{ rhythmCameraActive ? '카메라 연결됨' : '카메라 준비 중' }}
         </p>
-        <p class="tip">분홍 노트는 왼쪽, 파랑 노트는 오른쪽 눈 입력입니다.</p>
+        <p class="webcam-panel__rhythm-tip">
+          분홍 노트는 왼쪽,<br />파랑 노트는 오른쪽<br />눈 입력입니다.
+        </p>
       </aside>
       <aside v-else-if="game.id === 'air'" class="air-players-panel">
-        <article class="air-player-card">
+        <article v-if="mode === 'ai'" class="air-player-card air-player-card--ai">
           <div>
-            <strong>{{ mode === 'ai' ? 'AI' : '상대' }}</strong
-            ><span>OPPONENT</span>
+            <strong>AI</strong><span>OPPONENT</span>
           </div>
+          <section class="air-player-card__ai-profile">
+            <img
+              :src="airAiRobotImage"
+              alt="에어하키 AI 로봇 상대"
+              draggable="false"
+            />
+            <b>AI HOCKEY BOT</b>
+            <small>AI가 다음 움직임을 계산 중이에요.</small>
+          </section>
+        </article>
+        <article v-else class="air-player-card">
+          <div><strong>상대 웹캠</strong><span>OPPONENT</span></div>
           <div class="air-player-card__camera">
+            <span class="air-player-card__camera-label">EYE CAMERA</span>
             <video
               ref="remoteVideoRef"
               aria-label="상대 웹캠 영상"
@@ -2129,10 +2179,17 @@ function leaveGame() {
               draggable="false"
             />
           </div>
+          <p
+            class="air-player-card__camera-status"
+            :class="{ 'air-player-card__camera-status--ready': hasPeerCamera }"
+          >
+            {{ hasPeerCamera ? '카메라 연결됨' : '카메라 연결 대기' }}
+          </p>
         </article>
         <article class="air-player-card you">
-          <div><strong>나</strong><span>YOU</span></div>
+          <div><strong>나의 웹캠</strong><span>YOU</span></div>
           <div class="air-player-card__camera">
+            <span class="air-player-card__camera-label">EYE CAMERA</span>
             <video
               ref="airVideoRef"
               class="self-camera"
@@ -2148,6 +2205,12 @@ function leaveGame() {
               draggable="false"
             />
           </div>
+          <p
+            class="air-player-card__camera-status"
+            :class="{ 'air-player-card__camera-status--ready': airCameraActive }"
+          >
+            {{ airCameraActive ? '카메라 연결됨' : '카메라 연결 대기' }}
+          </p>
         </article>
       </aside>
       <aside
@@ -2558,7 +2621,12 @@ function leaveGame() {
   font-family: inherit;
   font-size: 38px;
 }
+.draw-info > .draw-prompt-icon {
+  align-self: center;
+  margin-block: auto;
+}
 .draw-info ol {
+  margin: 0;
   padding: 0;
   list-style: none;
   text-align: left;
@@ -3098,6 +3166,40 @@ function leaveGame() {
   font-size: 13px;
   font-weight: 800;
 }
+.webcam-panel__hint {
+  margin: 5px 0 0;
+  color: #75809b;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+.webcam-panel .camera-state {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+.webcam-panel .camera-state::before {
+  display: none;
+}
+.webcam-panel__rhythm-tip {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #5e6985;
+  background: #f5f5ff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.65;
+  text-align: center;
+}
+.gameplay-layout--draw .webcam-panel .video-placeholder {
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 4 / 3;
+  margin-inline: auto;
+  border-radius: 22px;
+  background: transparent;
+}
 .blink-stage,
 .hold-stage {
   display: flex;
@@ -3339,10 +3441,11 @@ function leaveGame() {
 .gameplay-layout--blink-solo .blink-stage {
   position: relative;
   width: 100%;
-  min-height: 560px;
+  height: clamp(420px, calc(100svh - 220px), 620px);
+  min-height: 0;
   overflow: hidden;
   border: 1px solid #e1e4f1;
-  border-radius: 20px 20px 0 0;
+  border-radius: 20px;
   background: #f7f7ff;
 }
 .blink-stage__camera {
@@ -3350,7 +3453,7 @@ function leaveGame() {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 .blink-stage__camera-placeholder {
   position: absolute;
@@ -3366,41 +3469,58 @@ function leaveGame() {
   font-weight: 800;
   transform: translate(-50%, -50%);
 }
-.blink-stage__metrics {
+.blink-stage__time-card,
+.blink-stage__count-card {
   position: absolute;
-  top: 44px;
-  left: 42px;
-  display: grid;
-  width: 240px;
-  gap: 8px;
+  top: 20px;
+  z-index: 2;
+  width: min(200px, calc((100% - 72px) / 2));
   text-align: left;
 }
-.blink-stage__metrics > span {
+.blink-stage__time-card {
+  left: 20px;
+}
+.blink-stage__count-card {
+  right: 20px;
+}
+.blink-stage__stat-card,
+.blink-stage__tip {
+  padding: 11px 13px;
+  border: 1px solid rgba(223, 227, 244, 0.95);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(14, 24, 60, 0.14);
+  backdrop-filter: blur(8px);
+}
+.blink-stage__stat-card {
+  display: grid;
+  gap: 5px;
+}
+.blink-stage__stat-card > span {
   color: #59647f;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
-.blink-stage__metrics > strong {
+.blink-stage__stat-card > strong {
   color: var(--color-accent-blue);
-  font-size: clamp(52px, 7vw, 78px);
+  font-size: clamp(35px, 3.6vw, 48px);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.blink-stage__metrics small {
-  margin-top: -4px;
+.blink-stage__stat-card small {
   color: var(--color-ink);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
 }
-.blink-stage__metrics b {
+.blink-stage__stat-card b {
   color: var(--color-accent-blue);
-  font-size: clamp(42px, 5vw, 60px);
+  font-size: clamp(30px, 3.2vw, 42px);
   line-height: 1;
 }
-.blink-stage__metrics em {
+.blink-stage__stat-card em {
   margin-left: 7px;
   color: var(--color-ink);
-  font-size: 24px;
+  font-size: 17px;
   font-style: normal;
 }
 .blink-stage__progress {
@@ -3417,36 +3537,42 @@ function leaveGame() {
   background: var(--color-accent-blue);
 }
 .blink-stage__tip {
-  position: absolute;
-  bottom: 34px;
-  left: 32px;
-  width: min(280px, calc(100% - 64px));
-  padding: 18px 20px;
-  border: 1px solid #e2e5f3;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.9);
+  margin-top: 5px;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid #e5e8f2;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 .blink-stage__tip b {
   color: var(--color-accent-blue);
-  font-size: 15px;
+  font-size: 13px;
 }
 .blink-stage__tip p {
-  margin: 8px 0 0;
+  margin: 5px 0 0;
   color: #5d6781;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .blink-stage__footer {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  left: 20px;
+  z-index: 2;
   display: flex;
-  min-height: 58px;
+  min-height: 50px;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  padding: 10px 20px;
-  border: 1px solid #e1e4f1;
-  border-top: 0;
-  border-radius: 0 0 20px 20px;
-  background: #fbfbff;
+  padding: 8px 16px;
+  border: 1px solid rgba(225, 228, 241, 0.94);
+  border-radius: 14px;
+  background: rgba(251, 251, 255, 0.94);
+  box-shadow: 0 8px 22px rgba(14, 24, 60, 0.12);
+  backdrop-filter: blur(8px);
 }
 .blink-stage__footer p {
   margin: 0;
@@ -3483,6 +3609,48 @@ function leaveGame() {
   min-height: 500px;
   flex-direction: column;
   text-align: left;
+}
+.eye-see-camera-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.eye-see-camera-header p {
+  margin: 0;
+  color: var(--color-accent-blue);
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+.eye-see-camera-header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #75809b;
+  background: #f1f3f8;
+  font-size: 11px;
+  font-weight: 800;
+}
+.eye-see-camera-header span::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+.eye-see-camera-header .eye-see-camera-header__status--ready {
+  color: #278957;
+  background: #edf8f0;
+}
+.eye-see-camera-guide {
+  margin: 12px 0 0;
+  color: #68728d;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
 }
 .eye-see-time {
   display: grid;
@@ -3591,6 +3759,44 @@ function leaveGame() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.gameplay-layout--hold-solo .eye-see-camera {
+  min-height: 0;
+  height: clamp(400px, 52vh, 460px);
+  background: #171a32;
+}
+.gameplay-layout--hold-solo .eye-see-camera video {
+  object-fit: contain;
+}
+.eye-see-camera__timer {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  min-width: 156px;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 18px;
+  border: 1px solid rgba(222, 219, 255, 0.96);
+  border-radius: 13px;
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 7px 18px rgba(23, 26, 50, 0.18);
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+.eye-see-camera__timer span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.eye-see-camera__timer strong {
+  color: #5144e8;
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .eye-see-camera__self,
 .self-camera {
@@ -3900,6 +4106,26 @@ function leaveGame() {
 .gameplay-layout--air .air-score-panel {
   min-height: 540px;
 }
+.gameplay-layout--air-ai {
+  grid-template-columns: 190px minmax(0, 1fr) 190px;
+  align-items: start;
+}
+.gameplay-layout--air-ai .gameplay-board,
+.gameplay-layout--air-ai .air-score-panel {
+  min-height: 460px;
+}
+.gameplay-layout--air-ai .gameplay-board {
+  justify-content: flex-start;
+  padding-top: 16px;
+}
+.gameplay-layout--air-ai .hockey-canvas {
+  width: min(100%, 430px);
+}
+.gameplay-layout--air-ai .air-players-panel {
+  min-height: 460px;
+  grid-template-rows: 212px minmax(0, 1fr);
+  gap: 12px;
+}
 .air-player-card {
   display: flex;
   min-height: 0;
@@ -3913,6 +4139,38 @@ function leaveGame() {
 .air-player-card.you {
   border-color: #cfd4ff;
   background: #f2f3ff;
+}
+.air-player-card--ai {
+  min-height: 0;
+  justify-content: flex-start;
+  background: #fff5f6;
+}
+.air-player-card__ai-profile {
+  display: grid;
+  min-height: 0;
+  height: 148px;
+  box-sizing: border-box;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 0 14px 13px;
+  text-align: center;
+}
+.air-player-card__ai-profile img {
+  width: 92px;
+  height: 84px;
+  margin: 0;
+  object-fit: contain;
+}
+.air-player-card__ai-profile b {
+  color: #d94a5b;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+.air-player-card__ai-profile small {
+  color: #7c7790;
+  font-size: 10px;
+  line-height: 1.35;
 }
 .air-player-card > div {
   display: flex;
@@ -3947,14 +4205,18 @@ function leaveGame() {
   object-fit: contain;
   object-position: center bottom;
 }
-.air-player-card__camera {
+.air-player-card > .air-player-card__camera {
   position: relative;
   display: grid;
-  width: 100%;
-  min-height: 235px;
-  flex: 1;
+  width: calc(100% - 36px);
+  aspect-ratio: 4 / 3;
+  min-height: 0;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  padding: 0;
   place-items: center;
   overflow: hidden;
+  border-radius: 14px;
 }
 .air-player-card__camera video {
   position: absolute;
@@ -3962,6 +4224,38 @@ function leaveGame() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center 35%;
+}
+.air-player-card__camera img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  object-fit: cover;
+  object-position: center;
+}
+.air-player-card .air-player-card__camera-label {
+  position: absolute;
+  z-index: 1;
+  top: 9px;
+  left: 9px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 999px;
+  color: #17213b;
+  background: rgba(255, 255, 255, 0.94);
+  font-size: 8px;
+  font-weight: 900;
+}
+.air-player-card__camera-status {
+  margin: 9px 0 0;
+  color: #8890a9;
+  font-size: 10px;
+  font-weight: 800;
+}
+.air-player-card__camera-status--ready {
+  color: #45935f;
 }
 .opponent-panel {
   text-align: center;

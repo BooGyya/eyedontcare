@@ -1,11 +1,68 @@
 <script setup lang="ts">
-withDefaults(
+import {
+  IconApple,
+  IconArmchair,
+  IconBook,
+  IconCar,
+  IconClock,
+  IconCloud,
+  IconCrown,
+  IconCup,
+  IconEyeglass,
+  IconFish,
+  IconFlower,
+  IconGuitarPick,
+  IconHeart,
+  IconHome,
+  IconKey,
+  IconMoon,
+  IconMoodSmile,
+  IconMountain,
+  IconPlane,
+  IconShip,
+  IconStar,
+  IconSun,
+  IconTree,
+  IconUmbrella,
+} from '@tabler/icons-vue'
+import { computed, type Component } from 'vue'
+
+const props = withDefaults(
   defineProps<{
     prompt: string
     size?: 'large' | 'medium'
   }>(),
   { size: 'large' },
 )
+
+const promptIcons: Record<string, Component> = {
+  달: IconMoon,
+  산: IconMountain,
+  하트: IconHeart,
+  해: IconSun,
+  책: IconBook,
+  컵: IconCup,
+  별: IconStar,
+  구름: IconCloud,
+  사과: IconApple,
+  열쇠: IconKey,
+  나무: IconTree,
+  꽃: IconFlower,
+  안경: IconEyeglass,
+  우산: IconUmbrella,
+  자동차: IconCar,
+  얼굴: IconMoodSmile,
+  배: IconShip,
+  비행기: IconPlane,
+  기타: IconGuitarPick,
+  물고기: IconFish,
+  의자: IconArmchair,
+  집: IconHome,
+  시계: IconClock,
+  왕관: IconCrown,
+}
+
+const icon = computed(() => promptIcons[props.prompt] ?? IconStar)
 </script>
 
 <template>
@@ -14,27 +71,7 @@ withDefaults(
     :class="`draw-prompt-icon--${size}`"
     aria-hidden="true"
   >
-    <span v-if="prompt === '안경'" class="draw-prompt-icon__glasses">
-      <i /><i /><b />
-    </span>
-    <span v-else-if="prompt === '우산'" class="draw-prompt-icon__umbrella">
-      <i /><b />
-    </span>
-    <span v-else-if="prompt === '고양이'" class="draw-prompt-icon__cat">
-      <i /><i /><b /><em />
-    </span>
-    <svg
-      v-else
-      viewBox="0 0 24 24"
-      width="28"
-      height="28"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        d="M12 2c.6 4.8 2.4 6.9 8 8-5.6 1.1-7.4 3.2-8 8-.6-4.8-2.4-6.9-8-8 5.6-1.1 7.4-3.2 8-8Z"
-      />
-    </svg>
+    <component :is="icon" :stroke-width="2.2" />
   </span>
 </template>
 
@@ -46,135 +83,19 @@ withDefaults(
   place-items: center;
   color: var(--color-accent-blue);
 }
+
+.draw-prompt-icon :deep(svg) {
+  width: 52px;
+  height: 52px;
+}
+
 .draw-prompt-icon--medium {
   width: 64px;
   height: 48px;
-  transform: scale(0.78);
-  transform-origin: center;
 }
-.draw-prompt-icon__glasses {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.draw-prompt-icon__glasses i {
-  display: block;
-  width: 27px;
-  height: 27px;
-  border: 4px solid currentColor;
-  border-radius: 50%;
-}
-.draw-prompt-icon__glasses b {
-  position: absolute;
-  top: 50%;
-  left: 31px;
-  width: 17px;
-  border-top: 4px solid currentColor;
-  transform: translateY(-50%);
-}
-.draw-prompt-icon__umbrella {
-  position: relative;
-  display: grid;
-  width: 64px;
-  height: 58px;
-  justify-items: center;
-}
-.draw-prompt-icon__umbrella i {
-  width: 62px;
-  height: 31px;
-  border: 4px solid currentColor;
-  border-bottom: 0;
-  border-radius: 62px 62px 0 0;
-  background: #f3f2ff;
-}
-.draw-prompt-icon__umbrella b {
-  position: absolute;
-  top: 31px;
-  width: 4px;
-  height: 23px;
-  border-radius: 99px;
-  background: currentColor;
-}
-.draw-prompt-icon__umbrella b::after {
-  position: absolute;
-  right: -8px;
-  bottom: -1px;
-  width: 10px;
-  height: 10px;
-  border: 4px solid currentColor;
-  border-top: 0;
-  border-left: 0;
-  border-radius: 0 0 10px 0;
-  content: '';
-}
-.draw-prompt-icon__cat {
-  position: relative;
-  display: grid;
-  width: 48px;
-  height: 40px;
-  place-items: center;
-  border: 4px solid currentColor;
-  border-radius: 48% 48% 43% 43%;
-  background: #f3f2ff;
-}
-.draw-prompt-icon__cat::before,
-.draw-prompt-icon__cat::after {
-  position: absolute;
-  top: -12px;
-  width: 17px;
-  height: 17px;
-  border: 4px solid currentColor;
-  border-bottom: 0;
-  background: #f3f2ff;
-  content: '';
-}
-.draw-prompt-icon__cat::before {
-  left: -3px;
-  transform: rotate(-38deg);
-}
-.draw-prompt-icon__cat::after {
-  right: -3px;
-  transform: rotate(38deg);
-}
-.draw-prompt-icon__cat i,
-.draw-prompt-icon__cat i::before {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  content: '';
-}
-.draw-prompt-icon__cat i:first-child {
-  top: 14px;
-  left: 12px;
-}
-.draw-prompt-icon__cat i:nth-child(2) {
-  top: 14px;
-  right: 12px;
-}
-.draw-prompt-icon__cat b {
-  position: absolute;
-  bottom: 10px;
-  width: 9px;
-  height: 5px;
-  border-bottom: 3px solid currentColor;
-  border-radius: 0 0 9px 9px;
-}
-.draw-prompt-icon__cat em,
-.draw-prompt-icon__cat em::before {
-  position: absolute;
-  bottom: 11px;
-  width: 15px;
-  border-top: 2px solid currentColor;
-  content: '';
-}
-.draw-prompt-icon__cat em {
-  left: -10px;
-}
-.draw-prompt-icon__cat em::before {
-  top: 5px;
-  left: 0;
+
+.draw-prompt-icon--medium :deep(svg) {
+  width: 36px;
+  height: 36px;
 }
 </style>

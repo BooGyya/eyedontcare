@@ -1263,7 +1263,7 @@ onBeforeUnmount(() => {
             aria-label="게임 시작 예정 카운트다운"
             aria-live="assertive"
           >
-            <Transition name="count-tick" mode="out-in">
+            <Transition name="count-tick">
               <b :key="countdown">{{ countdown }}</b>
             </Transition>
           </div>
@@ -1792,12 +1792,16 @@ onBeforeUnmount(() => {
   background: #e6f7eb;
 }
 .game-start-countdown {
+  position: relative;
   display: flex;
   justify-content: center;
+  align-items: center;
   gap: 10px;
+  min-height: 82px;
   margin: 22px 0;
 }
 .game-start-countdown b {
+  position: absolute;
   display: grid;
   width: 82px;
   height: 82px;
@@ -1818,13 +1822,13 @@ onBeforeUnmount(() => {
 }
 .count-tick-enter-active {
   transition:
-    transform 200ms var(--ease-out),
-    opacity 200ms var(--ease-out);
+    transform 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
 }
 .count-tick-leave-active {
   transition:
-    transform 120ms ease,
-    opacity 120ms ease;
+    transform 140ms ease,
+    opacity 140ms ease;
 }
 .count-tick-enter-from {
   opacity: 0;

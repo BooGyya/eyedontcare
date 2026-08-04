@@ -328,4 +328,17 @@ describe('GameDetailPage', () => {
 
     expect(router.currentRoute.value.fullPath).toBe('/games/draw/ready?mode=ai')
   })
+  
+  it('opens the room dialog for friends mode without requiring login', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/games/blink')
+    await router.isReady()
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
+
+    await wrapper.find('.game-detail-page__mode--friends').trigger('click')
+
+    expect(document.querySelector('.game-room-dialog')).toBeTruthy()
+  })
 })
