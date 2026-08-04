@@ -24,5 +24,6 @@ export type QuickAction = {
   image: string
   tone: 'blue' | 'yellow' | 'purple'
   destination?: '/ranking'
+  externalUrl?: string
   notice?: string
 }

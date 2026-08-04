@@ -2,10 +2,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GameRoomDialog from '../components/games/GameRoomDialog.vue'
-import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
-import { useAuthStore } from '../stores/auth'
-import type { GamePlayMode } from '../types/game-detail'
+import type { GameAiDifficultyOption, GamePlayMode } from '../types/game-detail'
 import guideMascotImage from '../assets/images/brand/mascot-eye.png'
 import profileJoyImage from '../assets/images/profiles/profile-joy.png'
 import profileSmileImage from '../assets/images/profiles/profile-smile.png'
@@ -13,10 +11,9 @@ import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 
 const route = useRoute()
 const router = useRouter()
-const { showToast } = useToast()
-const auth = useAuthStore()
 const roomFlow = ref<'friends' | 'random'>('friends')
 const isRoomDialogOpen = ref(false)
+const isDifficultyDialogOpen = ref(false)
 
 const isDescriptionOpen = ref(false)
 let previousBodyOverflow = ''
@@ -50,20 +47,21 @@ watch(
   () => route.params.gameId,
   () => {
     isDescriptionOpen.value = false
+    isDifficultyDialogOpen.value = false
   },
 )
 
 function handleSelectMode(mode: GamePlayMode) {
   if (!game.value) return
   if (mode.id === 'friends' || mode.id === 'random') {
-    if (!auth.isAuthenticated) {
-      auth.openLogin()
-      showToast('친구 대결과 랜덤 매칭은 로그인 후 이용할 수 있어요.')
-      return
-    }
-
     roomFlow.value = mode.id
     isRoomDialogOpen.value = true
+    return
+  }
+
+  // AI 난이도가 있는 게임(지금은 눈싸움)은 바로 이동하지 않고 난이도를 고르게 한다.
+  if (mode.id === 'ai' && game.value.aiDifficulties?.length) {
+    isDifficultyDialogOpen.value = true
     return
   }
 
@@ -72,7 +70,16 @@ function handleSelectMode(mode: GamePlayMode) {
     params: { gameId: game.value.id },
     query: { mode: mode.id },
   })
-  showToast(`${game.value.title} ${mode.label} 모드는 준비 중이에요.`)
+}
+
+function handleSelectAiDifficulty(option: GameAiDifficultyOption) {
+  if (!game.value) return
+  isDifficultyDialogOpen.value = false
+  router.push({
+    name: 'game-ready',
+    params: { gameId: game.value.id },
+    query: { mode: 'ai', difficulty: option.value },
+  })
 }
 
 function toTokens(text: string) {
@@ -102,12 +109,14 @@ function handleEnterRoom(payload: {
 }
 
 function handleKeydown(event: globalThis.KeyboardEvent) {
-  if (event.key === 'Escape' && isDescriptionOpen.value)
-    isDescriptionOpen.value = false
+  if (event.key !== 'Escape') return
+  if (isDescriptionOpen.value) isDescriptionOpen.value = false
+  if (isDifficultyDialogOpen.value) isDifficultyDialogOpen.value = false
 }
 
-watch(isDescriptionOpen, (isOpen) => {
+watch([isDescriptionOpen, isDifficultyDialogOpen], ([descOpen, diffOpen]) => {
   if (typeof globalThis.document === 'undefined') return
+  const isOpen = descOpen || diffOpen
   if (isOpen) {
     previousBodyOverflow = globalThis.document.body.style.overflow
     globalThis.document.body.style.overflow = 'hidden'
@@ -1387,6 +1396,46 @@ onBeforeUnmount(() => {
       </div>
     </Transition>
 
+    <Transition name="dialog-pop">
+      <div
+        v-if="isDifficultyDialogOpen"
+        class="game-detail-page__dialog-backdrop"
+        @click.self="isDifficultyDialogOpen = false"
+      >
+        <div
+          class="game-detail-page__dialog game-detail-page__difficulty-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ai-difficulty-title"
+        >
+          <h2 id="ai-difficulty-title">난이도를 선택하세요</h2>
+          <p class="game-detail-page__difficulty-subtitle">
+            AI보다 오래 버티면 유리해요. 목표 시간을 골라주세요
+          </p>
+          <div class="game-detail-page__difficulty-grid">
+            <button
+              v-for="option in game.aiDifficulties"
+              :key="option.value"
+              type="button"
+              class="game-detail-page__difficulty-option"
+              :class="`game-detail-page__difficulty-option--${option.value}`"
+              @click="handleSelectAiDifficulty(option)"
+            >
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.duration }}</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            class="game-detail-page__dialog-close"
+            @click="isDifficultyDialogOpen = false"
+          >
+            닫기
+          </button>
+        </div>
+      </div>
+    </Transition>
+
     <GameRoomDialog
       :open="isRoomDialogOpen"
       :game-id="game.id"
@@ -1875,6 +1924,67 @@ onBeforeUnmount(() => {
   padding: 42px clamp(24px, 4vw, 52px) 34px;
   overflow-y: auto;
   border-radius: 28px;
+}
+.game-detail-page__difficulty-dialog h2 {
+  margin: 0 0 8px;
+  color: var(--color-ink);
+  font-size: clamp(20px, 2.4vw, 24px);
+  text-align: center;
+}
+.game-detail-page__difficulty-subtitle {
+  margin: 0 0 22px;
+  color: var(--color-muted);
+  font-size: 14px;
+  text-align: center;
+}
+.game-detail-page__difficulty-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.game-detail-page__difficulty-option {
+  display: grid;
+  gap: 6px;
+  padding: 18px 8px;
+  border: 1px solid #e1e5f4;
+  border-radius: 14px;
+  background: #fbfbff;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+.game-detail-page__difficulty-option:hover {
+  transform: translateY(-2px);
+}
+.game-detail-page__difficulty-option strong {
+  color: var(--color-ink);
+  font-size: 16px;
+  font-weight: 900;
+}
+.game-detail-page__difficulty-option span {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.game-detail-page__difficulty-option--easy {
+  border-color: #bfe8cf;
+}
+.game-detail-page__difficulty-option--easy strong {
+  color: #278957;
+}
+.game-detail-page__difficulty-option--normal {
+  border-color: #f6d9a6;
+}
+.game-detail-page__difficulty-option--normal strong {
+  color: #b8730f;
+}
+.game-detail-page__difficulty-option--hard {
+  border-color: #e6c2ff;
+}
+.game-detail-page__difficulty-option--hard strong {
+  color: #8a3fd8;
 }
 .game-detail-page__dialog-x {
   position: absolute;

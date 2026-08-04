@@ -1,18 +1,13 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import { useMediaSessionStore } from '../stores/mediaSession'
 import { useWaitingRoomSocket } from '../composables/useWaitingRoomSocket'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
+import { useEyeTracking } from '../composables/useEyeTracking'
+import { useCalibrationStore } from '../stores/calibration'
 import { createInviteRoom, joinInviteRoom } from '../api/waitingRoom'
 import { ApiError } from '../api/http'
 import { currentAccessToken, resolveIdentity } from '../api/identity'
@@ -22,11 +17,23 @@ import type {
   WaitingRoomIdentity,
   WaitingRoomParticipant,
 } from '../types/waitingRoom'
+import type {
+  CalibrationEvaluation,
+  Point,
+} from '../lib/eye-tracking/gaze-calibration'
 
 type CameraPermissionStatus =
   'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable'
 
 type RoomRole = 'host' | 'player'
+
+/**
+ * 실제 캘리브레이션 단계.
+ * - open/closed: 눈 뜬/감은 기준(EAR) 샘플링 — 모든 게임 공통
+ * - gaze: 화면 응시 좌표 보정(9점) — 좌표가 필요한 게임(그림그리기/에어하키)만 진행
+ * - done: 보정 완료
+ */
+type CalibrationStage = 'open' | 'closed' | 'gaze' | 'done'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,9 +47,89 @@ const isCameraErrorOpen = ref(false)
 const isGameStartDialogOpen = ref(false)
 const countdown = ref(3)
 const isGamePlaybackPending = ref(false)
-const calibrationStep = ref(1)
 const cameraStream = ref<globalThis.MediaStream | null>(null)
-const previewVideo = ref<globalThis.HTMLVideoElement | null>(null)
+
+// --- 실제 눈/시선 인식 (캘리브레이션) ---
+const eyeTracking = useEyeTracking()
+const calibrationStore = useCalibrationStore()
+const isSamplingEyeStep = ref(false)
+const eyeSampleFeedback = ref<'idle' | 'success' | 'insufficient'>('idle')
+const gazeCalibrationTargetIndex = ref(0)
+const gazeCalibrationEvaluation = ref<CalibrationEvaluation | null>(null)
+const calibrationStageIndex = ref(0)
+
+/** 화면 좌표(gaze)가 실제로 필요한 게임만 9점 시선 보정을 추가로 거친다. */
+const needsGazeCalibration = computed(() =>
+  ['draw', 'air'].includes(game.value?.id ?? ''),
+)
+const calibrationStages = computed<CalibrationStage[]>(() =>
+  needsGazeCalibration.value
+    ? ['open', 'closed', 'gaze', 'done']
+    : ['open', 'closed', 'done'],
+)
+const calibrationStage = computed<CalibrationStage>(
+  () => calibrationStages.value[calibrationStageIndex.value] ?? 'done',
+)
+/** 진행률 표시용 — "done" 단계는 세지 않는다. */
+const totalCalibrationSteps = computed(() => calibrationStages.value.length - 1)
+const calibrationStepNumber = computed(() =>
+  Math.min(calibrationStageIndex.value + 1, totalCalibrationSteps.value),
+)
+const calibrationStageTitle = computed(() => {
+  switch (calibrationStage.value) {
+    case 'open':
+      return '눈 뜬 상태 기록'
+    case 'closed':
+      return '눈 감은 상태 기록'
+    case 'gaze':
+      return '시선 좌표 보정'
+    default:
+      return '캘리브레이션 완료'
+  }
+})
+const calibrationStageDescription = computed(() => {
+  switch (calibrationStage.value) {
+    case 'open':
+      return '카메라를 정면으로 보고 눈을 편하게 뜬 상태를 유지해 주세요.'
+    case 'closed':
+      return '이번엔 눈을 감은 상태를 유지해 주세요.'
+    case 'gaze':
+      return '화면에 표시된 점을 눈으로 바라본 뒤 버튼을 눌러주세요.'
+    default:
+      return '보정이 완료되었습니다.'
+  }
+})
+const calibrationPrimaryLabel = computed(() => {
+  if (
+    calibrationStage.value === 'open' ||
+    calibrationStage.value === 'closed'
+  ) {
+    if (isSamplingEyeStep.value) return '기록 중…'
+    if (eyeSampleFeedback.value === 'success') return '완료!'
+    return '기록 시작'
+  }
+  if (calibrationStage.value === 'gaze') {
+    const isLast =
+      gazeCalibrationTargetIndex.value >=
+      eyeTracking.gazeCalibrationTargets.length - 1
+    return isLast
+      ? '보정 완료'
+      : `다음 지점 (${gazeCalibrationTargetIndex.value + 1}/${eyeTracking.gazeCalibrationTargets.length})`
+  }
+  return '완료'
+})
+const calibrationBackLabel = computed(() =>
+  calibrationStageIndex.value === 0 ? '나중에 하기' : '이전',
+)
+const gazeCalibrationTargetStyle = computed(() => {
+  const target =
+    eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
+  if (!target) return {}
+  return { left: `${target.x * 100}%`, top: `${target.y * 100}%` }
+})
+// previewVideo는 캘리브레이션 다이얼로그에서만 쓰인다. eyeTracking.videoRef를 그대로 별칭으로 써서
+// 사용자가 보는 영상과 MediaPipe가 실제로 분석하는 영상이 항상 같은 엘리먼트이도록 한다.
+const previewVideo = eyeTracking.videoRef
 const panelVideo = ref<globalThis.HTMLVideoElement | null>(null)
 const dialogRef = ref<globalThis.HTMLElement | null>(null)
 let previousBodyOverflow = ''
@@ -182,7 +269,10 @@ const actionReason = computed(() => {
 })
 
 function stopCameraStream() {
-  cameraStream.value?.getTracks().forEach((track) => track.stop())
+  // cameraStream은 eyeTracking.stream과 같은 MediaStream을 가리키므로, 트랙만 따로 멈추지 않고
+  // eyeTracking.stop()으로 감지 루프까지 함께 정리한다(안 그러면 requestAnimationFrame 루프가
+  // 끊긴 스트림을 계속 붙잡고 있게 된다).
+  eyeTracking.stop()
   cameraStream.value = null
 }
 
@@ -247,28 +337,26 @@ function handleLeaveRoom() {
 async function handleRequestCamera() {
   permissionStatus.value = 'requesting'
 
-  if (!globalThis.navigator.mediaDevices?.getUserMedia) {
-    permissionStatus.value = 'unavailable'
+  // eyeTracking.start()가 카메라 권한 요청과 MediaPipe Face Landmarker 로드(CDN, 수 초 소요)를
+  // 동시에 진행한다. 모델 로드가 카메라 승인보다 먼저 끝나는 경우가 많아 체감 대기시간이 줄어든다.
+  const started = await eyeTracking.start()
+  if (!started) {
+    const reason = eyeTracking.modelError.value
+    permissionStatus.value =
+      reason === 'NotAllowedError' ? 'denied' : 'unavailable'
     isCameraErrorOpen.value = true
     return
   }
 
-  try {
-    cameraStream.value = await globalThis.navigator.mediaDevices.getUserMedia({
-      video: true,
-    })
-    permissionStatus.value = 'granted'
-    isWebcamGuideOpen.value = false
-    isCalibrationOpen.value = true
-    // 백엔드 캘리브레이션 상태는 PENDING → IN_PROGRESS → COMPLETED 순서를 요구한다.
-    // 캘리브레이션이 시작되는 이 시점에 IN_PROGRESS를 먼저 알려야 이후 COMPLETED가 수락된다.
-    if (isLiveSession.value) waitingSocket.sendCalibrationStatus('IN_PROGRESS')
-  } catch (error) {
-    const name = error instanceof globalThis.DOMException ? error.name : ''
-    permissionStatus.value =
-      name === 'NotAllowedError' ? 'denied' : 'unavailable'
-    isCameraErrorOpen.value = true
-  }
+  cameraStream.value = eyeTracking.stream.value
+  permissionStatus.value = 'granted'
+  isWebcamGuideOpen.value = false
+  isCalibrationOpen.value = true
+  calibrationStageIndex.value = 0
+  eyeSampleFeedback.value = 'idle'
+  // 백엔드 캘리브레이션 상태는 PENDING → IN_PROGRESS → COMPLETED 순서를 요구한다.
+  // 캘리브레이션이 시작되는 이 시점에 IN_PROGRESS를 먼저 알려야 이후 COMPLETED가 수락된다.
+  if (isLiveSession.value) waitingSocket.sendCalibrationStatus('IN_PROGRESS')
 }
 
 function handlePrimaryAction() {
@@ -296,11 +384,91 @@ function handlePrimaryAction() {
   }
 }
 
+/**
+ * 캘리브레이션 다이얼로그의 "다음" 버튼 하나로 현재 단계에 맞는 실제 동작을 실행한다.
+ * - open/closed 단계: 1.2초간 눈 상태를 샘플링해 개인별 눈 뜬/감은 기준을 기록
+ * - gaze 단계: 지금 바라보고 있는 지점을 현재 캘리브레이션 타깃과 짝지어 기록
+ */
 function handleCalibrationNext() {
-  if (calibrationStep.value < 3) {
-    calibrationStep.value += 1
+  if (
+    calibrationStage.value === 'open' ||
+    calibrationStage.value === 'closed'
+  ) {
+    void runEyeSampleStep(calibrationStage.value)
     return
   }
+  if (calibrationStage.value === 'gaze') {
+    recordGazeCalibrationPoint()
+  }
+}
+
+async function runEyeSampleStep(kind: 'open' | 'closed') {
+  isSamplingEyeStep.value = true
+  eyeSampleFeedback.value = 'idle'
+  const result = await eyeTracking.recordEyeSample(kind)
+  isSamplingEyeStep.value = false
+
+  if (!result.success) {
+    eyeSampleFeedback.value = 'insufficient'
+    showToast(
+      '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.',
+    )
+    return
+  }
+
+  eyeSampleFeedback.value = 'success'
+  // 성공 표시를 잠깐 보여준 뒤 다음 단계로 넘어간다.
+  globalThis.setTimeout(advanceCalibrationStage, 500)
+}
+
+function recordGazeCalibrationPoint() {
+  const target: Point | undefined =
+    eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
+  if (!target) return
+
+  const captured = eyeTracking.addGazeCalibrationSample(target)
+  if (!captured) {
+    showToast('시선이 감지되지 않았어요. 점을 계속 바라봐 주세요.')
+    return
+  }
+
+  if (
+    gazeCalibrationTargetIndex.value <
+    eyeTracking.gazeCalibrationTargets.length - 1
+  ) {
+    gazeCalibrationTargetIndex.value += 1
+    return
+  }
+
+  const result = eyeTracking.finishGazeCalibration()
+  if (!result) {
+    showToast('시선 보정에 실패했어요. 처음부터 다시 시도해 주세요.')
+    gazeCalibrationTargetIndex.value = 0
+    eyeTracking.beginGazeCalibration()
+    return
+  }
+
+  gazeCalibrationEvaluation.value = result.evaluation
+  calibrationStore.saveGazeProfile(result.profile)
+  advanceCalibrationStage()
+}
+
+function advanceCalibrationStage() {
+  eyeSampleFeedback.value = 'idle'
+  if (calibrationStageIndex.value < calibrationStages.value.length - 1) {
+    calibrationStageIndex.value += 1
+  }
+  if (calibrationStage.value === 'gaze') {
+    eyeTracking.beginGazeCalibration()
+    gazeCalibrationTargetIndex.value = 0
+  }
+  if (calibrationStage.value === 'done') {
+    finishCalibration()
+  }
+}
+
+function finishCalibration() {
+  calibrationStore.saveEyeProfile(eyeTracking.eyeProfile.value)
   isCalibrated.value = true
   isCalibrationOpen.value = false
   if (isLiveSession.value) {
@@ -308,12 +476,17 @@ function handleCalibrationNext() {
     // 방장은 준비 버튼이 없으므로 캘리브레이션 완료 시 준비 상태도 함께 올린다.
     if (isHost.value) waitingSocket.sendReady(true)
   }
-  showToast('시선 캘리브레이션 준비가 완료되었어요.')
+  showToast('시선 캘리브레이션이 완료되었어요.')
 }
 
 function handleCalibrationBack() {
-  if (calibrationStep.value > 1) calibrationStep.value -= 1
-  else isCalibrationOpen.value = false
+  if (isSamplingEyeStep.value) return
+  if (calibrationStageIndex.value > 0) {
+    calibrationStageIndex.value -= 1
+    eyeSampleFeedback.value = 'idle'
+  } else {
+    isCalibrationOpen.value = false
+  }
 }
 
 function handleGameStart(data: WaitingRoomGameStartData) {
@@ -329,7 +502,13 @@ function handleGameStart(data: WaitingRoomGameStartData) {
     router.push({
       name: 'game-play',
       params: { gameId: game.value.id },
-      query: route.query,
+      // 랜덤 매칭은 route.query에 이미 roomId(UUID)가 있지만, 초대(친구) 방은 host가 만들 때도
+      // joiner가 참가할 때도 route.query엔 4자리 room 코드만 있을 뿐 실제 roomId가 없다.
+      // 게임 화면에서 게임 세션 WebSocket(/ws/game-sessions/{roomId})에 접속하려면 필요하므로
+      // 여기서 명시적으로 채워 넣는다.
+      query: liveRoomId.value
+        ? { ...route.query, roomId: liveRoomId.value }
+        : route.query,
     })
 }
 
@@ -924,10 +1103,13 @@ onBeforeUnmount(() => {
         >
           <header>
             <div>
-              <span>STEP {{ calibrationStep }} / 3</span>
-              <h2 id="calibration-title">시선 캘리브레이션</h2>
+              <span
+                >STEP {{ calibrationStepNumber }} /
+                {{ totalCalibrationSteps }}</span
+              >
+              <h2 id="calibration-title">{{ calibrationStageTitle }}</h2>
               <p id="calibration-description">
-                화면의 안내 지점을 눈으로 따라봐 주세요.
+                {{ calibrationStageDescription }}
               </p>
             </div>
             <button
@@ -946,7 +1128,11 @@ onBeforeUnmount(() => {
             </button>
           </header>
           <div class="calibration-progress" aria-label="캘리브레이션 진행률">
-            <span :style="{ transform: `scaleX(${calibrationStep / 3})` }" />
+            <span
+              :style="{
+                transform: `scaleX(${calibrationStepNumber / totalCalibrationSteps})`,
+              }"
+            />
           </div>
           <div class="calibration-stage">
             <video
@@ -963,26 +1149,65 @@ onBeforeUnmount(() => {
               alt="카메라 연결 전 안내 마스코트"
               draggable="false"
             />
-            <i
-              :class="`calibration-target calibration-target--${calibrationStep}`"
-              aria-hidden="true"
-            />
-            <p>mock 캘리브레이션 {{ calibrationStep }}단계</p>
+
+            <!-- 눈 뜬/감은 기준 기록 단계: 실시간 얼굴 인식 상태와 기록 진행 상황을 보여준다 -->
+            <template
+              v-if="
+                calibrationStage === 'open' || calibrationStage === 'closed'
+              "
+            >
+              <div class="calibration-live-status" role="status">
+                <span v-if="!eyeTracking.faceDetected.value" class="warn">
+                  얼굴이 인식되지 않았어요. 카메라를 정면으로 봐 주세요.
+                </span>
+                <span v-else-if="isSamplingEyeStep" class="recording">
+                  기록 중입니다 · 자세를 유지해 주세요
+                </span>
+                <span
+                  v-else-if="eyeSampleFeedback === 'success'"
+                  class="success"
+                >
+                  기록 완료!
+                </span>
+                <span
+                  v-else-if="eyeSampleFeedback === 'insufficient'"
+                  class="warn"
+                >
+                  샘플이 부족했어요. 다시 시도해 주세요.
+                </span>
+                <span v-else>준비되면 아래 버튼을 눌러 기록을 시작하세요.</span>
+              </div>
+            </template>
+
+            <!-- 시선 좌표 보정 단계: 9개 지점을 순서대로 응시하며 진행한다 -->
+            <template v-else-if="calibrationStage === 'gaze'">
+              <i
+                class="calibration-target"
+                :style="gazeCalibrationTargetStyle"
+                aria-hidden="true"
+              />
+              <p>
+                지점 {{ gazeCalibrationTargetIndex + 1 }} /
+                {{ eyeTracking.gazeCalibrationTargets.length }}
+              </p>
+            </template>
           </div>
           <footer>
             <button
               type="button"
               class="secondary"
+              :disabled="isSamplingEyeStep"
               @click="handleCalibrationBack"
             >
-              {{ calibrationStep === 1 ? '나중에 하기' : '이전' }}</button
+              {{ calibrationBackLabel }}</button
             ><button
               type="button"
               class="primary"
               data-dialog-initial-focus
+              :disabled="isSamplingEyeStep"
               @click="handleCalibrationNext"
             >
-              {{ calibrationStep === 3 ? '완료' : '다음 안내 보기' }}
+              {{ calibrationPrimaryLabel }}
             </button>
           </footer>
         </section>
@@ -1038,7 +1263,7 @@ onBeforeUnmount(() => {
             aria-label="게임 시작 예정 카운트다운"
             aria-live="assertive"
           >
-            <Transition name="count-tick" mode="out-in">
+            <Transition name="count-tick">
               <b :key="countdown">{{ countdown }}</b>
             </Transition>
           </div>
@@ -1514,6 +1739,8 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: var(--color-accent-blue);
   animation: calib-pulse 1.6s ease-in-out infinite;
+  /* left/top은 gazeCalibrationTargetStyle이 0~1 좌표를 %로 변환해 인라인으로 넣어준다. */
+  transform: translate(-50%, -50%);
 }
 @keyframes calib-pulse {
   0%,
@@ -1524,17 +1751,28 @@ onBeforeUnmount(() => {
     box-shadow: 0 0 0 12px rgba(79, 116, 219, 0.08);
   }
 }
-.calibration-target--1 {
-  top: 20%;
-  left: 22%;
+.calibration-live-status {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 9px 14px;
+  transform: translateX(-50%);
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
-.calibration-target--2 {
-  top: 32%;
-  right: 20%;
+.calibration-live-status .warn {
+  color: #b75555;
 }
-.calibration-target--3 {
-  bottom: 24%;
-  left: 48%;
+.calibration-live-status .success {
+  color: #278957;
+}
+.calibration-live-status .recording {
+  color: var(--color-accent-blue);
 }
 .calibration-dialog footer {
   display: flex;
@@ -1554,12 +1792,16 @@ onBeforeUnmount(() => {
   background: #e6f7eb;
 }
 .game-start-countdown {
+  position: relative;
   display: flex;
   justify-content: center;
+  align-items: center;
   gap: 10px;
+  min-height: 82px;
   margin: 22px 0;
 }
 .game-start-countdown b {
+  position: absolute;
   display: grid;
   width: 82px;
   height: 82px;
@@ -1580,13 +1822,13 @@ onBeforeUnmount(() => {
 }
 .count-tick-enter-active {
   transition:
-    transform 200ms var(--ease-out),
-    opacity 200ms var(--ease-out);
+    transform 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
 }
 .count-tick-leave-active {
   transition:
-    transform 120ms ease,
-    opacity 120ms ease;
+    transform 140ms ease,
+    opacity 140ms ease;
 }
 .count-tick-enter-from {
   opacity: 0;

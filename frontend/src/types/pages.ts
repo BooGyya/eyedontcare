@@ -15,7 +15,6 @@ export type RankingPlayer = {
   nickname: string
   score: string
   avatar: string
-  level?: string
   trend?: 'up' | 'down' | 'same'
   isCurrentUser?: boolean
 }

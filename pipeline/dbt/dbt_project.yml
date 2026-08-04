@@ -1,0 +1,18 @@
+name: 'eyedontcare_pipeline'
+version: '1.0.0'
+config-version: 2
+
+# profiles.yml의 프로파일 이름
+profile: 'eyedontcare'
+
+model-paths: ["models"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# staging은 뷰(원본 얇은 래핑), marts는 테이블(집계 결과)로 물질화한다.
+models:
+  eyedontcare_pipeline:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

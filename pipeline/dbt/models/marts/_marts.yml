@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: fact_game_play
+    description: "참가자 1명당 1행. participants_.score(서빙 컬럼) + 게임 메타."
+    columns:
+      - name: participant_id
+        tests: [unique, not_null]
+      - name: user_id
+        tests: [not_null]
+      - name: game_name
+        tests: [not_null]
+
+  - name: agg_user_game_stats
+    description: "[분석] 유저×게임 누적 지표(플레이수·승수·최고점)."
+    columns:
+      - name: user_id
+        tests: [not_null]
+      - name: play_count
+        tests: [not_null]
+
+  - name: game_daily_stats
+    description: "[분석] 게임·모드·일자별 플레이수·평균점수·플레이어수."
+    columns:
+      - name: play_count
+        tests: [not_null]
+
+  - name: reconcile_score
+    description: "[감사] score 사본 vs JSONB 원본 불일치 리포트. 정상이면 0행."
+    columns:
+      - name: participant_id
+        tests: [not_null]
+      - name: issue_type
+        tests:
+          - accepted_values:
+              values: ['MISSING', 'MISMATCH']

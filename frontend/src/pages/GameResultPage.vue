@@ -2,10 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import opponentProfileImage from '../assets/images/profiles/profile-smile.png'
+import failedProfileImage from '../assets/images/profiles/profile-game-failed.png'
+import airAiRobotImage from '../assets/images/games/game-air-ai-robot.png'
+import airAiRobotLoseImage from '../assets/images/games/game-air-ai-robot-lose.png'
+import duelLoserImage from '../assets/images/profiles/profile-duel-loser.png'
+import duelWinnerImage from '../assets/images/profiles/profile-duel-winner.png'
+import duelWinnerBannerImage from '../assets/images/profiles/profile-duel-winner-banner.png'
 import GameResultShell from '../components/games/GameResultShell.vue'
 import { gameModeLabels, getMockResult } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
+import { useLastGameResultStore } from '../stores/lastGameResult'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,9 +26,60 @@ const mode = computed<GameSessionMode>(() => {
     ? (value as GameSessionMode)
     : 'solo'
 })
-const result = computed(() =>
-  game.value ? getMockResult(game.value.id) : undefined,
+
+// blink/hold처럼 실제 로직이 연결된 게임은 방금 끝난 진짜 결과를 쓰고, 아직 연결 안 된 게임
+// (rhythm/draw/air)은 기존 mock 데이터로 자연스럽게 폴백된다.
+const lastResultStore = useLastGameResultStore()
+const hasRealResult = computed(
+  () =>
+    game.value !== undefined &&
+    lastResultStore.isFor(game.value.id, mode.value),
 )
+const result = computed(() => {
+  if (hasRealResult.value && lastResultStore.current)
+    return lastResultStore.current
+  return game.value ? getMockResult(game.value.id) : undefined
+})
+/** 실제 결과가 없는(mock) 화면은 기존 그대로 'WIN' 고정 — rhythm/draw/air는 아직 미연동. */
+const outcome = computed(() =>
+  hasRealResult.value ? (lastResultStore.current?.outcome ?? 'UNKNOWN') : 'WIN',
+)
+const outcomeHeadline = computed(() => {
+  switch (outcome.value) {
+    case 'WIN':
+      return 'YOU WIN!'
+    case 'LOSE':
+      return 'YOU LOSE'
+    case 'DRAW':
+      return 'DRAW'
+    default:
+      return '결과 확인 중'
+  }
+})
+const outcomeSummary = computed(() => {
+  switch (outcome.value) {
+    case 'WIN':
+      return '멋진 플레이로 이번 대결을 이겼어요.'
+    case 'LOSE':
+      return '아쉽게 졌어요. 다음엔 더 잘할 수 있을 거예요!'
+    case 'DRAW':
+      return '무승부예요. 다음엔 승부를 가려봐요!'
+    default:
+      return '상대방과의 결과 동기화를 기다리고 있어요.'
+  }
+})
+const myBadgeLabel = computed(() => {
+  if (outcome.value === 'WIN') return 'WIN'
+  if (outcome.value === 'LOSE') return 'LOSE'
+  if (outcome.value === 'DRAW') return 'DRAW'
+  return '확인 중'
+})
+const opponentBadgeLabel = computed(() => {
+  if (outcome.value === 'WIN') return 'LOSE'
+  if (outcome.value === 'LOSE') return 'WIN'
+  if (outcome.value === 'DRAW') return 'DRAW'
+  return '확인 중'
+})
 const title = computed(() =>
   game.value?.id === 'draw'
     ? '눈으로 그리기'
@@ -32,7 +90,24 @@ const isCompetitive = computed(
     game.value?.id !== 'draw' &&
     ['ai', 'friends', 'random'].includes(mode.value),
 )
+const isShowcaseCompetitiveResult = computed(
+  () => ['air', 'hold'].includes(game.value?.id ?? '') && isCompetitive.value,
+)
 const isDrawResult = computed(() => game.value?.id === 'draw')
+const isFailedResult = computed(() => route.query.result === 'failed')
+const isHoldRecordMissed = computed(
+  () =>
+    game.value?.id === 'hold' &&
+    mode.value === 'solo' &&
+    route.query.result === 'not-new-record',
+)
+const isCompetitiveLoss = computed(
+  () =>
+    ((game.value?.id === 'rhythm' &&
+      ['friends', 'random'].includes(mode.value)) ||
+      (['air', 'hold'].includes(game.value?.id ?? '') && isCompetitive.value)) &&
+    route.query.result === 'lose',
+)
 const opponentResultImage = computed(() =>
   game.value?.id === 'hold' ? opponentProfileImage : game.value?.image,
 )
@@ -65,6 +140,8 @@ const drawRoundResults = [
 const drawTotalScore = computed(() =>
   drawRoundResults.reduce((total, round) => total + round.score, 0),
 )
+const mockMyNickname = '눈빛 좋은 플레이어'
+const mockOpponentNickname = '신나는 플레이어'
 
 const soloScoreDisplay = ref('0')
 const drawScoreDisplay = ref(0)
@@ -137,15 +214,20 @@ onBeforeUnmount(() => {
     globalThis.cancelAnimationFrame(soloCountFrame)
   if (drawCountFrame !== undefined)
     globalThis.cancelAnimationFrame(drawCountFrame)
+  if (hasRealResult.value) lastResultStore.clear()
 })
 
 function replay() {
-  if (game.value)
+  if (game.value) {
+    const playQuery = { ...route.query }
+    delete playQuery.result
+
     router.push({
       name: 'game-play',
       params: { gameId: game.value.id },
-      query: route.query,
+      query: playQuery,
     })
+  }
 }
 function viewRanking() {
   router.push({ name: 'ranking', query: { game: game.value?.id } })
@@ -158,22 +240,344 @@ function goToGames() {
 <template>
   <GameResultShell
     v-if="game && result"
-    :title="title"
+    :title="isShowcaseCompetitiveResult ? '게임' : title"
     :mode-label="gameModeLabels[mode]"
-    :headline="result.headline"
-    :summary="result.summary"
-    :hide-outcome-intro="isCompetitive"
-    :hide-header="isCompetitive || isDrawResult"
+    :headline="isFailedResult ? '아쉽지만, 게임에 실패했어요!' : result.headline"
+    :summary="isFailedResult ? '하트를 모두 사용해 게임이 종료되었어요.' : result.summary"
+    :hide-outcome-intro="isCompetitive || isFailedResult || isHoldRecordMissed"
+    :hide-header="isCompetitive || isDrawResult || isHoldRecordMissed"
     :hide-title="game.id === 'hold'"
   >
     <section
       class="result-grid"
       :class="[
         `result-grid--${game.id}`,
-        { 'result-grid--competitive': isCompetitive },
+        {
+          'result-grid--competitive': isCompetitive,
+          'result-grid--failed': isFailedResult,
+          'result-grid--hold-record-missed': isHoldRecordMissed,
+          'result-grid--duel-loss': isCompetitive,
+        },
       ]"
     >
-      <template v-if="isDrawResult">
+      <template v-if="isShowcaseCompetitiveResult">
+        <section class="air-result" :aria-label="`${title} 대결 결과`">
+          <header class="duel-loss__hero" aria-labelledby="air-duel-result-title">
+            <div>
+              <p>{{ title }} 결과</p>
+              <span>{{ isCompetitiveLoss ? '아쉽다!' : '최고에요!' }}</span>
+              <h2 id="air-duel-result-title">
+                {{ isCompetitiveLoss ? 'YOU LOSE...' : 'YOU WIN!' }}
+              </h2>
+              <strong>
+                {{
+                  isCompetitiveLoss
+                    ? '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
+                    : '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
+                }}
+              </strong>
+            </div>
+            <img
+              :src="isCompetitiveLoss ? duelLoserImage : duelWinnerBannerImage"
+              :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어 캐릭터' : '승리한 내 플레이어 캐릭터'"
+              draggable="false"
+            />
+          </header>
+          <section
+            class="air-duel-scoreboard"
+            :class="{ 'air-duel-scoreboard--no-score': game.id === 'hold' }"
+          >
+            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--mine">
+              <div>
+                <strong>{{ mockMyNickname }}</strong>
+                <span>나</span>
+              </div>
+              <img
+                :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
+                :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어' : '승리한 내 플레이어'"
+                draggable="false"
+              />
+              <b v-if="game.id === 'air'">{{ isCompetitiveLoss ? '2' : '5' }}</b>
+            </article>
+            <div
+              class="air-duel-scoreboard__outcome"
+              :class="{ 'air-duel-scoreboard__outcome--lose': isCompetitiveLoss }"
+            >
+              <span aria-hidden="true">🏆</span>
+              <strong>{{ isCompetitiveLoss ? '패배' : '승리!' }}</strong>
+            </div>
+            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--ai">
+              <div>
+                <strong>{{ mode === 'ai' ? 'AI' : mockOpponentNickname }}</strong>
+                <span>{{ mode === 'ai' ? 'BOT' : '상대' }}</span>
+              </div>
+              <img
+                :src="
+                  mode === 'ai'
+                    ? isCompetitiveLoss
+                      ? airAiRobotImage
+                      : airAiRobotLoseImage
+                    : isCompetitiveLoss
+                      ? duelWinnerImage
+                      : duelLoserImage
+                "
+                :alt="isCompetitiveLoss ? '승리한 상대 플레이어' : '아쉬워하는 상대 플레이어'"
+                draggable="false"
+              />
+              <b v-if="game.id === 'air'">3</b>
+            </article>
+          </section>
+          <footer class="duel-loss__summary duel-loss__summary--air-ai air-result__summary">
+            <p>
+              <b>{{ isCompetitiveLoss ? '괜찮아요! 다시 도전해요!' : '재미있는 한 판이었어요!' }}</b>
+              <span>
+                {{
+                  isCompetitiveLoss
+                    ? '다음 대결에서는 더 좋은 결과를 만들어 보세요.'
+                    : '함께해서 더 즐거웠어요. 또 대결해 보세요.'
+                }}
+              </span>
+            </p>
+            <button type="button" @click="replay">다시 플레이</button>
+          </footer>
+        </section>
+      </template>
+
+      <template v-else-if="isCompetitive">
+        <section class="duel-loss" aria-labelledby="duel-loss-title">
+          <header class="duel-loss__hero">
+            <div>
+              <p>{{ title }} 결과</p>
+              <span>{{ isCompetitiveLoss ? '아쉽다!' : '최고에요!' }}</span>
+              <h2 id="duel-loss-title">
+                {{ isCompetitiveLoss ? 'YOU LOSE...' : 'YOU WIN!' }}
+              </h2>
+              <strong>
+                {{
+                  isCompetitiveLoss
+                    ? game.id === 'air'
+                      ? '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
+                      : '다음엔 더 정확한 눈 컨트롤로 승리를 가져와 보세요!'
+                    : game.id === 'air'
+                      ? '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
+                      : '멋진 눈 컨트롤로 이번 대결을 이겼어요!'
+                }}
+              </strong>
+            </div>
+            <img
+              :src="isCompetitiveLoss ? duelLoserImage : duelWinnerBannerImage"
+              :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어 캐릭터' : '승리한 내 플레이어 캐릭터'"
+              draggable="false"
+            />
+          </header>
+
+          <section
+            v-if="game.id === 'air' && mode === 'ai'"
+            class="air-duel-scoreboard"
+            aria-label="에어하키 대결 결과"
+          >
+            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--mine">
+              <div><strong>나</strong><span>YOU</span></div>
+              <img
+                :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
+                :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어' : '승리한 내 플레이어'"
+                draggable="false"
+              />
+              <b>{{ isCompetitiveLoss ? '2' : '5' }}</b>
+            </article>
+            <div
+              class="air-duel-scoreboard__outcome"
+              :class="{ 'air-duel-scoreboard__outcome--lose': isCompetitiveLoss }"
+            >
+              <span aria-hidden="true">🏆</span>
+              <strong>{{ isCompetitiveLoss ? '패배' : '승리!' }}</strong>
+            </div>
+            <article class="air-duel-scoreboard__player air-duel-scoreboard__player--ai">
+              <div><strong>AI</strong><span>BOT</span></div>
+              <img
+                :src="isCompetitiveLoss ? airAiRobotImage : airAiRobotLoseImage"
+                :alt="isCompetitiveLoss ? '웃고 있는 AI 로봇' : '아쉬워하는 AI 로봇'"
+                draggable="false"
+              />
+              <b>3</b>
+            </article>
+          </section>
+
+          <section v-else class="duel-loss__scoreboard" aria-label="대결 결과 비교">
+            <article class="duel-loss__player duel-loss__player--mine">
+              <div class="duel-loss__identity">
+                <strong>{{ mockMyNickname }}</strong><span>나</span>
+              </div>
+              <img
+                :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
+                :alt="isCompetitiveLoss ? '아쉬워하는 내 플레이어' : '승리한 내 플레이어'"
+                draggable="false"
+              />
+            </article>
+
+            <article class="duel-loss__stats">
+              <div class="duel-loss__score-row">
+                <strong>{{ game.id === 'air' ? (isCompetitiveLoss ? '2' : '5') : (isCompetitiveLoss ? '8,750' : '11,230') }}</strong
+                ><b>VS</b><strong>{{ game.id === 'air' ? '3' : (isCompetitiveLoss ? '11,230' : '8,750') }}</strong>
+              </div>
+              <dl>
+                <template v-if="game.id === 'air'">
+                  <div><dd>{{ isCompetitiveLoss ? '2' : '5' }}</dd><dt>최종 점수</dt><dd>3</dd></div>
+                  <div><dd>00:34</dd><dt>경기 시간</dt><dd>00:34</dd></div>
+                  <div><dd>{{ isCompetitiveLoss ? '1' : '+2' }}</dd><dt>득점 차</dt><dd>{{ isCompetitiveLoss ? '+1' : '2' }}</dd></div>
+                </template>
+                <template v-else>
+                  <div><dd>{{ isCompetitiveLoss ? '89.2%' : '93.1%' }}</dd><dt>정확도</dt><dd>{{ isCompetitiveLoss ? '93.1%' : '89.2%' }}</dd></div>
+                  <div><dd>{{ isCompetitiveLoss ? '32' : '42' }}</dd><dt>COMBO</dt><dd>{{ isCompetitiveLoss ? '42' : '32' }}</dd></div>
+                  <div class="duel-loss__hearts-row">
+                    <dd>
+                      <i v-for="index in 5" :key="`mine-${index}`" :class="{ empty: index === 5 }">♥</i>
+                    </dd>
+                    <dt>체력</dt>
+                    <dd><i v-for="index in 5" :key="`opponent-${index}`">♥</i></dd>
+                  </div>
+                </template>
+              </dl>
+            </article>
+
+            <article class="duel-loss__player duel-loss__player--opponent">
+              <div class="duel-loss__identity">
+                <strong>{{ game.id === 'air' && mode === 'ai' ? 'AI' : mockOpponentNickname }}</strong>
+                <span>{{ game.id === 'air' && mode === 'ai' ? 'BOT' : '상대' }}</span>
+              </div>
+              <img
+                :src="
+                  game.id === 'air' && mode === 'ai'
+                    ? airAiRobotImage
+                    : ['friends', 'random'].includes(mode)
+                      ? isCompetitiveLoss
+                        ? duelWinnerImage
+                        : duelLoserImage
+                      : opponentProfileImage
+                "
+                :alt="isCompetitiveLoss ? '승리한 상대 플레이어' : '아쉬워하는 상대 플레이어'"
+                draggable="false"
+              />
+            </article>
+          </section>
+
+          <footer
+            class="duel-loss__summary"
+            :class="{ 'duel-loss__summary--air-ai': game.id === 'air' && mode === 'ai' }"
+          >
+            <p>
+              <b>{{ isCompetitiveLoss ? '괜찮아요! 다시 도전해요!' : '재미있는 한 판이었어요!' }}</b>
+              <span>
+                {{
+                  isCompetitiveLoss
+                    ? game.id === 'air'
+                      ? '패들을 움직이는 시선 타이밍을 조금 더 연습해 보세요!'
+                      : '실수한 타이밍을 분석하고 연습하면 더 높은 점수를 달성할 수 있어요.'
+                    : '친구와 함께해서 더 즐거웠어요. 또 대결해 보세요'
+                }}
+              </span>
+            </p>
+            <dl v-if="!(game.id === 'air' && mode === 'ai')">
+              <template v-if="game.id === 'air'">
+                <div><dt>경기 시간</dt><dd>00:34</dd></div>
+                <div><dt>내 득점</dt><dd>2</dd></div>
+                <div><dt>상대 득점</dt><dd>3</dd></div>
+              </template>
+              <template v-else>
+                <div><dt>게임 시간</dt><dd>00:30</dd></div>
+                <div><dt>최대 콤보</dt><dd>32</dd></div>
+                <div><dt>정확도</dt><dd>89.2%</dd></div>
+              </template>
+            </dl>
+            <button type="button" @click="replay">다시 플레이</button>
+          </footer>
+          <p class="duel-loss__note">
+            {{ mode === 'friends' ? '친구와의 게임은 랭킹에 반영되지 않습니다.' : '대결 결과는 mock 데이터입니다.' }}
+          </p>
+        </section>
+      </template>
+
+      <template v-else-if="isHoldRecordMissed">
+        <section class="hold-record-missed" aria-labelledby="hold-record-missed-title">
+          <header class="hold-record-missed__header">
+            <span>눈싸움 · 솔로 모드</span>
+            <h2 id="hold-record-missed-title">게임 결과!</h2>
+          </header>
+
+          <div class="hold-record-missed__grid">
+            <article class="hold-record-missed__hero">
+              <span class="hold-record-missed__badge">아쉽지만...</span>
+              <h3>신기록 갱신에 실패했어요!</h3>
+              <p>다음엔 더 멋진 기록을 세워봐요!</p>
+              <img
+                :src="failedProfileImage"
+                alt="아쉬워하는 플레이어 캐릭터"
+                draggable="false"
+              />
+              <div class="hold-record-missed__time">
+                <span>최종 생존 시간</span>
+                <strong>00:45.27</strong>
+                <small>이전 최고 기록 <b>01:02.38</b></small>
+              </div>
+            </article>
+
+            <div class="hold-record-missed__side">
+              <article class="hold-record-missed__rank">
+                <span>2</span>
+                <p>내 순위</p>
+                <strong>2등</strong>
+                <small>조금만 더 집중하면 1등이 될 수 있어요!</small>
+              </article>
+              <article class="hold-record-missed__summary">
+                <h3>기록 요약</h3>
+                <dl>
+                  <div><dt>내 최고 기록</dt><dd>01:02.38</dd></div>
+                  <div><dt>기록 차이</dt><dd>-00:17.11</dd></div>
+                  <div><dt>순위</dt><dd>2등</dd></div>
+                </dl>
+              </article>
+              <aside class="hold-record-missed__tip">
+                <b>TIP!</b>
+                <span>집중력과 순발력이 높은 시간대에 도전해보세요!<br />짧은 휴식 후 다시 도전하면 더 좋은 결과를 얻을 수 있어요.</span>
+              </aside>
+              <button type="button" @click="replay">다시 도전하기</button>
+            </div>
+          </div>
+          <footer class="hold-record-missed__encouragement">
+            <b>포기하지 마세요!</b>
+            <span>매번의 도전이 실력을 키워요. 당신은 이미 잘하고 있어요!</span>
+          </footer>
+        </section>
+      </template>
+
+      <template v-else-if="isFailedResult">
+        <article class="failed-result" aria-labelledby="failed-result-title">
+          <section class="failed-result__mascot" aria-hidden="true">
+            <span class="failed-result__badge">GAME OVER</span>
+            <img :src="failedProfileImage" alt="" draggable="false" />
+          </section>
+          <section class="failed-result__content">
+            <p class="failed-result__eyebrow">아쉽지만...</p>
+            <h2 id="failed-result-title">게임에 실패했어요!</h2>
+            <div class="failed-result__heart-card">
+              <strong>하트를 모두 사용했어요!</strong>
+              <div class="failed-result__hearts" aria-label="사용한 하트 5개">
+                <svg v-for="index in 5" :key="index" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 20.3 3.8 12.8A5.3 5.3 0 0 1 11.3 5L12 5.7l.7-.7a5.3 5.3 0 0 1 7.5 7.8z" fill="currentColor" />
+                </svg>
+              </div>
+            </div>
+            <p class="failed-result__description">
+              하트를 모두 사용해서 더 이상 게임을 진행할 수 없어요.
+            </p>
+            <p class="failed-result__encouragement">
+              다시 도전해서 더 좋은 기록을 노려보세요!
+            </p>
+          </section>
+        </article>
+      </template>
+
+      <template v-else-if="isDrawResult">
         <header class="draw-final-hero">
           <span
             class="draw-final-hero__sparkle draw-final-hero__sparkle--left"
@@ -418,18 +822,18 @@ function goToGames() {
 
         <template v-if="isCompetitive">
           <section class="versus-hero" aria-label="대결 승패 결과">
-            <strong>YOU WIN!</strong>
-            <p>멋진 플레이로 이번 대결을 이겼어요.</p>
+            <strong>{{ outcomeHeadline }}</strong>
+            <p>{{ outcomeSummary }}</p>
           </section>
           <article class="versus-result">
             <section class="player-result player-result--mine">
-              <b>WIN</b
+              <b>{{ myBadgeLabel }}</b
               ><img
                 :src="game.mascotImage"
                 alt="내 플레이어 마스코트"
                 draggable="false"
               />
-              <span>나 · PLAYER 1</span><strong>눈빛 좋은 플레이어</strong>
+              <span>{{ mockMyNickname }} · 나</span><strong>{{ mockMyNickname }}</strong>
             </section>
             <section class="versus-stats">
               <div>
@@ -439,19 +843,19 @@ function goToGames() {
               <div v-for="stat in result.stats" :key="stat.label">
                 <span>{{ stat.value }}</span
                 ><b>{{ stat.label }}</b
-                ><span>{{ stat.value }}</span>
+                ><span>{{ stat.opponentValue ?? stat.value }}</span>
               </div>
             </section>
             <section class="player-result player-result--opponent">
-              <b>LOSE</b
+              <b>{{ opponentBadgeLabel }}</b
               ><img
                 :src="opponentResultImage"
                 alt="상대 플레이어 프로필 이미지"
                 draggable="false"
               />
-              <span>{{ mode === 'ai' ? 'AI · BOT' : '상대 · PLAYER 2' }}</span
+              <span>{{ mode === 'ai' ? 'AI · BOT' : `${mockOpponentNickname} · 상대` }}</span
               ><strong>{{
-                mode === 'ai' ? 'AI 플레이어' : '신나는 플레이어'
+                mode === 'ai' ? 'AI 플레이어' : mockOpponentNickname
               }}</strong>
             </section>
           </article>
@@ -467,11 +871,8 @@ function goToGames() {
           </template>
           <div v-else class="versus-summary">
             <div>
-              <b>정말 잘했어요!</b
-              ><span
-                >정확한 눈 컨트롤이 빛났어요. 다음에도 멋진 플레이를
-                기대할게요!</span
-              >
+              <b>{{ outcomeHeadline }}</b
+              ><span>{{ outcomeSummary }}</span>
             </div>
             <dl>
               <div v-for="stat in result.stats" :key="stat.label">
@@ -509,20 +910,22 @@ function goToGames() {
           </dl>
           <p class="mock-note">
             {{
-              isCompetitive
-                ? '대결 결과는 mock 데이터입니다.'
-                : '좋은 기록이에요. 다음 게임에서도 도전해 보세요!'
+              !isCompetitive
+                ? '좋은 기록이에요. 다음 게임에서도 도전해 보세요!'
+                : hasRealResult
+                  ? '결과가 실제 플레이 기록으로 저장됐어요.'
+                  : '대결 결과는 mock 데이터입니다.'
             }}
           </p>
         </article>
       </template>
     </section>
     <nav
-      v-if="!isDrawResult"
+      v-if="!isDrawResult && !isHoldRecordMissed"
       class="result-actions"
       aria-label="결과 화면 동작"
     >
-      <button type="button" class="primary" @click="replay">
+      <button v-if="!isCompetitive" type="button" class="primary" @click="replay">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
             d="M20 11A8 8 0 1 0 18 16"
@@ -598,6 +1001,731 @@ function goToGames() {
   grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
   gap: 20px;
   text-align: left;
+}
+.result-grid--failed {
+  display: block;
+}
+.result-grid--duel-loss {
+  display: block;
+}
+.duel-loss {
+  display: grid;
+  gap: 20px;
+  text-align: center;
+}
+.duel-loss__hero {
+  position: relative;
+  display: grid;
+  min-height: 194px;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  align-items: center;
+  overflow: hidden;
+  padding: 28px 54px;
+  border: 1px solid #e6e3f5;
+  border-radius: 24px;
+  background: #f9f8ff;
+  box-shadow: 0 12px 30px rgba(36, 44, 95, 0.05);
+}
+.duel-loss__hero > div {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+}
+.duel-loss__hero p {
+  margin: 0 0 12px;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+.duel-loss__hero span {
+  padding: 5px 20px;
+  border-radius: 999px;
+  color: #fff;
+  background: #ee78a7;
+  font-size: 13px;
+  font-weight: 900;
+}
+.duel-loss__hero h2 {
+  margin: 8px 0;
+  color: #6744ed;
+  font-family: var(--font-display);
+  font-size: clamp(40px, 5vw, 62px);
+  font-style: italic;
+  letter-spacing: -0.07em;
+  line-height: 1;
+  text-shadow: 0 5px 12px rgba(103, 68, 237, 0.18);
+}
+.duel-loss__hero strong {
+  color: #56628b;
+  font-size: 14px;
+}
+.duel-loss__hero img {
+  position: absolute;
+  right: 8px;
+  bottom: -12px;
+  width: 240px;
+  opacity: 0.34;
+}
+.air-duel-scoreboard {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 335px;
+  overflow: hidden;
+  border: 1px solid #e2e4f4;
+  border-radius: 24px;
+  background: linear-gradient(90deg, #f7f6ff 0 50%, #fff7f8 50% 100%);
+  box-shadow: 0 10px 24px rgba(36, 44, 95, 0.05);
+}
+.air-duel-scoreboard__player {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  padding: 32px 12% 28px;
+  text-align: center;
+}
+.air-duel-scoreboard__player > div {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+}
+.air-duel-scoreboard__player > div strong {
+  color: #4b55df;
+  font-family: var(--font-display);
+  font-size: 27px;
+}
+.air-duel-scoreboard__player > div span {
+  padding: 4px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: #5f68df;
+  font-size: 11px;
+  font-weight: 900;
+}
+.air-duel-scoreboard__player img {
+  grid-column: 1;
+  grid-row: 2 / 4;
+  align-self: end;
+  justify-self: center;
+  width: 100%;
+  max-width: 165px;
+  height: 180px;
+  object-fit: contain;
+}
+.air-duel-scoreboard__player b {
+  grid-column: 2;
+  color: #4b43e7;
+  font-family: var(--font-display);
+}
+.air-duel-scoreboard__player b {
+  align-self: center;
+  font-size: clamp(58px, 7vw, 86px);
+  line-height: 0.9;
+}
+.air-duel-scoreboard--no-score .air-duel-scoreboard__player {
+  grid-template-columns: 1fr;
+}
+.air-duel-scoreboard--no-score .air-duel-scoreboard__player img {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+}
+.air-duel-scoreboard__player--ai {
+  grid-template-columns: 126px minmax(0, 1fr);
+}
+.air-duel-scoreboard__player--ai img {
+  grid-column: 2;
+}
+.air-duel-scoreboard__player--ai b {
+  grid-column: 1;
+  color: #d44d42;
+}
+.air-duel-scoreboard__player--ai > div strong,
+.air-duel-scoreboard__player--ai > div span {
+  color: #c74439;
+}
+.air-duel-scoreboard__outcome {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  display: grid;
+  width: 168px;
+  height: 168px;
+  place-content: center;
+  gap: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(84, 75, 205, 0.12);
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+.air-duel-scoreboard__outcome span {
+  font-size: 34px;
+}
+.air-duel-scoreboard__outcome strong {
+  color: #5744ed;
+  font-family: var(--font-display);
+  font-size: 42px;
+}
+.air-duel-scoreboard__outcome--lose strong {
+  color: #d45475;
+}
+.result-grid--air.result-grid--competitive {
+  display: block;
+}
+.result-shell:has(.air-result) {
+  padding-top: 20px;
+}
+.air-result {
+  display: grid;
+  gap: 20px;
+}
+.air-result .duel-loss__hero {
+  min-height: 194px;
+  padding: 28px 54px;
+}
+.air-result .duel-loss__hero img {
+  width: 240px;
+}
+.air-result .air-duel-scoreboard {
+  min-height: 290px;
+}
+.air-result .air-duel-scoreboard__player {
+  padding: 22px 15% 20px;
+}
+.air-result .air-duel-scoreboard__player img {
+  max-width: 165px;
+  height: 190px;
+}
+.air-result .air-duel-scoreboard__outcome {
+  width: 150px;
+  height: 150px;
+}
+.air-result .air-duel-scoreboard__outcome span {
+  font-size: 32px;
+}
+.air-result .air-duel-scoreboard__outcome strong {
+  font-size: 38px;
+}
+.air-result__summary {
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 310px);
+}
+.air-result__summary button {
+  min-height: 62px;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+.duel-loss__scoreboard {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.68fr) minmax(360px, 1.35fr) minmax(150px, 0.68fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.duel-loss__player,
+.duel-loss__stats,
+.duel-loss__summary {
+  border: 1px solid #e2e4f4;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(36, 44, 95, 0.05);
+}
+.duel-loss__player {
+  display: grid;
+  gap: 9px;
+  justify-items: center;
+  padding: 15px 14px;
+}
+.duel-loss__player > b {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.duel-loss__identity {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+.duel-loss__identity strong {
+  color: #634fe3;
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+.duel-loss__identity span {
+  padding: 4px 9px;
+  border: 1px solid #bdb6f8;
+  border-radius: 999px;
+  color: #695ce7;
+  font-size: 11px;
+  font-weight: 900;
+}
+.duel-loss__player img {
+  width: 100%;
+  max-width: 142px;
+  height: 130px;
+  object-fit: contain;
+}
+.duel-loss__player > b {
+  color: #634fe3;
+  background: #f1efff;
+}
+.duel-loss__player--opponent {
+  border-color: #f4d9e6;
+}
+.duel-loss__player--opponent .duel-loss__identity strong {
+  color: #d64a78;
+}
+.duel-loss__player--opponent .duel-loss__identity span {
+  border-color: #f2b6cb;
+  color: #d64a78;
+}
+.duel-loss__player--opponent > b {
+  color: #db427b;
+  background: #fff0f6;
+}
+.duel-loss__stats {
+  overflow: hidden;
+}
+.duel-loss__score-row,
+.duel-loss__stats dl > div {
+  display: grid;
+  grid-template-columns: 1fr 78px 1fr;
+  align-items: center;
+  min-height: 56px;
+  padding: 0 20px;
+  border-top: 1px solid #ececf5;
+}
+.duel-loss__score-row {
+  min-height: 92px;
+  border-top: 0;
+}
+.duel-loss__score-row strong {
+  color: #6147ed;
+  font-size: clamp(28px, 3.6vw, 42px);
+}
+.duel-loss__score-row strong:last-child,
+.duel-loss__stats dd:last-child {
+  color: #e74d87;
+}
+.duel-loss__score-row b,
+.duel-loss__stats dt {
+  color: #687294;
+  font-size: 12px;
+  font-weight: 900;
+}
+.duel-loss__stats dl {
+  margin: 0;
+}
+.duel-loss__stats dd {
+  margin: 0;
+  color: #6147ed;
+  font-size: 19px;
+  font-weight: 900;
+}
+.duel-loss__hearts-row dd {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+.duel-loss__hearts-row i {
+  color: #e74d87;
+  font-size: 21px;
+  font-style: normal;
+}
+.duel-loss__hearts-row i.empty {
+  color: #34384f;
+}
+.duel-loss__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 1.1fr) 155px;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 24px;
+  text-align: left;
+}
+.duel-loss__summary--air-ai {
+  grid-template-columns: minmax(0, 1fr) 155px;
+}
+.duel-loss__summary p {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+.duel-loss__summary p b {
+  color: #6048e9;
+  font-size: 18px;
+}
+.duel-loss__summary p span {
+  color: #687294;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.duel-loss__summary dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f7f6ff;
+  text-align: center;
+}
+.duel-loss__summary dt {
+  color: #7a83a0;
+  font-size: 11px;
+}
+.duel-loss__summary dd {
+  margin: 5px 0 0;
+  color: var(--color-ink);
+  font-weight: 900;
+}
+.duel-loss__summary button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 11px;
+  color: #fff;
+  background: #5c40ef;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+.duel-loss__note {
+  margin: 0;
+  color: #7f74e5;
+  font-size: 13px;
+  font-weight: 800;
+}
+.result-grid--hold-record-missed {
+  display: block;
+}
+.hold-record-missed {
+  display: grid;
+  gap: 16px;
+  text-align: left;
+}
+.hold-record-missed__header {
+  text-align: center;
+}
+.hold-record-missed__header span {
+  display: inline-block;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: #5b52e4;
+  background: #f0efff;
+  font-size: 12px;
+  font-weight: 900;
+}
+.hold-record-missed__header h2 {
+  margin: 6px 0 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: clamp(30px, 4vw, 42px);
+}
+.hold-record-missed__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+  gap: 18px;
+}
+.hold-record-missed__hero,
+.hold-record-missed__rank,
+.hold-record-missed__summary,
+.hold-record-missed__tip,
+.hold-record-missed__encouragement {
+  border: 1px solid #e2e4f4;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(36, 44, 95, 0.05);
+}
+.hold-record-missed__hero {
+  position: relative;
+  display: grid;
+  min-height: 430px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  justify-items: center;
+  overflow: hidden;
+  padding: 28px 28px 0;
+  background: #f7f5ff;
+  text-align: center;
+}
+.hold-record-missed__badge {
+  padding: 7px 22px;
+  border-radius: 8px;
+  color: #fff;
+  background: #7f8394;
+  font-weight: 900;
+}
+.hold-record-missed__hero h3 {
+  margin: 13px 0 0;
+  color: #42475e;
+  font-size: clamp(22px, 3vw, 31px);
+}
+.hold-record-missed__hero > p {
+  margin: 6px 0 0;
+  color: #55618a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.hold-record-missed__hero > img {
+  width: min(55%, 210px);
+  height: 210px;
+  object-fit: contain;
+  align-self: end;
+  opacity: 0.9;
+}
+.hold-record-missed__time {
+  z-index: 1;
+  width: min(100%, 390px);
+  margin: -12px 0 10px;
+  padding: 15px;
+  border: 1px solid #e1e3f0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+}
+.hold-record-missed__time span,
+.hold-record-missed__time small {
+  display: block;
+  color: #6a7395;
+  font-size: 12px;
+  font-weight: 700;
+}
+.hold-record-missed__time strong {
+  display: block;
+  margin: 4px 0 6px;
+  color: var(--color-ink);
+  font-size: clamp(31px, 5vw, 45px);
+  font-variant-numeric: tabular-nums;
+}
+.hold-record-missed__time b {
+  color: #6656ed;
+}
+.hold-record-missed__side {
+  display: grid;
+  grid-template-rows: 1.35fr 0.85fr auto auto;
+  gap: 14px;
+}
+.hold-record-missed__rank {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 20px;
+  text-align: center;
+}
+.hold-record-missed__rank > span {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #a3a6b4;
+  font-size: 24px;
+  font-weight: 900;
+}
+.hold-record-missed__rank p {
+  margin: 8px 0 2px;
+  color: #59627e;
+  font-size: 13px;
+  font-weight: 800;
+}
+.hold-record-missed__rank strong {
+  color: #6352ed;
+  font-family: var(--font-display);
+  font-size: 40px;
+}
+.hold-record-missed__rank small {
+  margin-top: 7px;
+  color: #58628c;
+  font-size: 12px;
+}
+.hold-record-missed__summary {
+  padding: 16px 20px;
+}
+.hold-record-missed__summary h3 {
+  margin: 0 0 12px;
+  color: var(--color-ink);
+  font-size: 14px;
+}
+.hold-record-missed__summary dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+}
+.hold-record-missed__summary dl div {
+  padding: 0 8px;
+  border-left: 1px solid #e7e8f0;
+  text-align: center;
+}
+.hold-record-missed__summary dl div:first-child {
+  border-left: 0;
+}
+.hold-record-missed__summary dt {
+  color: #74809d;
+  font-size: 11px;
+}
+.hold-record-missed__summary dd {
+  margin: 6px 0 0;
+  color: var(--color-ink);
+  font-weight: 900;
+}
+.hold-record-missed__summary dl div:nth-child(2) dd {
+  color: #ef5b67;
+}
+.hold-record-missed__tip {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 17px;
+  background: #f7f6ff;
+}
+.hold-record-missed__tip b {
+  color: #5a48e8;
+  font-size: 14px;
+}
+.hold-record-missed__tip span {
+  color: #647094;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.hold-record-missed__side > button {
+  min-height: 48px;
+  border: 1px solid #7869ee;
+  border-radius: 12px;
+  color: #5544df;
+  background: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+.hold-record-missed__encouragement {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  padding: 17px 24px;
+  background: #f7f6ff;
+}
+.hold-record-missed__encouragement b {
+  color: #4f43de;
+}
+.hold-record-missed__encouragement span {
+  color: #667193;
+  font-size: 13px;
+}
+.failed-result {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  min-height: 430px;
+  overflow: hidden;
+  border: 1px solid #e6e3f5;
+  border-radius: 26px;
+  background: #fbfaff;
+  box-shadow: 0 14px 34px rgba(36, 44, 95, 0.07);
+  animation: result-enter 0.5s var(--ease-out) both;
+}
+.failed-result__mascot {
+  position: relative;
+  display: grid;
+  min-height: 330px;
+  place-items: end center;
+  overflow: hidden;
+  padding: 42px 24px 20px;
+  background: #f4f2fd;
+}
+.failed-result__mascot::before {
+  position: absolute;
+  inset: auto 14% 12%;
+  height: 38%;
+  border-radius: 50%;
+  background: #ebe7fc;
+  content: '';
+}
+.failed-result__mascot img {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 280px);
+  max-height: 300px;
+  object-fit: contain;
+  filter: saturate(0.52);
+}
+.failed-result__badge {
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  z-index: 2;
+  padding: 9px 12px;
+  border: 2px solid #ef4e7b;
+  border-radius: 10px;
+  color: #ef3f70;
+  background: #fff;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  transform: rotate(-8deg);
+}
+.failed-result__content {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 42px 44px;
+  text-align: center;
+}
+.failed-result__eyebrow {
+  margin: 0;
+  color: #242c5f;
+  font-size: 21px;
+  font-weight: 800;
+}
+.failed-result__content h2 {
+  margin: 8px 0 28px;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.2;
+  letter-spacing: -0.05em;
+}
+.failed-result__heart-card {
+  display: grid;
+  width: min(100%, 430px);
+  gap: 18px;
+  padding: 28px 24px;
+  border: 1px solid #e3e0f3;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(43, 48, 95, 0.05);
+}
+.failed-result__heart-card strong {
+  color: var(--color-ink);
+  font-size: 20px;
+}
+.failed-result__hearts {
+  display: flex;
+  justify-content: center;
+  gap: clamp(10px, 2vw, 18px);
+  color: #565866;
+}
+.failed-result__hearts svg {
+  width: clamp(28px, 3.2vw, 38px);
+  height: clamp(28px, 3.2vw, 38px);
+}
+.failed-result__description {
+  max-width: 390px;
+  margin: 26px 0 0;
+  color: #687294;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.65;
+}
+.failed-result__encouragement {
+  margin: 14px 0 0;
+  color: #ec3e76;
+  font-size: 17px;
+  font-weight: 900;
 }
 .result-hero,
 .result-summary,
@@ -1423,6 +2551,114 @@ function goToGames() {
   text-align: center;
 }
 @media (max-width: 700px) {
+  .air-result {
+    gap: 18px;
+  }
+  .air-result .air-duel-scoreboard {
+    min-height: 300px;
+  }
+  .air-result .air-duel-scoreboard__player {
+    padding: 24px 8px;
+  }
+  .air-result .air-duel-scoreboard__player img {
+    max-width: 120px;
+    height: 145px;
+  }
+  .air-result .air-duel-scoreboard__outcome {
+    width: 118px;
+    height: 118px;
+  }
+  .air-result .air-duel-scoreboard__outcome span {
+    font-size: 25px;
+  }
+  .air-result .air-duel-scoreboard__outcome strong {
+    font-size: 29px;
+  }
+  .air-result__summary {
+    grid-template-columns: 1fr;
+  }
+  .hold-record-missed__grid {
+    grid-template-columns: 1fr;
+  }
+  .hold-record-missed__hero {
+    min-height: 390px;
+  }
+  .hold-record-missed__side {
+    grid-template-rows: auto;
+  }
+  .hold-record-missed__summary dl {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .hold-record-missed__summary dl div {
+    padding: 8px 0 0;
+    border-top: 1px solid #e7e8f0;
+    border-left: 0;
+  }
+  .hold-record-missed__summary dl div:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .hold-record-missed__encouragement {
+    display: grid;
+  }
+  .air-duel-scoreboard {
+    min-height: 280px;
+  }
+  .air-duel-scoreboard__player {
+    grid-template-columns: minmax(0, 1fr) 72px;
+    padding: 22px 8px 18px;
+  }
+  .air-duel-scoreboard__player--ai {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .air-duel-scoreboard__player img {
+    max-width: 118px;
+    height: 132px;
+  }
+  .air-duel-scoreboard__player b {
+    font-size: 48px;
+  }
+  .air-duel-scoreboard__outcome {
+    width: 112px;
+    height: 112px;
+  }
+  .air-duel-scoreboard__outcome span {
+    font-size: 25px;
+  }
+  .air-duel-scoreboard__outcome strong {
+    font-size: 28px;
+  }
+  .duel-loss__hero {
+    grid-template-columns: 1fr;
+    padding: 28px 20px;
+  }
+  .duel-loss__hero img {
+    display: none;
+  }
+  .duel-loss__scoreboard,
+  .duel-loss__summary {
+    grid-template-columns: 1fr;
+  }
+  .duel-loss__player img {
+    max-width: 120px;
+  }
+  .failed-result {
+    grid-template-columns: 1fr;
+  }
+  .failed-result__mascot {
+    min-height: 210px;
+    padding-top: 48px;
+  }
+  .failed-result__mascot img {
+    max-height: 180px;
+  }
+  .failed-result__content {
+    padding: 32px 20px;
+  }
+  .failed-result__content h2 {
+    margin-bottom: 22px;
+  }
   .result-grid {
     grid-template-columns: 1fr;
   }

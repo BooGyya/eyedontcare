@@ -13,6 +13,11 @@ import RankingPage from '../pages/RankingPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior(to, _from, savedPosition) {
+    if (to.name === 'game-play' && to.params.gameId === 'air') return false
+
+    return savedPosition ?? { top: 0 }
+  },
   routes: [
     { path: '/', name: 'home', component: HomePage },
     { path: '/games', name: 'games', component: GamesPage },

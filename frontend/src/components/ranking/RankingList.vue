@@ -79,9 +79,6 @@ function getPlayerAvatar(player: RankingPlayer) {
             :alt="`${getPlayerNickname(player)} 프로필`"
           />
           <strong>{{ getPlayerNickname(player) }}</strong>
-          <small v-if="player.level" class="ranking-list__podium-level">{{
-            player.level
-          }}</small>
           <small class="ranking-list__podium-score">{{ player.score }}</small>
           <b aria-label="순위">{{ player.rank }}위</b>
         </article>
@@ -115,10 +112,7 @@ function getPlayerAvatar(player: RankingPlayer) {
                   aria-hidden="true"
                   focusable="false"
                 >
-                  <path
-                    d="M12 5l6 7h-4v7h-4v-7H6l6-7Z"
-                    fill="currentColor"
-                  />
+                  <path d="M12 5l6 7h-4v7h-4v-7H6l6-7Z" fill="currentColor" />
                 </svg>
                 <svg
                   v-else-if="getTrendInfo(player.trend).direction === 'down'"
@@ -126,12 +120,14 @@ function getPlayerAvatar(player: RankingPlayer) {
                   aria-hidden="true"
                   focusable="false"
                 >
-                  <path
-                    d="M12 19l-6-7h4V5h4v7h4l-6 7Z"
-                    fill="currentColor"
-                  />
+                  <path d="M12 19l-6-7h4V5h4v7h4l-6 7Z" fill="currentColor" />
                 </svg>
-                <svg v-else viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
                   <path
                     d="M6 12h12"
                     fill="none"
@@ -271,12 +267,6 @@ function getPlayerAvatar(player: RankingPlayer) {
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.ranking-list__podium-level {
-  margin-top: 2px;
-  color: var(--color-ink-soft);
-  font-size: 11px;
-  font-weight: 600;
 }
 .ranking-list__podium-score {
   margin-top: 5px;

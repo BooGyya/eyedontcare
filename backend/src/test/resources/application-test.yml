@@ -13,6 +13,11 @@ kakao:
   connect-timeout: 3s
   read-timeout: 5s
 
+openvidu:
+  url: wss://localhost:7443
+  api-key: test-api-key
+  api-secret: test-api-secret
+
 app:
   cors:
     allowed-origins: http://localhost:5173

@@ -268,6 +268,11 @@ function handleQuickAction(action: QuickAction) {
     return
   }
 
+  if (action.externalUrl) {
+    globalThis.open(action.externalUrl, '_blank', 'noopener,noreferrer')
+    return
+  }
+
   if (action.notice) {
     showToast(action.notice)
   }

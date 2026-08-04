@@ -79,6 +79,7 @@ function memberUser(overrides: Partial<AuthUser> = {}): AuthUser {
     profileImageCode: 'PROFILE_1',
     email: 'player@example.com',
     loginType: 'LOCAL',
+    createdAt: '2026-08-01T00:00:00Z',
     ...overrides,
   }
 }
@@ -307,6 +308,54 @@ describe('ProfilePage', () => {
     confirmButton?.click()
     await flushPromises()
     expect(document.body.querySelector('.profile-dialog')).toBeNull()
+  })
+
+  it('blocks password change when the new password fails the policy', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/profile')
+    await router.isReady()
+    const pinia = setupAuthenticatedPage()
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: '',
+        data: url.includes('/game-results/me') ? EMPTY_RESULTS_PAGE : null,
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ProfilePage, {
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+
+    await wrapper.get('.profile-page__account-actions button').trigger('click')
+
+    const passwordInputs = document.body.querySelectorAll<HTMLInputElement>(
+      '.profile-dialog input[type="password"]',
+    )
+    passwordInputs[0].value = 'current-pw1'
+    passwordInputs[0].dispatchEvent(new Event('input'))
+    passwordInputs[1].value = 'abcdefgh'
+    passwordInputs[1].dispatchEvent(new Event('input'))
+    passwordInputs[2].value = 'abcdefgh'
+    passwordInputs[2].dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    fetchMock.mockClear()
+    const confirmButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '.profile-dialog__actions button',
+      ),
+    ).find((button) => button.textContent?.includes('변경하기'))
+    confirmButton?.click()
+    await flushPromises()
+
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes('/password')),
+    ).toBe(false)
+    expect(document.body.querySelector('.profile-dialog')).not.toBeNull()
   })
 
   it('confirms before withdrawing', async () => {

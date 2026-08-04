@@ -208,6 +208,26 @@ describe('HomePage weekly ranking carousel', () => {
     expect(wrapper.get('#weekly-ranking-title').text()).toContain('🏆')
   })
 
+  it('opens discord external URL when quick action is clicked', async () => {
+    const openSpy = vi.spyOn(globalThis, 'open').mockImplementation(() => null)
+    try {
+      const wrapper = mount(HomePage, {
+        global: { plugins: [createTestRouter()] },
+      })
+      const discordButton = wrapper.get('[data-testid="quick-action-discord"]')
+
+      await discordButton.trigger('click')
+
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://discord.gg/8SyyCmGRC',
+        '_blank',
+        'noopener,noreferrer',
+      )
+    } finally {
+      openSpy.mockRestore()
+    }
+  })
+
   it('advances the hero carousel automatically and loops', async () => {
     vi.useFakeTimers()
     try {

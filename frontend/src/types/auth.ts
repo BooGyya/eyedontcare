@@ -8,6 +8,10 @@ export type ProfileImageCode =
   | 'PROFILE_2'
   | 'PROFILE_3'
   | 'PROFILE_4'
+  | 'PROFILE_5'
+  | 'PROFILE_6'
+  | 'PROFILE_7'
+  | 'PROFILE_8'
 
 /** 백엔드 `UserLoginType` enum. */
 export type UserLoginType = 'LOCAL' | 'KAKAO'
@@ -51,4 +55,6 @@ export interface AuthUser {
   profileImageCode: ProfileImageCode | null
   email: string | null
   loginType: UserLoginType | null
+  /** 가입 시각(ISO). 게스트는 null. */
+  createdAt: string | null
 }
