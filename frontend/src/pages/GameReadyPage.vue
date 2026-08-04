@@ -437,7 +437,7 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
   if (!result.success) {
     eyeSampleFeedback.value = 'insufficient'
     playCalibrationSound('reject')
-    showToast(eyeSampleFailureMessage(kind, result.reason))
+    showToast(eyeSampleFailureMessage(result.reason))
     return
   }
 
@@ -452,7 +452,6 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
  * 다시 시도해야 하는지 구체적으로 알려준다.
  */
 function eyeSampleFailureMessage(
-  kind: 'open' | 'closed',
   reason: 'no_face' | 'eyes_open' | 'eyes_closed' | undefined,
 ): string {
   if (reason === 'eyes_closed') {
