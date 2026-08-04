@@ -169,8 +169,9 @@ describe('GameDetailPage', () => {
     expect(wrapper.text()).toContain('제한 시간')
   })
 
-  it('does not apply the compact modes layout for games with fewer than 4 modes', async () => {
+  it('applies the compact modes layout once a game has 4+ modes', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
+    // 눈싸움은 AI 난이도 대결이 추가되며 모드가 4개(solo/ai/friends/random)가 됐다.
     await router.push('/games/hold')
     await router.isReady()
     const wrapper = mount(GameDetailPage, {
@@ -178,7 +179,7 @@ describe('GameDetailPage', () => {
     })
 
     expect(wrapper.find('.game-detail-page__modes--compact').exists()).toBe(
-      false,
+      true,
     )
 
     await router.push('/games/blink')
@@ -186,6 +187,32 @@ describe('GameDetailPage', () => {
 
     expect(wrapper.find('.game-detail-page__modes--compact').exists()).toBe(
       false,
+    )
+  })
+
+  it('opens an AI difficulty picker for the hold game instead of navigating immediately', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/games/hold')
+    await router.isReady()
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
+
+    await wrapper.find('.game-detail-page__mode--ai').trigger('click')
+    await flushPromises()
+
+    // 난이도를 고르기 전까지는 아직 game-detail에 머물러 있어야 한다.
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    const options = wrapper.findAll('.game-detail-page__difficulty-option')
+    expect(options).toHaveLength(3)
+
+    await wrapper
+      .find('.game-detail-page__difficulty-option--hard')
+      .trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/games/hold/ready?mode=ai&difficulty=hard',
     )
   })
 
@@ -301,7 +328,7 @@ describe('GameDetailPage', () => {
 
     expect(router.currentRoute.value.fullPath).toBe('/games/draw/ready?mode=ai')
   })
-
+  
   it('opens the room dialog for friends mode without requiring login', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/blink')

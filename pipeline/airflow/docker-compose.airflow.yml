@@ -1,0 +1,33 @@
+# 로컬/데모용 Airflow (standalone: 웹서버+스케줄러 단일 실행, SQLite 메타DB).
+# 게임 Postgres와 같은 네트워크에 붙어 analytics를 갱신한다.
+# 운영은 별도(LocalExecutor/Celery + Postgres 메타DB) 권장.
+name: edc-airflow
+
+services:
+  airflow:
+    build: .
+    image: edc-airflow:local
+    command: standalone
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # dbt / DB 연결 (게임 Postgres) — dbt profiles.yml과 DAG가 함께 사용
+      DBT_PROJECT_DIR: /opt/airflow/dbt
+      DBT_HOST: postgres
+      DBT_PORT: "5432"
+      DBT_USER: backend
+      DBT_PASSWORD: backend-local-password
+      DBT_DBNAME: backend
+      DBT_SCHEMA: analytics
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ../dbt:/opt/airflow/dbt
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - game
+
+networks:
+  # 게임 compose(compose.dev.yml)가 만든 네트워크에 붙는다.
+  game:
+    name: s15p11b102-dev_default
+    external: true

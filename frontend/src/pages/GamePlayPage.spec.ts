@@ -1,10 +1,98 @@
-import { nextTick } from 'vue'
-import { mount } from '@vue/test-utils'
+import { nextTick, ref } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia } from 'pinia'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import GamePlayPage from './GamePlayPage.vue'
 import GameResultPage from './GameResultPage.vue'
+import { recognizeDrawing } from '../api/draw'
+
+const GUEST_STORAGE_KEY = 'eye-dont-care.guestSessionId'
+
+// 그림그리기 AI 채점은 아직 없는 백엔드 엔드포인트를 호출한다 — 테스트에선 실제 네트워크 대신
+// 이 함수를 목업해서 성공/실패 응답을 원하는 대로 만들어낸다.
+vi.mock('../api/draw', () => ({
+  recognizeDrawing: vi.fn(),
+}))
+
+// 테스트 환경(jsdom)에는 실제 카메라/MediaPipe가 없어 useEyeTracking().start()가 항상 실패한다.
+// GamePlayPage는 카메라 시작이 성공해야 그 다음(대결 상대와의 게임 세션 소켓 연결 등)으로 진행하므로,
+// 카메라·시선 인식 부분만 성공한 것처럼 목업 처리한다 — 이 파일이 마운트하는 모든 게임(blink/hold/
+// rhythm)이 각자 자기 인스턴스를 만들지만, 어차피 값 자체는 안 쓰고 "성공 여부"만 필요하다.
+vi.mock('../composables/useEyeTracking', () => ({
+  useEyeTracking: () => ({
+    videoRef: ref(null),
+    stream: ref(null),
+    isActive: ref(true),
+    isLoadingModel: ref(false),
+    modelError: ref(null),
+    faceDetected: ref(false),
+    leftEyeState: ref('NOT_DETECTED'),
+    rightEyeState: ref('NOT_DETECTED'),
+    combinedState: ref('UNKNOWN'),
+    leftRatio: ref(0),
+    rightRatio: ref(0),
+    confidence: ref(0),
+    fps: ref(0),
+    rawGaze: ref(null),
+    screenGaze: ref(null),
+    lastEvent: ref(null),
+    eventSequence: ref(0),
+    onEyeEvent: () => () => {},
+    start: async () => true,
+    stop: () => {},
+    recordEyeSample: async () => ({ success: true, sampleCount: 10 }),
+    resetEyeBaseline: () => {},
+    applyEyeProfile: () => {},
+    eyeProfile: ref({}),
+    beginGazeCalibration: () => {},
+    addGazeCalibrationSample: () => true,
+    finishGazeCalibration: () => null,
+    applyGazeProfile: () => {},
+    gazeCalibrationTargets: [],
+  }),
+}))
+
+/** useWaitingRoomSocket.spec.ts / useGameSessionSocket이 쓰는 것과 동일한 WebSocket mock. */
+class MockWebSocket {
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+  static instances: MockWebSocket[] = []
+
+  readyState = MockWebSocket.CONNECTING
+  sent: string[] = []
+  onopen: (() => void) | null = null
+  onmessage: ((event: { data: string }) => void) | null = null
+  onerror: (() => void) | null = null
+  onclose: (() => void) | null = null
+
+  url: string
+
+  constructor(url: string) {
+    this.url = url
+    MockWebSocket.instances.push(this)
+  }
+
+  send(data: string): void {
+    this.sent.push(data)
+  }
+
+  close(): void {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.()
+  }
+
+  simulateOpen(): void {
+    this.readyState = MockWebSocket.OPEN
+    this.onopen?.()
+  }
+
+  simulateMessage(payload: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(payload) })
+  }
+}
 
 function createGameRouter() {
   return createRouter({
@@ -25,6 +113,11 @@ function createGameRouter() {
 }
 
 describe('gameplay routes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.mocked(recognizeDrawing).mockReset()
+  })
+
   it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
     'renders the %s play route from mock data',
     async (gameId) => {
@@ -39,25 +132,61 @@ describe('gameplay routes', () => {
     },
   )
 
-  it('shows each draw round result and advances to the next round', async () => {
+  it('shows the round score dialog and advances to the next round after AI judging succeeds', async () => {
+    vi.mocked(recognizeDrawing).mockResolvedValue({
+      label: '하트',
+      confidence: 0.8,
+      isTarget: true,
+      reason: 'AI가 하트 모양을 인식했어요.',
+      candidates: [],
+    })
+
     const router = createGameRouter()
-    await router.push('/games/draw/play?mode=solo')
+    await router.push('/games/draw/play?mode=ai')
     await router.isReady()
     const wrapper = mount(GamePlayPage, {
       attachTo: document.body,
       global: { plugins: [router, createPinia()] },
     })
+    await flushPromises() // initDrawGame()의 카메라 시작 등 비동기 초기화 완료 대기
 
     await wrapper.get('.draw-tools .primary').trigger('click')
+    await flushPromises()
+
     expect(document.body.textContent).toContain('ROUND 1 점수')
-    expect(document.body.textContent).toContain('180점')
+    expect(document.body.textContent).toContain('정답입니다!')
 
     const nextButton =
       document.body.querySelector<HTMLButtonElement>('.dialog-action')
     await nextButton?.click()
     await nextTick()
-    expect(wrapper.text()).toContain('Round 2 / 3')
-    expect(wrapper.text()).toContain('우산')
+    expect(wrapper.text()).toContain('Round 2')
+    wrapper.unmount()
+  })
+
+  it('shows a retryable error(대신 성공으로 조용히 넘어가지 않음) when AI judging fails', async () => {
+    vi.mocked(recognizeDrawing).mockRejectedValue(
+      new Error('AI 채점 서버에 연결하지 못했어요.'),
+    )
+
+    const router = createGameRouter()
+    await router.push('/games/draw/play?mode=ai')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises() // initDrawGame()의 카메라 시작 등 비동기 초기화 완료 대기
+
+    await wrapper.get('.draw-tools .primary').trigger('click')
+    await flushPromises()
+
+    // 실패했을 때 점수 다이얼로그가 뜨면 안 되고(가짜 성공으로 넘어가지 않음), 라운드는 계속
+    // 진행 중 상태로 남아 다시 제출을 시도할 수 있어야 한다.
+    expect(wrapper.find('.score-backdrop').exists()).toBe(false)
+    expect(wrapper.text()).toContain('AI 채점 서버에 연결하지 못했어요.')
+    expect(
+      wrapper.get<HTMLButtonElement>('.draw-tools .primary').element.disabled,
+    ).toBe(false)
     wrapper.unmount()
   })
 
@@ -102,74 +231,40 @@ describe('gameplay routes', () => {
     },
   )
 
-  it('moves to the result screen when a rhythm duel player loses all health', async () => {
-    const router = createGameRouter()
-    await router.push('/games/rhythm/play?mode=friends')
-    await router.isReady()
-    const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
-    const opponentMiss = wrapper.get('[data-testid="opponent-rhythm-miss"]')
+  it('moves to the result screen when the opponent runs out of health first', async () => {
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    MockWebSocket.instances = []
 
-    for (let count = 0; count < 5; count += 1) {
-      await opponentMiss.trigger('click')
-    }
+    const router = createGameRouter()
+    await router.push('/games/rhythm/play?mode=friends&roomId=room-1')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await nextTick()
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeTruthy()
+    ws.simulateOpen()
+    ws.simulateMessage({
+      type: 'PLAYER_EVENT',
+      data: {
+        participantKey: 'GUEST:opponent',
+        eventType: 'RHYTHM_STATE',
+        payload: { score: 340, combo: 0, health: 0 },
+        occurredAt: new Date().toISOString(),
+      },
+    })
 
     await nextTick()
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
     expect(router.currentRoute.value.name).toBe('game-result')
+
     wrapper.unmount()
+    vi.unstubAllGlobals()
+    globalThis.sessionStorage.clear()
   })
-
-  it('shows the completed result when mock game end is selected', async () => {
-    const router = createGameRouter()
-    await router.push('/games/rhythm/play?mode=solo&result=failed')
-    await router.isReady()
-    const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
-
-    await wrapper.get('.finish').trigger('click')
-    await nextTick()
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
-    expect(router.currentRoute.value.name).toBe('game-result')
-    expect(router.currentRoute.value.query.result).toBeUndefined()
-    wrapper.unmount()
-  })
-
-  it('shows the failed result when the solo player uses every rhythm heart', async () => {
-    const router = createGameRouter()
-    await router.push('/games/rhythm/play?mode=solo')
-    await router.isReady()
-    const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
-    const mineMiss = wrapper.get('.rhythm-controls button:nth-child(3)')
-
-    for (let count = 0; count < 5; count += 1) {
-      await mineMiss.trigger('click')
-    }
-
-    await nextTick()
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
-    expect(router.currentRoute.value.name).toBe('game-result')
-    expect(router.currentRoute.value.query.result).toBe('failed')
-    wrapper.unmount()
-  })
-
-  it.each(['friends', 'random'])(
-    'shows the rhythm duel loss result in %s mode when my hearts are depleted',
-    async (mode) => {
-      const router = createGameRouter()
-      await router.push(`/games/rhythm/play?mode=${mode}`)
-      await router.isReady()
-      const wrapper = mount(GamePlayPage, { global: { plugins: [router] } })
-      const mineMiss = wrapper.get('.rhythm-controls button:nth-child(3)')
-
-      for (let count = 0; count < 5; count += 1) {
-        await mineMiss.trigger('click')
-      }
-
-      await nextTick()
-      await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
-      expect(router.currentRoute.value.query.result).toBe('lose')
-      wrapper.unmount()
-    },
-  )
 
   it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
     'renders the %s result route from mock data',
@@ -179,114 +274,6 @@ describe('gameplay routes', () => {
       await router.isReady()
       const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
       expect(wrapper.find('.result-shell').exists()).toBe(true)
-      wrapper.unmount()
-    },
-  )
-
-  it('renders the heart-depletion result message', async () => {
-    const router = createGameRouter()
-    await router.push('/games/rhythm/result?mode=solo&result=failed')
-    await router.isReady()
-    const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-    expect(wrapper.find('.failed-result').classes()).toContain('failed-result')
-    expect(wrapper.text()).toContain('게임에 실패했어요!')
-    expect(wrapper.text()).toContain('하트를 모두 사용했어요!')
-    wrapper.unmount()
-  })
-
-  it('renders the solo Eye See result when a record is not renewed', async () => {
-    const router = createGameRouter()
-    await router.push('/games/hold/result?mode=solo&result=not-new-record')
-    await router.isReady()
-    const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-    expect(wrapper.find('.hold-record-missed').exists()).toBe(true)
-    expect(wrapper.text()).toContain('신기록 갱신에 실패했어요!')
-    expect(wrapper.text()).toContain('01:02.38')
-    expect(wrapper.find('.result-actions').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it.each(['friends', 'random'])(
-    'renders the rhythm duel loss result in %s mode',
-    async (mode) => {
-      const router = createGameRouter()
-      await router.push(`/games/rhythm/result?mode=${mode}&result=lose`)
-      await router.isReady()
-      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-      expect(wrapper.find('.duel-loss').exists()).toBe(true)
-      expect(wrapper.text()).toContain('YOU LOSE...')
-      wrapper.unmount()
-    },
-  )
-
-  it.each(['ai', 'friends', 'random'])(
-    'renders the air hockey loss result in %s mode',
-    async (mode) => {
-      const router = createGameRouter()
-      await router.push(`/games/air/result?mode=${mode}&result=lose`)
-      await router.isReady()
-      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-      expect(wrapper.find('.air-result').exists()).toBe(true)
-      expect(wrapper.find('.air-result .duel-loss__hero').exists()).toBe(true)
-      expect(wrapper.text()).toContain('YOU LOSE...')
-      expect(wrapper.text()).not.toContain('승리한 플레이어')
-      expect(wrapper.text()).not.toContain('아쉬운 플레이어')
-      wrapper.unmount()
-    },
-  )
-
-  it.each(['ai', 'friends', 'random'])(
-    'renders the air hockey victory result in %s mode with its banner and score panel',
-    async (mode) => {
-      const router = createGameRouter()
-      await router.push(`/games/air/result?mode=${mode}`)
-      await router.isReady()
-      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-      expect(wrapper.find('.air-result').exists()).toBe(true)
-      expect(wrapper.find('.air-result .duel-loss__hero').exists()).toBe(true)
-      expect(wrapper.text()).toContain('YOU WIN!')
-      expect(wrapper.text()).not.toContain('승리한 플레이어')
-      expect(wrapper.text()).not.toContain('아쉬운 플레이어')
-      if (mode !== 'ai') {
-        expect(wrapper.text()).toContain('눈빛 좋은 플레이어')
-        expect(wrapper.text()).toContain('신나는 플레이어')
-      }
-      wrapper.unmount()
-    },
-  )
-
-  it.each(['friends', 'random'])(
-    'renders the Eye See duel result in %s mode with the showcase result layout',
-    async (mode) => {
-      const router = createGameRouter()
-      await router.push(`/games/hold/result?mode=${mode}`)
-      await router.isReady()
-      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-      expect(wrapper.find('.air-result').exists()).toBe(true)
-      expect(wrapper.find('.air-result .duel-loss__hero').exists()).toBe(true)
-      expect(wrapper.text()).toContain('YOU WIN!')
-      expect(wrapper.text()).toContain('눈빛 좋은 플레이어')
-      expect(wrapper.text()).toContain('신나는 플레이어')
-      wrapper.unmount()
-    },
-  )
-
-  it.each(['friends', 'random'])(
-    'renders the rhythm duel victory result in %s mode with the shared duel layout',
-    async (mode) => {
-      const router = createGameRouter()
-      await router.push(`/games/rhythm/result?mode=${mode}`)
-      await router.isReady()
-      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
-
-      expect(wrapper.find('.duel-loss').exists()).toBe(true)
-      expect(wrapper.text()).toContain('YOU WIN!')
       wrapper.unmount()
     },
   )

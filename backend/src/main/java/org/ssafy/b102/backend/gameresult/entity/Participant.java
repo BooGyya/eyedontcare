@@ -60,6 +60,13 @@ public class Participant extends BaseTimeEntity {
 	@Column(name = "display_name", length = 50)
 	private String displayName;
 
+	/**
+	 * 랭킹·전적 정렬용으로 승격한 점수. 제출 시 {@code game_result} JSONB의 슬롯 score를
+	 * 뽑아 저장한다. 게스트/AI·점수 없는 경우 null이다. (원본 상세는 여전히 JSONB에 있다.)
+	 */
+	@Column(name = "score")
+	private Long score;
+
 	protected Participant() {
 	}
 
@@ -69,7 +76,8 @@ public class Participant extends BaseTimeEntity {
 		Integer slotNo,
 		Outcome outcome,
 		Integer rankNo,
-		String displayName
+		String displayName,
+		Long score
 	) {
 		this.userId = userId;
 		this.participantType = participantType;
@@ -77,6 +85,7 @@ public class Participant extends BaseTimeEntity {
 		this.outcome = outcome;
 		this.rankNo = rankNo;
 		this.displayName = displayName;
+		this.score = score;
 	}
 
 	public static Participant of(
@@ -85,9 +94,12 @@ public class Participant extends BaseTimeEntity {
 		Integer slotNo,
 		Outcome outcome,
 		Integer rankNo,
-		String displayName
+		String displayName,
+		Long score
 	) {
-		return new Participant(userId, participantType, slotNo, outcome, rankNo, displayName);
+		return new Participant(
+			userId, participantType, slotNo, outcome, rankNo, displayName, score
+		);
 	}
 
 	void assignTo(GameResult gameResult) {
@@ -124,5 +136,9 @@ public class Participant extends BaseTimeEntity {
 
 	public String getDisplayName() {
 		return displayName;
+	}
+
+	public Long getScore() {
+		return score;
 	}
 }
