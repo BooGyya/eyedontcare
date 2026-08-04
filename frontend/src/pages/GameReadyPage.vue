@@ -647,7 +647,6 @@ function handleKeydown(event: globalThis.KeyboardEvent) {
   if (isGameStartDialogOpen.value) closeGameStartDialog()
   else if (isCalibrationOpen.value) isCalibrationOpen.value = false
   else if (isCameraErrorOpen.value) isCameraErrorOpen.value = false
-  else if (isWebcamGuideOpen.value) isWebcamGuideOpen.value = false
 }
 
 function attachStreamTo(video: globalThis.HTMLVideoElement | null) {
@@ -1066,11 +1065,7 @@ onBeforeUnmount(() => {
 
   <Teleport to="body">
     <Transition name="dialog-pop">
-      <div
-        v-if="isWebcamGuideOpen"
-        class="ready-dialog-backdrop"
-        @click="handleDialogBackdrop($event, () => (isWebcamGuideOpen = false))"
-      >
+      <div v-if="isWebcamGuideOpen" class="ready-dialog-backdrop">
         <section
           ref="dialogRef"
           class="ready-dialog"
