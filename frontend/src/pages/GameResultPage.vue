@@ -14,6 +14,9 @@ import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameSessionMode } from '../types/gameplay'
 import { useAuthStore } from '../stores/auth'
 import { useLastGameResultStore } from '../stores/lastGameResult'
+import { useGameSessionSocket } from '../composables/useGameSessionSocket'
+import { resolveIdentity } from '../api/identity'
+import { useToast } from '../composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
@@ -224,6 +227,12 @@ onMounted(() => {
   } else if (!isCompetitive.value && result.value) {
     animateSoloScore(result.value.score)
   }
+
+  // 친구/랜덤 대결이면 재시작 합의를 위해 게임 세션 WS에 다시 접속한다.
+  if (isMultiplayerBattle.value && battleRoomId.value) {
+    const identity = resolveIdentity()
+    if (identity) replaySession.connect(battleRoomId.value, identity)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -232,19 +241,78 @@ onBeforeUnmount(() => {
   if (drawCountFrame !== undefined)
     globalThis.cancelAnimationFrame(drawCountFrame)
   if (hasRealResult.value) lastResultStore.clear()
+  stopReplayResend()
 })
 
-function replay() {
-  if (game.value) {
-    const playQuery = { ...route.query }
-    delete playQuery.result
+// --- 재시작(다시 플레이) 양측 동의 ---
+// 친구/랜덤 대결은 한 명만 눌러도 재시작되면 안 되고, 두 사람이 모두 "다시 플레이"를 눌러야 한다.
+// 결과 화면에서 게임 세션 WS에 다시 접속해 REPLAY_REQUEST를 주고받고, 양쪽이 요청하면 함께 재입장한다.
+const { showToast } = useToast()
+const isMultiplayerBattle = computed(
+  () => mode.value === 'friends' || mode.value === 'random',
+)
+const battleRoomId = computed(() => String(route.query.roomId ?? ''))
+const replayRequested = ref(false)
+const peerReplayRequested = ref(false)
+let replayResendTimer: ReturnType<typeof globalThis.setInterval> | undefined
 
-    router.push({
-      name: 'game-play',
-      params: { gameId: game.value.id },
-      query: playQuery,
-    })
+const replaySession = useGameSessionSocket({
+  onPlayerEvent: (event) => {
+    if (event.eventType !== 'REPLAY_REQUEST') return
+    peerReplayRequested.value = true
+    // 내가 이미 요청했다면 상대가 첫 요청을 놓쳤을 수 있으니 한 번 더 보내 확실히 알린다.
+    if (replayRequested.value) replaySession.sendPlayerEvent('REPLAY_REQUEST')
+    startReplayIfBothAgreed()
+  },
+  onParticipantLeft: () => {
+    if (!replayRequested.value) return
+    stopReplayResend()
+    replayRequested.value = false
+    showToast('상대가 나가서 다시 시작할 수 없어요.')
+  },
+})
+
+function stopReplayResend() {
+  if (!replayResendTimer) return
+  globalThis.clearInterval(replayResendTimer)
+  replayResendTimer = undefined
+}
+
+function navigateToReplay() {
+  if (!game.value) return
+  const playQuery = { ...route.query }
+  delete playQuery.result
+  router.push({
+    name: 'game-play',
+    params: { gameId: game.value.id },
+    query: playQuery,
+  })
+}
+
+function startReplayIfBothAgreed() {
+  if (!replayRequested.value || !peerReplayRequested.value) return
+  stopReplayResend()
+  navigateToReplay()
+}
+
+function replay() {
+  if (!game.value) return
+  // 솔로/AI는 즉시 재시작한다.
+  if (!isMultiplayerBattle.value) {
+    navigateToReplay()
+    return
   }
+  // 친구/랜덤 대결: 내 동의를 상대에게 알리고, 양쪽 동의가 모이면 함께 재입장한다.
+  if (replayRequested.value) return
+  replayRequested.value = true
+  replaySession.sendPlayerEvent('REPLAY_REQUEST')
+  // 상대가 아직 결과 화면 세션에 접속 전이면 첫 요청을 놓치므로 합의 전까지 주기적으로 재전송한다.
+  replayResendTimer = globalThis.setInterval(
+    () => replaySession.sendPlayerEvent('REPLAY_REQUEST'),
+    700,
+  )
+  showToast('상대의 다시 하기 동의를 기다리고 있어요…')
+  startReplayIfBothAgreed()
 }
 function viewRanking() {
   router.push({ name: 'ranking', query: { game: game.value?.id } })

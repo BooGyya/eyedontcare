@@ -85,6 +85,8 @@ public class SecurityConfig {
                 .requestMatchers("/ws/match").permitAll()
                 // handshake만 공개하며, 실제 인증은 첫 AUTH frame에서 수행한다.
                 .requestMatchers("/ws/waiting-rooms/{roomId}").permitAll()
+                // 게임 세션도 handshake만 공개, 인증은 첫 AUTH frame에서 수행한다.
+                .requestMatchers("/ws/game-sessions/{roomId}").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(
