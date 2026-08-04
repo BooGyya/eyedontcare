@@ -22,6 +22,30 @@ describe('rhythm-core', () => {
     expect(state.phase).toBe('ready')
   })
 
+  it('노트 이동 시간 기본값이 2800ms로 느려졌다', () => {
+    expect(makeInitialRhythmState().noteTravelMs).toBe(2800)
+  })
+
+  it('랜덤 생성 모드는 startDelayMs만큼 첫 노트 등장을 늦춘다', () => {
+    const withDelay = makeInitialRhythmState()
+    startRhythmRound(withDelay, 0, { startDelayMs: 2000 })
+    const noDelay = makeInitialRhythmState()
+    startRhythmRound(noDelay, 0, { startDelayMs: 0 })
+    expect(withDelay.nextBeatAt - noDelay.nextBeatAt).toBe(2000)
+  })
+
+  it('startDelayMs는 비트맵(음악) 모드의 노트 타이밍에 영향을 주지 않는다', () => {
+    const state = makeInitialRhythmState({
+      beatmapEntries: [{ timeMs: 1000, lanes: ['LEFT_EYE'] }],
+    })
+    startRhythmRound(state, 0, {
+      beatmapEntries: [{ timeMs: 1000, lanes: ['LEFT_EYE'] }],
+      startDelayMs: 2000,
+    })
+    updateRhythmRound(state, 0)
+    expect(state.notes[0].hitAt).toBe(1000)
+  })
+
   it('시간차에 따라 PERFECT/GREAT/GOOD/MISS를 판정한다', () => {
     expect(judgeRhythmDelta(0)).toBe('PERFECT')
     expect(judgeRhythmDelta(90)).toBe('PERFECT')
