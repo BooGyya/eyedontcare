@@ -12,12 +12,13 @@ export type CommunityGroup = {
   members: number
   capacity: number
   visibility: CommunityGroupVisibility
-  activity: string
   leader: string
   isJoined: boolean
   isOwner: boolean
   createdAt: number
   joinCode?: string
+  /** 게임 종류. 백엔드에 대응 필드가 없어 화면에서는 쓰지 않는다(레거시 mock 호환용). */
+  activity?: string
 }
 
 export type CommunityGroupDraft = {
@@ -25,6 +26,4 @@ export type CommunityGroupDraft = {
   description: string
   capacity: number
   visibility: CommunityGroupVisibility
-  joinCode: string
-  activity: string
 }

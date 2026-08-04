@@ -66,6 +66,7 @@ public class SecurityConfig {
                     "/api/v1/auth/reissue",
                     "/api/v1/match/join",
                     "/api/v1/game-results",
+                    "/api/v1/games/draw/recognize",
                     "/api/v1/waiting-rooms",
                     "/api/v1/waiting-rooms/join",
                     "/api/v1/waiting-rooms/{roomId}/leave"
@@ -84,6 +85,8 @@ public class SecurityConfig {
                 .requestMatchers("/ws/match").permitAll()
                 // handshake만 공개하며, 실제 인증은 첫 AUTH frame에서 수행한다.
                 .requestMatchers("/ws/waiting-rooms/{roomId}").permitAll()
+                // 게임 세션도 handshake만 공개, 인증은 첫 AUTH frame에서 수행한다.
+                .requestMatchers("/ws/game-sessions/{roomId}").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(

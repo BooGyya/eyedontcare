@@ -71,7 +71,6 @@ const results: Record<GameDetailId, Omit<GameResult, 'gameId'>> = {
     stats: [
       { label: '최대 콤보', value: '24' },
       { label: '남은 하트', value: '3' },
-      { label: '정확도', value: '91%' },
     ],
   },
   blink: {
@@ -82,7 +81,6 @@ const results: Record<GameDetailId, Omit<GameResult, 'gameId'>> = {
     stats: [
       { label: '정확도', value: '94%' },
       { label: '보너스', value: '+3회' },
-      { label: '플레이 시간', value: '00:20' },
     ],
   },
   hold: {

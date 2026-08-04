@@ -114,8 +114,8 @@ const drawCameraActive = drawTracking.isActive
 void drawVideoRef
 
 const drawCanvasRef = ref<globalThis.HTMLCanvasElement | null>(null)
-const DRAW_CANVAS_WIDTH = 800
-const DRAW_CANVAS_HEIGHT = 500
+const DRAW_CANVAS_WIDTH = 1000
+const DRAW_CANVAS_HEIGHT = 640
 const drawGameState = ref(makeInitialDrawGameState())
 const drawWords = ref<string[]>([])
 let drawStrokes: DrawStroke[] = []
@@ -126,6 +126,14 @@ const drawBrushWidth = 5
 let drawRafHandle: number | undefined
 let unsubscribeDrawKeydown: (() => void) | undefined
 let drawShouldBridge = false
+/**
+ * 펜 속도 = 프레임당 커서가 시선을 따라 이동하는 최대 거리(0~1 정규화). 낮을수록 펜이 천천히
+ * 따라오고(느림·안정), 높을수록 즉각 따라온다. 지수평활 계수와 달리 '지연'이 아니라 실제 '이동
+ * 속도'를 제한하므로 슬라이더 조절이 눈에 띄게 반영된다.
+ */
+const drawPenSpeed = ref(0.03)
+/** 커서 위치. 추적이 끊기면 null로 리셋해 다음 점부터 새로 시작(튐 방지). */
+let drawSmoothedCursor: { x: number; y: number } | null = null
 
 const drawTimeLabel = computed(() => {
   const totalSeconds = Math.max(
@@ -557,6 +565,9 @@ async function initRhythmGame() {
   startRhythmRound(
     rhythmGameState.value,
     rhythmUsesMusicClock.value ? 0 : globalThis.performance.now(),
+    // 랜덤 생성(음악 미사용) 모드에선 시작 2초 뒤부터 노트가 내려오도록 여유를 둔다.
+    // 음악 모드는 비트맵이 곡과 동기화돼야 하므로 지연을 넣지 않는다.
+    { startDelayMs: rhythmUsesMusicClock.value ? 0 : 2000 },
   )
   runRhythmLoop()
 }
@@ -722,6 +733,10 @@ async function initAirHockeyGame() {
 }
 
 function updateAirMalletFromGaze() {
+  // 눈을 감거나 깜빡이는 동안엔 시선 좌표가 튀어 말렛이 급가속하거나 반대 방향으로 움직인다.
+  // 두 눈이 모두 뜬 프레임에서만 목표 위치를 갱신하고, 그 외(깜빡임·윙크·미검출)엔 직전 위치를
+  // 유지한다. 서브용 깜빡임(applyStrike)은 별도 이벤트라 그대로 동작한다.
+  if (airTracking.combinedState.value !== 'BOTH_OPEN') return
   const gaze = airTracking.screenGaze.value
   if (!gaze) return
   const normalizedX = Math.min(1, Math.max(0, gaze.x))
@@ -1113,6 +1128,23 @@ function toResult() {
     mode: mode.value,
     startedAt: playStartedAt,
     score,
+    outcome:
+      game.value.id === 'air' && mode.value === 'ai'
+        ? resolveAirHockeyAiOutcome()
+        : undefined,
+    resultData:
+      game.value.id === 'hold'
+        ? { survivalTimeMs: Math.round(stareGameState.value.elapsedMs) }
+        : game.value.id === 'blink'
+          ? { blinkCount: blinkGameState.value.blinkCount }
+          : game.value.id === 'rhythm'
+            ? {
+                maxCombo: rhythmGameState.value.maxCombo,
+                remainingHearts: rhythmGameState.value.health,
+              }
+            : game.value.id === 'air' && mode.value === 'ai'
+              ? { opponentScore: airGameState.value.top.score }
+            : undefined,
   })
   router.push({
     name: 'game-result',
@@ -1163,7 +1195,6 @@ function recordBlinkResult() {
             : '20초 동안 정확하게 눈을 깜빡였어요.',
     stats: [
       { label: '깜빡임 횟수', value: `${myCount}회` },
-      { label: '플레이 시간', value: '00:20' },
     ],
   })
 }
@@ -1230,7 +1261,6 @@ function recordStareResult() {
 /** 리듬게임 실제 결과를 결과 화면용으로 기록한다. 대결 모드는 상대 실시간 점수와 비교해 승패를 정한다. */
 function recordRhythmResult() {
   const myScore = rhythmGameState.value.score
-  const accuracy = Math.round(getRhythmAccuracy(rhythmGameState.value))
   const outcome: LastGameOutcome =
     mode.value === 'solo'
       ? 'COMPLETED'
@@ -1274,7 +1304,6 @@ function recordRhythmResult() {
     stats: [
       { label: '최대 콤보', value: `${rhythmGameState.value.maxCombo}` },
       { label: '남은 하트', value: `${rhythmGameState.value.health}` },
-      { label: '정확도', value: `${accuracy}%` },
     ],
   })
 }
@@ -1283,13 +1312,8 @@ function recordRhythmResult() {
 function recordAirHockeyResult() {
   const myScore = airGameState.value.bottom.score
   const opponentScore = airOpponentDisplayScore.value
-  const localWinner = determineAirHockeyWinner(airGameState.value)
   const outcome: LastGameOutcome = isAirVsAi.value
-    ? localWinner === 'bottom'
-      ? 'WIN'
-      : localWinner === 'top'
-        ? 'LOSE'
-        : 'DRAW'
+    ? resolveAirHockeyAiOutcome()
     : !airOpponentSynced.value
       ? 'UNKNOWN'
       : myScore > opponentScore
@@ -1338,6 +1362,13 @@ function recordAirHockeyResult() {
       { label: '경기 시간', value: '01:00' },
     ],
   })
+}
+
+function resolveAirHockeyAiOutcome(): 'WIN' | 'LOSE' | 'DRAW' {
+  const winner = determineAirHockeyWinner(airGameState.value)
+  if (winner === 'bottom') return 'WIN'
+  if (winner === 'top') return 'LOSE'
+  return 'DRAW'
 }
 
 async function initDrawGame() {
@@ -1404,13 +1435,36 @@ function updateDrawCursorFromGaze() {
     drawTracking.combinedState.value === 'BOTH_OPEN'
   if (!gaze || !faceOk) {
     drawCursor.value = null
+    drawSmoothedCursor = null
     return
   }
 
-  const point = {
+  const raw = {
     x: Math.min(1, Math.max(0, gaze.x)),
     y: Math.min(1, Math.max(0, gaze.y)),
   }
+  if (!drawSmoothedCursor) {
+    drawSmoothedCursor = raw
+  } else {
+    const dx = raw.x - drawSmoothedCursor.x
+    const dy = raw.y - drawSmoothedCursor.y
+    const dist = Math.hypot(dx, dy)
+    const maxStep = drawPenSpeed.value
+    if (dist > maxStep && dist > 0) {
+      // 시선이 멀리 있으면 펜 속도(maxStep)만큼만 따라가 '느린/빠른 펜'이 체감되게 한다.
+      drawSmoothedCursor = {
+        x: drawSmoothedCursor.x + (dx / dist) * maxStep,
+        y: drawSmoothedCursor.y + (dy / dist) * maxStep,
+      }
+    } else {
+      // 시선에 가까우면 가볍게 평활해 미세 떨림을 잡는다.
+      drawSmoothedCursor = {
+        x: drawSmoothedCursor.x + dx * 0.5,
+        y: drawSmoothedCursor.y + dy * 0.5,
+      }
+    }
+  }
+  const point = drawSmoothedCursor
   drawCursor.value = point
 
   if (
@@ -1855,6 +1909,17 @@ function leaveGame() {
               :style="{ background: color }"
               @click="selectedColor = color"
             />
+            <label class="draw-pen-speed">
+              <span>펜 속도</span>
+              <input
+                v-model.number="drawPenSpeed"
+                type="range"
+                min="0.01"
+                max="0.08"
+                step="0.005"
+                aria-label="펜 반응 속도"
+              />
+            </label>
             <button type="button" @click="undoDrawStroke">되돌리기</button
             ><button type="button" @click="clearDrawCanvas">전체 지우기</button>
             <button
@@ -2716,8 +2781,19 @@ function leaveGame() {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 800 / 500;
+  aspect-ratio: 1000 / 640;
   cursor: none;
+}
+.draw-pen-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-muted, #6b7280);
+}
+.draw-pen-speed input {
+  width: 96px;
 }
 .draw-gaze-cursor {
   position: absolute;

@@ -157,6 +157,8 @@ const mediaSession = useMediaSessionStore()
 const liveRoomId = ref<string | null>(null)
 const liveRoomCode = ref<string | null>(null)
 const liveIdentity = ref<WaitingRoomIdentity | null>(null)
+/** 친구방 입장(생성/참가) 실패 메시지. 설정되면 유령 방 대신 실패 안내를 보여준다. */
+const inviteError = ref<string | null>(null)
 const isLiveSession = computed(() => liveRoomId.value !== null)
 
 const waitingSocket = useWaitingRoomSocket({
@@ -172,7 +174,9 @@ const liveOpponent = computed<WaitingRoomParticipant | null>(
     ) ?? null,
 )
 const isOpponentReady = computed(() => liveOpponent.value?.isReady ?? false)
-const displayRoomCode = computed(() => liveRoomCode.value ?? roomCode.value)
+// 실제 입장이 확정된 코드(liveRoomCode)만 노출한다. 참가자가 입력한 코드(roomCode)를 그대로
+// 보여주면 입장 실패 시에도 방이 생긴 것처럼 보이므로 쓰지 않는다.
+const displayRoomCode = computed(() => liveRoomCode.value ?? '')
 
 // 서버 ROOM_STATE 기준 준비 현황(가이드의 "N/2명 준비 완료" 표시에 사용).
 const readyCount = computed(
@@ -219,7 +223,11 @@ const roomDescription = computed(() => {
       : '준비를 완료한 뒤 방장이 게임을 시작할 때까지 기다려 주세요.'
   return '게임 시작 전 카메라와 시선 인식 준비 상태를 확인해 주세요.'
 })
-const isCameraConnected = computed(() => permissionStatus.value === 'granted')
+// 권한 승인 + 트랙이 실제 라이브일 때만 연결로 본다. 브라우저/OS에서 캠을 끄면(track ended)
+// cameraActive가 false로 떨어져 화면이 다시 "카메라 연결하기" 상태로 돌아간다.
+const isCameraConnected = computed(
+  () => permissionStatus.value === 'granted' && eyeTracking.cameraActive.value,
+)
 const canStartCalibration = computed(() => isCameraConnected.value)
 const canMarkReady = computed(() => isCalibrated.value && !isHost.value)
 const ownPreparationComplete = computed(() =>
@@ -337,6 +345,21 @@ function handleLeaveRoom() {
 async function handleRequestCamera() {
   permissionStatus.value = 'requesting'
 
+  // 세션은 살아있고 카메라 트랙만 끊긴 경우(브라우저/OS에서 캠을 껐다 켜기): start()의 재사용
+  // 가드가 죽은 상태를 그대로 반환하므로 강제로 재획득한다. 보정은 유지한 채 프리뷰만 복구한다.
+  if (eyeTracking.isActive.value && !eyeTracking.cameraActive.value) {
+    const reacquired = await eyeTracking.restartCamera()
+    if (!reacquired) {
+      permissionStatus.value = 'unavailable'
+      isCameraErrorOpen.value = true
+      return
+    }
+    cameraStream.value = eyeTracking.stream.value
+    permissionStatus.value = 'granted'
+    isWebcamGuideOpen.value = false
+    return
+  }
+
   // eyeTracking.start()가 카메라 권한 요청과 MediaPipe Face Landmarker 로드(CDN, 수 초 소요)를
   // 동시에 진행한다. 모델 로드가 카메라 승인보다 먼저 끝나는 경우가 많아 체감 대기시간이 줄어든다.
   const started = await eyeTracking.start()
@@ -425,6 +448,16 @@ function recordGazeCalibrationPoint() {
   const target: Point | undefined =
     eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
   if (!target) return
+
+  // 눈을 감았거나 깜빡이는 순간엔 시선 좌표가 부정확하므로 기록·다음 지점 이동을 막는다.
+  // 두 눈을 모두 뜨고 점을 바라본 상태에서만 샘플을 기록한다.
+  if (
+    !eyeTracking.faceDetected.value ||
+    eyeTracking.combinedState.value !== 'BOTH_OPEN'
+  ) {
+    showToast('눈을 뜨고 점을 바라본 상태에서 눌러주세요.')
+    return
+  }
 
   const captured = eyeTracking.addGazeCalibrationSample(target)
   if (!captured) {
@@ -515,6 +548,7 @@ function handleGameStart(data: WaitingRoomGameStartData) {
 async function initInviteSession() {
   if (!isFriendRoom.value || !game.value) return
   try {
+    inviteError.value = null
     const token = currentAccessToken()
     const gameName = GAME_NAME_BY_ID[game.value.id]
     if (isHost.value) {
@@ -531,6 +565,7 @@ async function initInviteSession() {
       if (!roomCode.value) return
       const joined = await joinInviteRoom(roomCode.value, token)
       liveRoomId.value = joined.roomId
+      liveRoomCode.value = joined.roomCode
       if (joined.openviduUrl && joined.token) {
         mediaSession.setCredentials({
           openviduUrl: joined.openviduUrl,
@@ -552,6 +587,7 @@ async function initInviteSession() {
       error instanceof ApiError
         ? error.message
         : '대기방 연결에 실패했어요. 잠시 후 다시 시도해 주세요.'
+    inviteError.value = message
     showToast(message)
   }
 }
@@ -802,6 +838,31 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </header>
+
+    <section
+      v-if="isFriendRoom && inviteError && !isLiveSession"
+      class="room-join-error"
+      role="alert"
+    >
+      <strong>입장하지 못했어요</strong>
+      <p>{{ inviteError }}</p>
+      <div class="room-join-error__actions">
+        <button
+          type="button"
+          class="room-join-error__retry"
+          @click="initInviteSession"
+        >
+          다시 시도
+        </button>
+        <button
+          type="button"
+          class="room-join-error__back"
+          @click="handleLeaveRoom"
+        >
+          돌아가기
+        </button>
+      </div>
+    </section>
 
     <section
       class="participant-grid"
@@ -1403,6 +1464,49 @@ onBeforeUnmount(() => {
 .complete {
   color: #278957;
 }
+.room-join-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 28px 20px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: #fff;
+  text-align: center;
+}
+.room-join-error strong {
+  font-size: 18px;
+}
+.room-join-error p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+.room-join-error__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.room-join-error__retry,
+.room-join-error__back {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.room-join-error__retry {
+  border: 0;
+  color: #fff;
+  background: var(--color-accent-blue);
+}
+.room-join-error__back {
+  border: 1px solid var(--color-line);
+  color: var(--color-ink);
+  background: #fff;
+}
 .participant-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1410,7 +1514,7 @@ onBeforeUnmount(() => {
   margin-top: 16px;
 }
 .participant-grid--solo {
-  grid-template-columns: minmax(0, 560px);
+  grid-template-columns: minmax(0, 760px);
   justify-content: center;
 }
 .participant-card {
@@ -1452,7 +1556,7 @@ onBeforeUnmount(() => {
 .participant-visual {
   position: relative;
   display: grid;
-  min-height: 165px;
+  min-height: 340px;
   place-items: center;
   margin-top: 13px;
   overflow: hidden;
@@ -1649,7 +1753,8 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 .calibration-dialog {
-  width: min(100%, 760px);
+  width: min(96vw, 1400px);
+  max-height: min(94vh, 960px);
 }
 .calibration-dialog header {
   display: flex;
@@ -1706,7 +1811,7 @@ onBeforeUnmount(() => {
 .calibration-stage {
   position: relative;
   display: grid;
-  min-height: 330px;
+  min-height: min(64vh, 620px);
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
@@ -1715,7 +1820,7 @@ onBeforeUnmount(() => {
 .calibration-stage video,
 .calibration-stage img {
   width: 100%;
-  height: 330px;
+  height: min(64vh, 620px);
   object-fit: contain;
 }
 .calibration-stage p {

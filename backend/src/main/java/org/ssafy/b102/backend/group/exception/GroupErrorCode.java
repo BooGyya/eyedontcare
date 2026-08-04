@@ -63,6 +63,12 @@ public enum GroupErrorCode implements ErrorCode {
 		HttpStatus.NOT_FOUND,
 		"GROUP-010",
 		"강퇴할 멤버를 찾을 수 없습니다."
+	),
+
+	PRIVATE_GROUP_REQUIRES_CODE(
+		HttpStatus.FORBIDDEN,
+		"GROUP-011",
+		"비공개 소모임은 코드로만 입장할 수 있습니다."
 	);
 
 	private final HttpStatus status;

@@ -877,7 +877,7 @@ class SecurityIntegrationTest {
                 anyString(),
                 any()
             )
-        ).thenReturn(new SubmitGameResultResponse(1L));
+        ).thenReturn(new SubmitGameResultResponse(1L, false, null));
 
         mockMvc.perform(
                 post("/api/v1/game-results")

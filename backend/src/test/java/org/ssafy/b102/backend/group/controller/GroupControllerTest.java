@@ -166,6 +166,36 @@ class GroupControllerTest {
 	}
 
 	@Test
+	void 공개_소모임에_id로_입장한다() throws Exception {
+		RecordingGroupService service = new RecordingGroupService();
+		service.groupResponse = new GroupResponse(
+			10L, "모임", null, 2, 30, GroupVisibility.PUBLIC,
+			"방장", false, true, "A1B2C3", CREATED_AT
+		);
+
+		mockMvc(service)
+			.perform(post("/api/v1/groups/{groupId}/join", 10L))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.code").value("GROUP_JOIN_SUCCESS"))
+			.andExpect(jsonPath("$.data.isJoined").value(true))
+			.andExpect(jsonPath("$.data.isOwner").value(false));
+
+		assertThat(service.capturedGroupId).isEqualTo(10L);
+	}
+
+	@Test
+	void 비공개_소모임_id_입장은_403_GROUP_011이다() throws Exception {
+		RecordingGroupService service = new RecordingGroupService();
+		service.toThrow =
+			new BusinessException(GroupErrorCode.PRIVATE_GROUP_REQUIRES_CODE);
+
+		mockMvc(service)
+			.perform(post("/api/v1/groups/{groupId}/join", 10L))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("GROUP-011"));
+	}
+
+	@Test
 	void 나간다() throws Exception {
 		mockMvc(new RecordingGroupService())
 			.perform(post("/api/v1/groups/{groupId}/leave", 10L))
@@ -308,6 +338,13 @@ class GroupControllerTest {
 		public GroupResponse join(Long userId, String groupCode) {
 			maybeThrow();
 			this.capturedGroupCode = groupCode;
+			return groupResponse;
+		}
+
+		@Override
+		public GroupResponse joinById(Long userId, Long groupId) {
+			maybeThrow();
+			this.capturedGroupId = groupId;
 			return groupResponse;
 		}
 

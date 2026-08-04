@@ -8,6 +8,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+import org.ssafy.b102.backend.gamesession.websocket.GameSessionWebSocketHandler;
 import org.ssafy.b102.backend.matchmaking.websocket.MatchWebSocketHandler;
 import org.ssafy.b102.backend.waitingroom.websocket.WaitingRoomWebSocketHandler;
 
@@ -25,18 +26,23 @@ public class WebSocketConfig implements WebSocketConfigurer {
 	private static final String MATCH_ENDPOINT = "/ws/match";
 	private static final String WAITING_ROOM_ENDPOINT =
 		"/ws/waiting-rooms/{roomId}";
+	private static final String GAME_SESSION_ENDPOINT =
+		"/ws/game-sessions/{roomId}";
 
 	private final MatchWebSocketHandler matchWebSocketHandler;
 	private final WaitingRoomWebSocketHandler waitingRoomWebSocketHandler;
+	private final GameSessionWebSocketHandler gameSessionWebSocketHandler;
 	private final String[] allowedOrigins;
 
 	public WebSocketConfig(
 		MatchWebSocketHandler matchWebSocketHandler,
 		WaitingRoomWebSocketHandler waitingRoomWebSocketHandler,
+		GameSessionWebSocketHandler gameSessionWebSocketHandler,
 		@Value("${app.cors.allowed-origins}") String[] allowedOrigins
 	) {
 		this.matchWebSocketHandler = matchWebSocketHandler;
 		this.waitingRoomWebSocketHandler = waitingRoomWebSocketHandler;
+		this.gameSessionWebSocketHandler = gameSessionWebSocketHandler;
 		this.allowedOrigins = allowedOrigins.clone();
 	}
 
@@ -47,6 +53,11 @@ public class WebSocketConfig implements WebSocketConfigurer {
 		registry.addHandler(
 				waitingRoomWebSocketHandler,
 				WAITING_ROOM_ENDPOINT
+			)
+			.setAllowedOrigins(allowedOrigins);
+		registry.addHandler(
+				gameSessionWebSocketHandler,
+				GAME_SESSION_ENDPOINT
 			)
 			.setAllowedOrigins(allowedOrigins);
 	}

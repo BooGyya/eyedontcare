@@ -37,6 +37,7 @@ export function useGameResultSubmission() {
     startedAt: string
     score: number
     outcome?: GameOutcome
+    resultData?: Record<string, unknown>
   }): Promise<void> {
     const participantKey = currentParticipantKey()
     const participantType = currentParticipantType()
@@ -73,7 +74,12 @@ export function useGameResultSubmission() {
             rank: 1,
           },
         ],
-        gameResult: { '1': { score: options.score } },
+        gameResult: {
+          '1': {
+            score: options.score,
+            ...options.resultData,
+          },
+        },
       })
     } catch {
       // best-effort: 저장 실패는 게임 흐름을 막지 않는다.

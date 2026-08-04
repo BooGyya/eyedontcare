@@ -14,9 +14,11 @@ export const DEFAULT_RHYTHM_BPM = 100
 export const DEFAULT_RHYTHM_DURATION_MS = 30000
 export const DEFAULT_RHYTHM_HEALTH = 5
 export const NOTE_LOOKAHEAD_MS = 2400
-export const NOTE_TRAVEL_MS = 2200
+export const NOTE_TRAVEL_MS = 2800
 export const NOTE_TRAVEL_MIN_MS = 1200
 export const NOTE_TRAVEL_MAX_MS = 5000
+/** 라운드 시작 후 첫 노트가 내려오기까지의 여유(랜덤 생성 모드). 비트맵(음악) 모드는 곡 싱크 유지를 위해 적용하지 않는다. */
+export const DEFAULT_RHYTHM_START_DELAY_MS = 0
 export const BEATMAP_LOOKAHEAD_BUFFER_MS = 500
 export const DUAL_NOTE_CHANCE = 0.24
 export const HIT_WINDOWS = { PERFECT: 90, GREAT: 160, GOOD: 260 } as const
@@ -90,6 +92,8 @@ interface RhythmOptions {
   health?: number
   noteTravelMs?: number
   beatmapEntries?: RhythmBeatmapEntry[]
+  /** 라운드 시작 후 첫 노트가 내려오기까지의 여유(ms). 랜덤 생성 모드에만 적용된다. */
+  startDelayMs?: number
 }
 
 export function makeInitialRhythmState(
@@ -149,6 +153,12 @@ export function startRhythmRound(
   const beatmapEntries = normalizeBeatmapEntries(
     options.beatmapEntries ?? state.beatmapEntries,
   )
+  // 랜덤 생성 모드는 첫 노트가 내려오기 전 여유(startDelayMs)를 둔다. 비트맵(음악) 모드는
+  // nextBeatAt을 쓰지 않고 곡 시간(startedAt + entry.timeMs)으로 생성하므로 영향받지 않는다(싱크 유지).
+  const startDelayMs = Math.max(
+    options.startDelayMs ?? DEFAULT_RHYTHM_START_DELAY_MS,
+    0,
+  )
   state.phase = 'running'
   state.finishReason = 'NONE'
   state.bpm = bpm
@@ -158,7 +168,7 @@ export function startRhythmRound(
   state.startedAt = now
   state.endsAt = now + durationMs
   state.remainingMs = durationMs
-  state.nextBeatAt = now + noteTravelMs
+  state.nextBeatAt = now + noteTravelMs + startDelayMs
   state.beatmapEntries = beatmapEntries
   state.nextBeatmapIndex = 0
   state.nextNoteId = 1
