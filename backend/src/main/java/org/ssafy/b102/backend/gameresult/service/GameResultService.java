@@ -17,6 +17,7 @@ import org.ssafy.b102.backend.gameresult.entity.Participant;
 import org.ssafy.b102.backend.gameresult.entity.ParticipantType;
 import org.ssafy.b102.backend.gameresult.exception.GameResultErrorCode;
 import org.ssafy.b102.backend.gameresult.repository.GameResultRepository;
+import org.ssafy.b102.backend.gameresult.repository.ParticipantRepository;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.guest.entity.GuestSession;
 import org.ssafy.b102.backend.guest.service.GuestSessionService;
@@ -28,15 +29,18 @@ public class GameResultService {
 	private static final String USER_KEY_PREFIX = "USER:";
 
 	private final GameResultRepository gameResultRepository;
+	private final ParticipantRepository participantRepository;
 	private final GameService gameService;
 	private final GuestSessionService guestSessionService;
 
 	public GameResultService(
 		GameResultRepository gameResultRepository,
+		ParticipantRepository participantRepository,
 		GameService gameService,
 		GuestSessionService guestSessionService
 	) {
 		this.gameResultRepository = gameResultRepository;
+		this.participantRepository = participantRepository;
 		this.gameService = gameService;
 		this.guestSessionService = guestSessionService;
 	}
@@ -52,7 +56,7 @@ public class GameResultService {
 
 		validatePlayPeriod(request);
 		validateParticipants(request.participants());
-		validateRequesterIsParticipant(participantKey, request.participants());
+		ParticipantResultRequest requester = findRequester(participantKey, request.participants());
 
 		GameResult gameResult = GameResult.of(
 			request.playId(),
@@ -64,7 +68,52 @@ public class GameResultService {
 		request.participants().forEach(participant ->
 			gameResult.addParticipant(toParticipant(participant, request.gameResult())));
 
-		return SubmitGameResultResponse.from(gameResultRepository.save(gameResult));
+		NewRecord newRecord = evaluateNewRecord(requester, request.gameResult(), game.getId());
+
+		GameResult saved = gameResultRepository.save(gameResult);
+		return SubmitGameResultResponse.of(
+			saved.getId(),
+			newRecord.isNewRecord(),
+			newRecord.previousBestScore()
+		);
+	}
+
+	/**
+	 * 제출자의 이번 점수를 같은 게임에서의 이전 개인 최고 점수와 비교해 신기록 여부를 판정한다.
+	 *
+	 * <p>회원이 아니거나 이번 결과에 점수가 없으면 판정 대상이 아니다(신기록 아님, 이전 기록 없음).
+	 * 최고 점수 조회는 저장 이전에 수행하므로 이번 결과는 비교 대상에 포함되지 않는다.
+	 * 이전 기록이 없으면 신기록이고, 있으면 이번 점수가 엄격히 클 때만 신기록이다(동점은 아님).
+	 */
+	private NewRecord evaluateNewRecord(
+		ParticipantResultRequest requester,
+		Map<String, Object> gameResult,
+		Long gameId
+	) {
+		if (requester.participantType() != ParticipantType.USER) {
+			return NewRecord.none();
+		}
+
+		Long currentScore = extractScore(gameResult, requester.slotNo());
+		if (currentScore == null) {
+			return NewRecord.none();
+		}
+
+		Long userId = resolveUserId(requester.participantKey());
+		Long previousBestScore = participantRepository.findBestScore(userId, gameId).orElse(null);
+		boolean isNewRecord = previousBestScore == null || currentScore > previousBestScore;
+
+		return new NewRecord(isNewRecord, previousBestScore);
+	}
+
+	/**
+	 * 신기록 판정 결과. {@code previousBestScore}는 이전 기록이 없으면 {@code null}이다.
+	 */
+	private record NewRecord(boolean isNewRecord, Long previousBestScore) {
+
+		private static NewRecord none() {
+			return new NewRecord(false, null);
+		}
 	}
 
 	private void validatePlayPeriod(SubmitGameResultRequest request) {
@@ -88,15 +137,14 @@ public class GameResultService {
 		}
 	}
 
-	private void validateRequesterIsParticipant(
+	private ParticipantResultRequest findRequester(
 		String participantKey,
 		List<ParticipantResultRequest> participants
 	) {
-		boolean requesterIncluded = participants.stream()
-			.anyMatch(participant -> participant.participantKey().equals(participantKey));
-		if (!requesterIncluded) {
-			throw new BusinessException(GameResultErrorCode.REQUESTER_NOT_PARTICIPANT);
-		}
+		return participants.stream()
+			.filter(participant -> participant.participantKey().equals(participantKey))
+			.findFirst()
+			.orElseThrow(() -> new BusinessException(GameResultErrorCode.REQUESTER_NOT_PARTICIPANT));
 	}
 
 	/**
