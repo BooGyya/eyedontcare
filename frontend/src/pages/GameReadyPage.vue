@@ -8,6 +8,7 @@ import { useWaitingRoomSocket } from '../composables/useWaitingRoomSocket'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
 import { useEyeTracking } from '../composables/useEyeTracking'
 import { useCalibrationStore } from '../stores/calibration'
+import { playCalibrationSound } from '../lib/sound/calibration-sound'
 import { createInviteRoom, joinInviteRoom } from '../api/waitingRoom'
 import { ApiError } from '../api/http'
 import { currentAccessToken, resolveIdentity } from '../api/identity'
@@ -433,15 +434,32 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
 
   if (!result.success) {
     eyeSampleFeedback.value = 'insufficient'
-    showToast(
-      '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.',
-    )
+    playCalibrationSound('reject')
+    showToast(eyeSampleFailureMessage(kind, result.reason))
     return
   }
 
   eyeSampleFeedback.value = 'success'
+  playCalibrationSound('step')
   // 성공 표시를 잠깐 보여준 뒤 다음 단계로 넘어간다.
   globalThis.setTimeout(advanceCalibrationStage, 500)
+}
+
+/**
+ * 눈 상태 기록 실패 안내. 요청한 단계(open/closed)와 실제 상태가 반대이면 어떻게
+ * 다시 시도해야 하는지 구체적으로 알려준다.
+ */
+function eyeSampleFailureMessage(
+  kind: 'open' | 'closed',
+  reason: 'no_face' | 'eyes_open' | 'eyes_closed' | undefined,
+): string {
+  if (reason === 'eyes_closed') {
+    return '이 단계는 눈을 뜬 상태를 기록해요. 눈을 크게 뜨고 다시 눌러주세요.'
+  }
+  if (reason === 'eyes_open') {
+    return '이 단계는 눈을 감은 상태를 기록해요. 눈을 꼭 감고 다시 눌러주세요.'
+  }
+  return '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.'
 }
 
 function recordGazeCalibrationPoint() {
@@ -455,12 +473,14 @@ function recordGazeCalibrationPoint() {
     !eyeTracking.faceDetected.value ||
     eyeTracking.combinedState.value !== 'BOTH_OPEN'
   ) {
+    playCalibrationSound('reject')
     showToast('눈을 뜨고 점을 바라본 상태에서 눌러주세요.')
     return
   }
 
   const captured = eyeTracking.addGazeCalibrationSample(target)
   if (!captured) {
+    playCalibrationSound('reject')
     showToast('시선이 감지되지 않았어요. 점을 계속 바라봐 주세요.')
     return
   }
@@ -469,12 +489,14 @@ function recordGazeCalibrationPoint() {
     gazeCalibrationTargetIndex.value <
     eyeTracking.gazeCalibrationTargets.length - 1
   ) {
+    playCalibrationSound('step')
     gazeCalibrationTargetIndex.value += 1
     return
   }
 
   const result = eyeTracking.finishGazeCalibration()
   if (!result) {
+    playCalibrationSound('reject')
     showToast('시선 보정에 실패했어요. 처음부터 다시 시도해 주세요.')
     gazeCalibrationTargetIndex.value = 0
     eyeTracking.beginGazeCalibration()
@@ -501,6 +523,7 @@ function advanceCalibrationStage() {
 }
 
 function finishCalibration() {
+  playCalibrationSound('complete')
   calibrationStore.saveEyeProfile(eyeTracking.eyeProfile.value)
   isCalibrated.value = true
   isCalibrationOpen.value = false
