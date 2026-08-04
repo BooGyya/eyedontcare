@@ -66,6 +66,7 @@ public class SecurityConfig {
                     "/api/v1/auth/reissue",
                     "/api/v1/match/join",
                     "/api/v1/game-results",
+                    "/api/v1/games/draw/recognize",
                     "/api/v1/waiting-rooms",
                     "/api/v1/waiting-rooms/join",
                     "/api/v1/waiting-rooms/{roomId}/leave"
