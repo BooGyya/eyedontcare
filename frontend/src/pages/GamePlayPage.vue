@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DrawPromptIcon from '../components/games/DrawPromptIcon.vue'
 import GamePlayShell from '../components/games/GamePlayShell.vue'
@@ -993,6 +993,9 @@ function stopAirHockeyGame() {
 }
 
 onMounted(() => {
+  // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
+  if (handleMidGameRefresh()) return
+
   if (game.value?.id === 'hold') {
     void initStareGame()
   }
@@ -1010,10 +1013,17 @@ onMounted(() => {
   if (game.value?.id === 'draw') {
     void initDrawGame()
   }
+  globalThis.window.addEventListener('beforeunload', handleBeforeUnload)
+  cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
 })
 
 onUnmounted(() => {
   if (airGameScrollTimer) globalThis.clearTimeout(airGameScrollTimer)
+  if (cameraWatchdog) globalThis.clearInterval(cameraWatchdog)
+  // 정상적인 화면 이탈(라우터 이동)에서만 진행 표시를 지운다. 브라우저 새로고침은 컴포넌트
+  // 언마운트를 트리거하지 않으므로 표시가 남아, 재진입 시 새로고침으로 감지된다.
+  clearGameInProgress()
+  globalThis.window.removeEventListener('beforeunload', handleBeforeUnload)
   if (game.value?.id === 'hold') stopStareGame()
   if (game.value?.id === 'blink') stopBlinkGame()
   if (game.value?.id === 'rhythm') stopRhythmGame()
@@ -1093,6 +1103,8 @@ const playStartedAt = new Date().toISOString()
 
 function toResult() {
   if (!game.value) return
+  exiting = true
+  clearGameInProgress()
   const score =
     game.value.id === 'blink'
       ? blinkGameState.value.score
@@ -1598,8 +1610,160 @@ function recordDrawResult() {
 }
 
 function leaveGame() {
+  exiting = true
+  clearGameInProgress()
   if (game.value)
     router.push({ name: 'game-detail', params: { gameId: game.value.id } })
+}
+
+// --- 이탈 처리: 게임 도중 카메라 종료·새로고침 시 진행 중이던 게임을 정리한다 ---
+// 정책: 멀티(친구/랜덤)는 몰수패 — 세션 소켓을 닫아 상대에게 이탈을 알린다. 솔로/AI는 그냥 종료.
+// `exiting`은 정상 종료(toResult/leaveGame) 중에 카메라가 꺼지며 중복 처리되는 것을 막는다.
+let exiting = false
+
+// 진행 중 표시. 새로고침(브라우저 경고가 억제되는 경우 포함)으로 게임이 끊겼는지 판별한다.
+// 마운트 시 표시를 남기고, 정상 종료 때만 지운다. 새로고침하면 표시가 남아 있어 재마운트에서 감지된다.
+const GAME_IN_PROGRESS_KEY = 'edc-game-in-progress'
+
+function clearGameInProgress() {
+  globalThis.sessionStorage?.removeItem(GAME_IN_PROGRESS_KEY)
+}
+
+/**
+ * 진행 중이던 게임을 새로고침했는지 판별한다. 그렇다면 정책대로 재시작하지 않고 종료하고 true를,
+ * 처음 진입이면 진행 표시를 남기고 false를 반환한다.
+ */
+function handleMidGameRefresh(): boolean {
+  const store = globalThis.sessionStorage
+  if (!store?.getItem(GAME_IN_PROGRESS_KEY)) {
+    store?.setItem(GAME_IN_PROGRESS_KEY, game.value?.id ?? 'y')
+    return false
+  }
+  clearGameInProgress()
+  exiting = true
+  showToast('새로고침으로 게임이 종료되었어요.')
+  if (game.value) {
+    void router.replace({
+      name: 'game-detail',
+      params: { gameId: game.value.id },
+    })
+  }
+  return true
+}
+
+const isMultiplayerMode = computed(() =>
+  ['friends', 'random'].includes(mode.value),
+)
+
+/** 현재 게임의 카메라 활성 상태. 게임별 tracking.isActive를 하나로 모은다. */
+const activeCameraActive = computed(() => {
+  switch (game.value?.id) {
+    case 'draw':
+      return drawCameraActive.value
+    case 'blink':
+      return blinkCameraActive.value
+    case 'hold':
+      return stareCameraActive.value
+    case 'rhythm':
+      return rhythmCameraActive.value
+    case 'air':
+      return airCameraActive.value
+    default:
+      return false
+  }
+})
+
+/** 현재 게임의 대결 세션 소켓을 닫아(있으면) 상대에게 이탈을 통지한다. */
+function closeActiveSession() {
+  switch (game.value?.id) {
+    case 'blink':
+      blinkGameSession.close()
+      break
+    case 'hold':
+      stareGameSession.close()
+      break
+    case 'rhythm':
+      rhythmGameSession.close()
+      break
+    case 'air':
+      airGameSession.close()
+      break
+    default:
+      break
+  }
+}
+
+function handleCameraLost() {
+  if (exiting) return
+  exiting = true
+  if (isMultiplayerMode.value) {
+    // 멀티: 세션을 닫아 상대에게 이탈(=상대 승)을 알리고, 나는 몰수패로 종료한다.
+    closeActiveSession()
+    showToast('카메라가 꺼져 몰수패로 게임을 종료합니다.')
+  } else {
+    showToast('카메라가 꺼져 게임을 종료합니다.')
+  }
+  leaveGame()
+}
+
+// 게임 도중 카메라가 꺼지면(켜졌다가 꺼짐) 정책대로 처리한다. 정상 종료 중이면 무시.
+watch(activeCameraActive, (isOn, wasOn) => {
+  if (wasOn && !isOn && !exiting) handleCameraLost()
+})
+
+// 프레임 정지 감시: 트랙 'ended' 이벤트가 나지 않는 경우(브라우저 사이트설정에서 카메라 차단,
+// 다른 앱이 카메라 점유 등)에도 영상 프레임이 멈추면 카메라가 꺼진 것으로 보고 종료한다.
+// currentTime이 몇 초간 그대로면 프레임이 들어오지 않는 것이다. 탭이 백그라운드면(렌더 정지)
+// 오탐이므로 제외한다.
+const CAMERA_STALL_MS = 3000
+let lastVideoTime = -1
+let videoStalledSince = 0
+let cameraWatchdog: ReturnType<typeof globalThis.setInterval> | undefined
+
+function activeVideoElement(): globalThis.HTMLVideoElement | null {
+  switch (game.value?.id) {
+    case 'draw':
+      return drawVideoRef.value
+    case 'blink':
+      return blinkVideoRef.value
+    case 'hold':
+      return stareVideoRef.value
+    case 'rhythm':
+      return rhythmVideoRef.value
+    case 'air':
+      return airVideoRef.value
+    default:
+      return null
+  }
+}
+
+function pollCameraFrames() {
+  const video = activeVideoElement()
+  if (exiting || !activeCameraActive.value || !video || globalThis.document.hidden) {
+    videoStalledSince = 0
+    lastVideoTime = video ? video.currentTime : -1
+    return
+  }
+  const now = globalThis.performance.now()
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime
+    videoStalledSince = 0
+    return
+  }
+  if (videoStalledSince === 0) {
+    videoStalledSince = now
+  } else if (now - videoStalledSince >= CAMERA_STALL_MS) {
+    handleCameraLost()
+  }
+}
+
+// 게임 진행 중 새로고침·창 닫기는 게임이 종료된다고 먼저 경고한다(실수 방지).
+// 크롬 등은 returnValue가 비어 있으면 경고를 띄우지 않으므로 비어 있지 않은 문자열을 넣는다
+// (문구 자체는 브라우저가 자체 문구로 대체한다).
+function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
+  if (exiting) return
+  event.preventDefault()
+  event.returnValue = '게임이 진행 중이에요. 페이지를 벗어나면 게임이 종료됩니다.'
 }
 </script>
 
