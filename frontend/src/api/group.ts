@@ -128,6 +128,11 @@ export async function leaveGroup(groupId: string): Promise<void> {
   await apiRequest<null>(`/groups/${groupId}/leave`, { method: 'POST' })
 }
 
+/** 소모임 삭제(방장 전용). 멤버 전원과 함께 삭제된다. */
+export async function deleteGroup(groupId: string): Promise<void> {
+  await apiRequest<null>(`/groups/${groupId}`, { method: 'DELETE' })
+}
+
 // --- 변환 ---
 
 /** 백엔드 GroupResponse를 화면용 CommunityGroup으로 바꾼다(activity는 백엔드에 없어 제외). */
