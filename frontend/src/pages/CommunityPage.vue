@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../components/common/PageHeader.vue'
 import CommunityDialog from '../components/groups/CommunityDialog.vue'
@@ -59,28 +59,40 @@ const initialDraft = (): CommunityGroupDraft => ({
 const createDraft = ref<CommunityGroupDraft>(initialDraft())
 
 /**
- * 공개 목록(GET /groups)과 내 소모임(GET /groups/me)을 id 기준으로 합쳐 화면 목록을 만든다.
- * 내가 만든/참여 중인 비공개 소모임은 공개 목록엔 안 뜨므로 두 소스를 합쳐야 필터가 맞다.
+ * 전체 목록(GET /groups)과 내 소모임(GET /groups/me)을 id 기준으로 합쳐 화면 목록을 만든다.
  * 게스트는 인증 전용 API라 호출하지 않는다(화면은 로그인 유도).
  */
-async function loadGroups() {
-  if (!auth.isAuthenticated) return
-  isLoading.value = true
-  errorMessage.value = ''
-  try {
-    const [publicList, myList] = await Promise.all([getGroups(), getMyGroups()])
-    const byId = new Map<string, CommunityGroup>()
-    for (const dto of [...publicList.groups, ...myList.groups]) {
-      const group = toCommunityGroup(dto)
-      byId.set(group.id, group)
+let loadGroupsPromise: Promise<void> | null = null
+
+function loadGroups(): Promise<void> {
+  if (!auth.isAuthenticated) return Promise.resolve()
+  if (loadGroupsPromise) return loadGroupsPromise
+
+  loadGroupsPromise = (async () => {
+    isLoading.value = true
+    errorMessage.value = ''
+    try {
+      const [groupList, myList] = await Promise.all([getGroups(), getMyGroups()])
+      if (!auth.isAuthenticated) return
+
+      const byId = new Map<string, CommunityGroup>()
+      for (const dto of [...groupList.groups, ...myList.groups]) {
+        const group = toCommunityGroup(dto)
+        byId.set(group.id, group)
+      }
+      groups.value = [...byId.values()]
+    } catch (error) {
+      if (!auth.isAuthenticated) return
+      errorMessage.value =
+        error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
+    } finally {
+      isLoading.value = false
     }
-    groups.value = [...byId.values()]
-  } catch (error) {
-    errorMessage.value =
-      error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
-  } finally {
-    isLoading.value = false
-  }
+  })().finally(() => {
+    loadGroupsPromise = null
+  })
+
+  return loadGroupsPromise
 }
 
 const filteredGroups = computed(() => {
@@ -188,17 +200,25 @@ async function handleGroupAction(group: CommunityGroup) {
 }
 
 async function handleJoinByCode() {
-  const code = joinCode.value.trim().toUpperCase()
-  if (!code) {
-    joinCodeError.value = '참여 코드를 입력해주세요.'
+  const normalizedCode = joinCode.value.trim().toUpperCase()
+  if (!normalizedCode) {
+    joinCodeError.value = '참여 코드를 입력해 주세요.'
+    return
+  }
+  if (normalizedCode.length !== 6) {
+    joinCodeError.value = '참여 코드는 6자리로 입력해 주세요.'
     return
   }
   try {
-    const joined = toCommunityGroup(await joinGroupByCode(code))
+    const joined = toCommunityGroup(await joinGroupByCode(normalizedCode))
     upsertGroup(joined)
     closeJoinDialog()
     showToast(`${joined.name}에 가입했어요!`)
   } catch (error) {
+    if (error instanceof ApiError && error.code === 'GROUP-002') {
+      joinCodeError.value = '존재하지 않는 소모임이에요.'
+      return
+    }
     joinCodeError.value =
       error instanceof ApiError ? error.message : '가입에 실패했어요.'
   }
@@ -245,7 +265,22 @@ async function handleCreateGroup() {
   }
 }
 
-onMounted(loadGroups)
+watch(
+  () => auth.isAuthenticated,
+  (authenticated) => {
+    if (authenticated) {
+      void loadGroups()
+      return
+    }
+
+    groups.value = []
+    errorMessage.value = ''
+  },
+)
+
+onMounted(() => {
+  void loadGroups()
+})
 </script>
 
 <template>
@@ -509,7 +544,7 @@ onMounted(loadGroups)
             data-testid="join-code-input"
             data-dialog-initial-focus
             type="text"
-            maxlength="12"
+            maxlength="6"
             placeholder="참여 코드를 입력해주세요"
             @input="joinCodeError = ''"
           />

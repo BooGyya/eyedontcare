@@ -159,8 +159,8 @@ class GroupServiceTest {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		Page<Group> page = new PageImpl<>(
 			List.of(group), PageRequest.of(0, 20), 1);
-		when(groupRepository.findByVisibilityAndNameContaining(
-			eq(GroupVisibility.PUBLIC), eq(""), any())).thenReturn(page);
+		when(groupRepository.findByNameContaining(
+			eq(""), any())).thenReturn(page);
 		when(groupMemberRepository.findByUserIdOrderByJoinedAtAsc(MEMBER_ID))
 			.thenReturn(List.of());
 		when(userRepository.findAllById(any()))
@@ -176,6 +176,61 @@ class GroupServiceTest {
 		assertThat(item.isJoined()).isFalse();
 		assertThat(item.isOwner()).isFalse();
 		assertThat(item.joinCode()).isNull();
+	}
+
+	@Test
+	void 전체_목록은_PUBLIC과_PRIVATE을_검색하고_페이지네이션한다() {
+		Group publicGroup = group(GroupVisibility.PUBLIC, 30);
+		Group privateGroup = group(GroupVisibility.PRIVATE, 30);
+		setField(Group.class, privateGroup, "id", 11L);
+		Page<Group> page = new PageImpl<>(
+			List.of(publicGroup, privateGroup),
+			PageRequest.of(1, 2),
+			4
+		);
+		when(groupRepository.findByNameContaining(
+			eq("모임"), eq(PageRequest.of(1, 2))
+		)).thenReturn(page);
+		when(groupMemberRepository.findByUserIdOrderByJoinedAtAsc(MEMBER_ID))
+			.thenReturn(List.of());
+		when(userRepository.findAllById(any()))
+			.thenReturn(List.of(user(OWNER_ID, "방장")));
+
+		GroupListResponse response =
+			groupService.getGroups(MEMBER_ID, "모임", 2, 2);
+
+		assertThat(response.groups())
+			.extracting(GroupResponse::visibility)
+			.containsExactly(GroupVisibility.PUBLIC, GroupVisibility.PRIVATE);
+		assertThat(response.page()).isEqualTo(2);
+		assertThat(response.size()).isEqualTo(2);
+		assertThat(response.totalElements()).isEqualTo(4);
+		assertThat(response.totalPages()).isEqualTo(2);
+		assertThat(response.groups())
+			.allSatisfy(item -> assertThat(item.joinCode()).isNull());
+	}
+
+	@Test
+	void PRIVATE_멤버는_전체_목록에서_joinCode를_본다() {
+		Group group = group(GroupVisibility.PRIVATE, 30);
+		Page<Group> page = new PageImpl<>(
+			List.of(group), PageRequest.of(0, 20), 1);
+		when(groupRepository.findByNameContaining(
+			eq(""), any())).thenReturn(page);
+		when(groupMemberRepository.findByUserIdOrderByJoinedAtAsc(MEMBER_ID))
+			.thenReturn(List.of(member(MEMBER_ID, GroupRole.MEMBER)));
+		when(userRepository.findAllById(any()))
+			.thenReturn(List.of(user(OWNER_ID, "방장")));
+		when(groupMemberRepository.countByGroupId(GROUP_ID)).thenReturn(2);
+
+		GroupResponse item = groupService
+			.getGroups(MEMBER_ID, null, 1, 20)
+			.groups()
+			.get(0);
+
+		assertThat(item.visibility()).isEqualTo(GroupVisibility.PRIVATE);
+		assertThat(item.isJoined()).isTrue();
+		assertThat(item.joinCode()).isEqualTo("A1B2C3");
 	}
 
 	@Test
