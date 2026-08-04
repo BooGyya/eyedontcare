@@ -259,6 +259,12 @@ export function useEyeTracking() {
     isActive,
     isLoadingModel,
     modelError,
+    /** 카메라 트랙이 라이브인지. 브라우저/OS에서 캠을 끄면(track ended) false로 떨어진다. */
+    cameraActive: camera.isActive,
+    /** 카메라 종료/오류 사유('ended'·'unavailable'·DOMException name 등). */
+    cameraError: camera.errorName,
+    /** 카메라를 강제로 다시 획득한다(껐다 켜기 복구). 인식 루프는 유지된 채 스트림만 갱신된다. */
+    restartCamera: camera.restart,
 
     faceDetected,
     leftEyeState,

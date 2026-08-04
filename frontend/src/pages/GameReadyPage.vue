@@ -223,7 +223,11 @@ const roomDescription = computed(() => {
       : '준비를 완료한 뒤 방장이 게임을 시작할 때까지 기다려 주세요.'
   return '게임 시작 전 카메라와 시선 인식 준비 상태를 확인해 주세요.'
 })
-const isCameraConnected = computed(() => permissionStatus.value === 'granted')
+// 권한 승인 + 트랙이 실제 라이브일 때만 연결로 본다. 브라우저/OS에서 캠을 끄면(track ended)
+// cameraActive가 false로 떨어져 화면이 다시 "카메라 연결하기" 상태로 돌아간다.
+const isCameraConnected = computed(
+  () => permissionStatus.value === 'granted' && eyeTracking.cameraActive.value,
+)
 const canStartCalibration = computed(() => isCameraConnected.value)
 const canMarkReady = computed(() => isCalibrated.value && !isHost.value)
 const ownPreparationComplete = computed(() =>
@@ -340,6 +344,21 @@ function handleLeaveRoom() {
 
 async function handleRequestCamera() {
   permissionStatus.value = 'requesting'
+
+  // 세션은 살아있고 카메라 트랙만 끊긴 경우(브라우저/OS에서 캠을 껐다 켜기): start()의 재사용
+  // 가드가 죽은 상태를 그대로 반환하므로 강제로 재획득한다. 보정은 유지한 채 프리뷰만 복구한다.
+  if (eyeTracking.isActive.value && !eyeTracking.cameraActive.value) {
+    const reacquired = await eyeTracking.restartCamera()
+    if (!reacquired) {
+      permissionStatus.value = 'unavailable'
+      isCameraErrorOpen.value = true
+      return
+    }
+    cameraStream.value = eyeTracking.stream.value
+    permissionStatus.value = 'granted'
+    isWebcamGuideOpen.value = false
+    return
+  }
 
   // eyeTracking.start()가 카메라 권한 요청과 MediaPipe Face Landmarker 로드(CDN, 수 초 소요)를
   // 동시에 진행한다. 모델 로드가 카메라 승인보다 먼저 끝나는 경우가 많아 체감 대기시간이 줄어든다.
