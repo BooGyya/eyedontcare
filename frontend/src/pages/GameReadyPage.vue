@@ -437,7 +437,7 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
   if (!result.success) {
     eyeSampleFeedback.value = 'insufficient'
     playCalibrationSound('reject')
-    showToast(eyeSampleFailureMessage(result.reason))
+    showToast(eyeSampleFailureMessage(result.reason, kind))
     return
   }
 
@@ -453,6 +453,7 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
  */
 function eyeSampleFailureMessage(
   reason: 'no_face' | 'eyes_open' | 'eyes_closed' | undefined,
+  kind: 'open' | 'closed',
 ): string {
   if (reason === 'eyes_closed') {
     return '이 단계는 눈을 뜬 상태를 기록해요. 눈을 크게 뜨고 다시 눌러주세요.'
@@ -986,7 +987,12 @@ onBeforeUnmount(() => {
           <span>{{ isCameraConnected ? '내 웹캠' : '내 준비 상태' }}</span>
         </div>
         <ol class="my-progress" aria-label="나의 게임 준비 진행 단계">
-          <li :class="{ complete: isCameraConnected }">
+          <li
+            :class="{
+              complete: isCameraConnected,
+              error: !isCameraConnected,
+            }"
+          >
             <b aria-hidden="true">
               <svg v-if="isCameraConnected" viewBox="0 0 24 24">
                 <path
@@ -998,10 +1004,20 @@ onBeforeUnmount(() => {
                   stroke-linejoin="round"
                 />
               </svg>
-              <template v-else>1</template>
+              <svg v-else viewBox="0 0 24 24">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
             </b>
             <span>카메라</span>
-            <small>{{ isCameraConnected ? '완료' : '확인 필요' }}</small>
+            <small>
+              {{ isCameraConnected ? '완료' : '카메라 연결 필요' }}
+            </small>
           </li>
           <li :class="{ complete: isCalibrated }">
             <b aria-hidden="true">
@@ -1269,7 +1285,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="calibration-stage">
             <video
-              v-if="cameraStream"
+              v-if="cameraStream && isCameraConnected"
               ref="previewVideo"
               autoplay
               muted
@@ -1282,11 +1298,21 @@ onBeforeUnmount(() => {
               alt="카메라 연결 전 안내 마스코트"
               draggable="false"
             />
+            <div
+              v-if="!isCameraConnected"
+              class="calibration-camera-status"
+              role="status"
+              aria-live="polite"
+            >
+              <strong>카메라가 연결되지 않았어요</strong>
+              <span>카메라를 연결한 뒤 캘리브레이션을 진행해 주세요.</span>
+            </div>
 
             <!-- 눈 뜬/감은 기준 기록 단계: 실시간 얼굴 인식 상태와 기록 진행 상황을 보여준다 -->
             <template
               v-if="
-                calibrationStage === 'open' || calibrationStage === 'closed'
+                isCameraConnected &&
+                (calibrationStage === 'open' || calibrationStage === 'closed')
               "
             >
               <div class="calibration-live-status" role="status">
@@ -1315,34 +1341,44 @@ onBeforeUnmount(() => {
             <!-- 시선 좌표 보정 단계: 9개 지점을 순서대로 응시하며 진행한다 -->
             <template v-else-if="calibrationStage === 'gaze'">
               <i
+                v-if="isCameraConnected"
                 class="calibration-target"
                 :style="gazeCalibrationTargetStyle"
                 aria-hidden="true"
               />
-              <p>
-                지점 {{ gazeCalibrationTargetIndex + 1 }} /
-                {{ eyeTracking.gazeCalibrationTargets.length }}
-              </p>
             </template>
           </div>
-          <footer>
-            <button
-              type="button"
-              class="secondary"
-              :disabled="isSamplingEyeStep || isSamplingGaze"
-              @click="handleCalibrationBack"
+          <div class="calibration-controls">
+            <div
+              v-if="calibrationStage === 'gaze'"
+              class="calibration-point-status"
+              role="status"
+              aria-live="polite"
             >
-              {{ calibrationBackLabel }}</button
-            ><button
-              type="button"
-              class="primary"
-              data-dialog-initial-focus
-              :disabled="isSamplingEyeStep || isSamplingGaze"
-              @click="handleCalibrationNext"
-            >
-              {{ calibrationPrimaryLabel }}
-            </button>
-          </footer>
+              지점 {{ gazeCalibrationTargetIndex + 1 }} /
+              {{ eyeTracking.gazeCalibrationTargets.length }}
+            </div>
+            <footer>
+              <button
+                type="button"
+                class="secondary"
+                :disabled="isSamplingEyeStep || isSamplingGaze"
+                @click="handleCalibrationBack"
+              >
+                {{ calibrationBackLabel }}</button
+              ><button
+                type="button"
+                class="primary"
+                data-dialog-initial-focus
+                :disabled="
+                  isSamplingEyeStep || isSamplingGaze || !isCameraConnected
+                "
+                @click="handleCalibrationNext"
+              >
+                {{ calibrationPrimaryLabel }}
+              </button>
+            </footer>
+          </div>
         </section>
       </div>
     </Transition>
@@ -1720,6 +1756,15 @@ onBeforeUnmount(() => {
   border-color: #75c694;
   background: #e6f7eb;
 }
+.my-progress .error {
+  border: 1px solid #f1caca;
+  color: #b75555;
+  background: #fff0f0;
+}
+.my-progress .error b {
+  border-color: #d98282;
+  background: #ffe7e7;
+}
 .participant-action,
 .primary {
   min-height: 43px;
@@ -1895,21 +1940,37 @@ onBeforeUnmount(() => {
   height: min(64vh, 620px);
   object-fit: contain;
 }
-.calibration-stage p {
+.calibration-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 42px;
+  gap: 16px;
+  margin-top: 18px;
+}
+.calibration-point-status {
   position: absolute;
-  bottom: 12px;
+  top: 50%;
   left: 50%;
-  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  width: fit-content;
+  flex-shrink: 0;
   padding: 7px 10px;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(79, 116, 219, 0.22);
   border-radius: 99px;
   color: var(--color-muted);
   background: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 .calibration-target {
   position: absolute;
+  z-index: 1;
   width: 18px;
   height: 18px;
   border: 5px solid #fff;
@@ -1918,6 +1979,33 @@ onBeforeUnmount(() => {
   animation: calib-pulse 1.6s ease-in-out infinite;
   /* left/top은 gazeCalibrationTargetStyle이 0~1 좌표를 %로 변환해 인라인으로 넣어준다. */
   transform: translate(-50%, -50%);
+}
+.calibration-camera-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  width: min(80%, 360px);
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 20px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(79, 116, 219, 0.18);
+  border-radius: 16px;
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.94);
+  text-align: center;
+}
+.calibration-camera-status strong {
+  font-size: 15px;
+}
+.calibration-camera-status span {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 @keyframes calib-pulse {
   0%,
@@ -1955,7 +2043,9 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
-  margin-top: 18px;
+  margin-top: 0;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .calibration-dialog footer button {
   min-width: 112px;
@@ -2088,6 +2178,23 @@ button:focus-visible,
   .calibration-stage img {
     min-height: 250px;
     height: 250px;
+  }
+  .calibration-controls {
+    display: grid;
+    min-height: 0;
+    justify-items: end;
+    gap: 12px;
+  }
+  .calibration-point-status {
+    position: static;
+    justify-self: center;
+    transform: none;
+  }
+  .calibration-dialog footer {
+    width: auto;
+  }
+  .calibration-dialog footer button {
+    flex: initial;
   }
 }
 </style>
