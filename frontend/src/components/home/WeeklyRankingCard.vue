@@ -94,7 +94,7 @@ function getPodiumHeight(rank: number, record: RankingRecord | null) {
               :class="{
                 'weekly-ranking-card__nickname--placeholder': !slot.record,
               }"
-              >{{ slot.record ? slot.record.nickname : 'none' }}</strong
+              >{{ slot.record ? slot.record.nickname : '순위 없음' }}</strong
             >
           </div>
           <i

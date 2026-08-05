@@ -53,9 +53,13 @@ export function useGameResultSubmission() {
     if (gameId === null) return null
 
     const outcome: GameOutcome = options.outcome ?? 'COMPLETED'
-    const displayName = auth.isAuthenticated
+    // displayName은 백엔드에서 @NotBlank 필수값이다. 닉네임이 아직 로드되지 않았거나 비어 있는
+    // 인증 상태(예: 세션 복원 지연)에서 빈 값을 보내면 "요청 값이 올바르지 않습니다"(COMMON-001)로
+    // 저장이 실패한다. 항상 공백이 아닌 이름을 넣는다.
+    const resolvedName = auth.isAuthenticated
       ? auth.user.nickname
       : '게스트 플레이어'
+    const displayName = resolvedName?.trim() ? resolvedName.trim() : '플레이어'
 
     try {
       const response = await submitGameResult({

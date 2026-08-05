@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGameResultSubmission } from './useGameResultSubmission'
 import { resetGamesCache } from '../api/game'
+import { useAuthStore } from '../stores/auth'
 
 const ACCESS_TOKEN_KEY = 'eye-dont-care.accessToken'
 const GUEST_KEY = 'eye-dont-care.guestSessionId'
@@ -152,6 +153,38 @@ describe('useGameResultSubmission', () => {
     expect(body.gameResult).toEqual({
       '1': { score: 360, blinkCount: 36 },
     })
+  })
+
+  it('인증 상태에서 닉네임이 비어 있어도 displayName을 공백으로 보내지 않는다', async () => {
+    // 닉네임 로드 지연 등으로 nickname이 빈 값인 인증 상태. 빈 displayName은 백엔드
+    // @NotBlank 위반(COMMON-001)으로 랭킹 결과 저장을 실패시킨다.
+    globalThis.localStorage.setItem(ACCESS_TOKEN_KEY, fakeAccessToken(8))
+    const auth = useAuthStore()
+    auth.setAuthenticatedUser({
+      id: 8,
+      nickname: '',
+      level: 1,
+      avatar: '',
+      profileImageCode: null,
+      email: null,
+      loginType: null,
+      createdAt: null,
+    })
+    const calls = stubFetch()
+
+    await useGameResultSubmission().submitPlayedResult({
+      gameSlug: 'blink',
+      mode: 'solo',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      score: 45,
+      resultData: { blinkCount: 45 },
+    })
+
+    const post = calls.find((c) => c.url.includes('/game-results'))
+    const body = post?.body as {
+      participants: { displayName: string }[]
+    }
+    expect(body.participants[0].displayName.trim().length).toBeGreaterThan(0)
   })
 
   it('stores rhythm opponent score, combo, and remaining hearts alongside the score', async () => {

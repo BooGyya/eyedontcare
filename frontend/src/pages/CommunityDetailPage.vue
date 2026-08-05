@@ -15,6 +15,11 @@ import {
 } from '../api/group'
 import { communityPosts } from '../mocks/community'
 import type { CommunityPost } from '../types/community'
+import {
+  COMMENT_COOLDOWN_MS,
+  COMMENT_MAX_LENGTH,
+  POST_MAX_LENGTH,
+} from '../types/community'
 
 const route = useRoute()
 const router = useRouter()
@@ -75,10 +80,22 @@ function toggleComposer() {
   if (!isComposerOpen.value) composerContent.value = ''
 }
 
+// 입력 길이에 맞춰 textarea 높이를 늘려 긴 글이 아래쪽으로 확장되게 한다.
+function autoGrowComposer(event: globalThis.Event) {
+  const el = event.target as globalThis.HTMLTextAreaElement
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
 function submitPost() {
   const content = composerContent.value.trim()
   if (!content) {
     showToast('내용을 입력해 주세요.')
+    return
+  }
+  // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
+  if (content.length > POST_MAX_LENGTH) {
+    showToast(`후기는 ${POST_MAX_LENGTH}자까지 입력할 수 있어요.`)
     return
   }
   posts.value.unshift({
@@ -95,9 +112,34 @@ function submitPost() {
   showToast('후기를 남겼어요!')
 }
 
+// 마지막으로 댓글을 작성한 시각. 짧은 간격의 연속 작성(난사)을 막는 쿨다운 기준이다.
+let lastCommentAt = 0
+
 function submitComment(post: CommunityPost) {
   const content = (commentDrafts.value[post.id] ?? '').trim()
   if (!content) return
+  // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
+  if (content.length > COMMENT_MAX_LENGTH) {
+    showToast(`댓글은 ${COMMENT_MAX_LENGTH}자까지 입력할 수 있어요.`)
+    return
+  }
+  // 연속 작성 쿨다운: 버튼 비활성화만으로는 우회되므로 제출 로직에서 막는다.
+  const now = Date.now()
+  if (now - lastCommentAt < COMMENT_COOLDOWN_MS) {
+    showToast('댓글을 너무 빠르게 작성하고 있어요. 잠시 후 다시 시도해 주세요.')
+    return
+  }
+  // 동일 내용 중복 방지: 이 글의 마지막 댓글과 작성자·내용이 같으면 막는다.
+  const lastComment = post.comments[post.comments.length - 1]
+  if (
+    lastComment &&
+    lastComment.author === auth.user.nickname &&
+    lastComment.content === content
+  ) {
+    showToast('같은 내용을 연속으로 작성할 수 없어요.')
+    return
+  }
+  lastCommentAt = now
   post.comments.push({
     id: `local-comment-${Date.now()}`,
     author: auth.user.nickname,
@@ -460,8 +502,13 @@ watch(
             class="community-detail__composer-textarea"
             placeholder="게임 후기를 남겨보세요"
             rows="3"
+            :maxlength="POST_MAX_LENGTH"
+            @input="autoGrowComposer"
           />
           <div class="community-detail__composer-actions">
+            <span class="community-detail__composer-count">
+              {{ composerContent.length }}/{{ POST_MAX_LENGTH }}
+            </span>
             <button
               type="button"
               class="community-detail__ghost"
@@ -563,9 +610,15 @@ watch(
                 <input
                   v-model="commentDrafts[post.id]"
                   type="text"
+                  :maxlength="COMMENT_MAX_LENGTH"
                   placeholder="댓글을 남겨보세요"
                   @keyup.enter="submitComment(post)"
                 />
+                <span class="community-detail__comment-count">
+                  {{ (commentDrafts[post.id] ?? '').length }}/{{
+                    COMMENT_MAX_LENGTH
+                  }}
+                </span>
                 <button
                   type="button"
                   :disabled="!(commentDrafts[post.id] ?? '').trim()"
@@ -797,17 +850,31 @@ watch(
   background: #fff;
 }
 .community-detail__composer-textarea {
+  width: 100%;
+  min-height: 72px;
   padding: 10px 12px;
   border: 1px solid var(--color-line);
   border-radius: 10px;
   font: inherit;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--color-ink);
-  resize: vertical;
+  /* 긴 글은 옆으로 늘어나지 않고 줄바꿈되며, 높이는 @input에서 내용에 맞춰 늘린다. */
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.community-detail__composer-count {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 .community-detail__composer-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
 }
 .community-detail__composer-actions .community-detail__primary,
@@ -859,6 +926,8 @@ watch(
   font-size: 14px;
   line-height: 1.6;
   word-break: keep-all;
+  /* 공백 없는 긴 문자열도 옆으로 넘치지 않고 줄바꿈되게 한다(페이지 가로 스크롤 방지). */
+  overflow-wrap: anywhere;
 }
 .community-detail__comment-toggle {
   padding: 0;
@@ -878,6 +947,9 @@ watch(
 .community-detail__comment-list {
   display: grid;
   gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0 0 10px;
   padding: 0;
   list-style: none;
@@ -900,6 +972,8 @@ watch(
   flex: 1;
   min-width: 0;
   color: var(--color-ink);
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 .community-detail__comment-time {
   color: var(--color-muted);
@@ -938,5 +1012,12 @@ watch(
 .community-detail__comment-form button:disabled {
   background: var(--color-muted);
   cursor: not-allowed;
+}
+.community-detail__comment-count {
+  align-self: center;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 </style>

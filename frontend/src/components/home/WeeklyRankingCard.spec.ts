@@ -28,7 +28,9 @@ describe('WeeklyRankingCard', () => {
     const records = wrapper.findAll('.weekly-ranking-card__record')
     expect(records).toHaveLength(3)
     records.forEach((record) => {
-      expect(record.find('.weekly-ranking-card__nickname').text()).toBe('none')
+      expect(record.find('.weekly-ranking-card__nickname').text()).toBe(
+        '순위 없음',
+      )
     })
     expect(wrapper.text()).toContain('참여해서 랭커가 되어보세요')
   })
@@ -58,8 +60,12 @@ describe('WeeklyRankingCard', () => {
 
     const second = wrapper.find('.weekly-ranking-card__record--2')
     const third = wrapper.find('.weekly-ranking-card__record--3')
-    expect(second.find('.weekly-ranking-card__nickname').text()).toBe('none')
-    expect(third.find('.weekly-ranking-card__nickname').text()).toBe('none')
+    expect(second.find('.weekly-ranking-card__nickname').text()).toBe(
+      '순위 없음',
+    )
+    expect(third.find('.weekly-ranking-card__nickname').text()).toBe(
+      '순위 없음',
+    )
 
     expect(wrapper.find('.weekly-ranking-card__empty-overlay').exists()).toBe(
       false,

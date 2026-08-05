@@ -64,7 +64,7 @@ function authenticate() {
   })
 }
 
-async function mountCommunityPage({ authed = true } = {}) {
+async function mountCommunityPage({ authed = true, path = '/community' } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   if (authed) authenticate()
@@ -80,7 +80,7 @@ async function mountCommunityPage({ authed = true } = {}) {
       },
     ],
   })
-  await router.push('/community')
+  await router.push(path)
   await router.isReady()
 
   const wrapper = mount(CommunityPage, {
@@ -113,6 +113,31 @@ describe('CommunityPage', () => {
       totalPages: 1,
     })
     getMyGroups.mockResolvedValue({ groups: [] })
+  })
+
+  it('shows live character counters for group name and description', async () => {
+    const wrapper = await mountCommunityPage()
+
+    await wrapper.get('[data-testid="open-create-dialog"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="create-group-name-count"]').text()).toBe(
+      '0/30',
+    )
+    expect(
+      wrapper.get('[data-testid="create-group-description-count"]').text(),
+    ).toBe('0/120')
+
+    await wrapper.get('[data-testid="create-group-name"]').setValue('abcd')
+    await wrapper
+      .get('[data-testid="create-group-description"]')
+      .setValue('hello')
+
+    expect(wrapper.get('[data-testid="create-group-name-count"]').text()).toBe(
+      '4/30',
+    )
+    expect(
+      wrapper.get('[data-testid="create-group-description-count"]').text(),
+    ).toBe('5/120')
   })
 
   afterEach(() => {
@@ -220,6 +245,12 @@ describe('CommunityPage', () => {
     await flushPromises()
 
     expect(joinGroupByCode).toHaveBeenCalledWith('FOCUS7')
+  })
+
+  it('메인 화면에서 join=code로 진입하면 코드 입장 다이얼로그가 열린다', async () => {
+    const wrapper = await mountCommunityPage({ path: '/community?join=code' })
+
+    expect(wrapper.find('[data-testid="join-code-input"]').exists()).toBe(true)
   })
 
   it('빈 참여 코드는 안내하고 API를 호출하지 않는다', async () => {

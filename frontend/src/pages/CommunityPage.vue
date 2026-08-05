@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/common/PageHeader.vue'
 import CommunityDialog from '../components/groups/CommunityDialog.vue'
 import CommunityGroupCard from '../components/groups/CommunityGroupCard.vue'
@@ -27,6 +27,7 @@ import teamworkImage from '../assets/images/illustrations/illustration-teamwork.
 const { showToast } = useToast()
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const isGuestUser = computed(() => !auth.isAuthenticated)
 
@@ -280,6 +281,14 @@ watch(
 
 onMounted(() => {
   void loadGroups()
+  // 메인 화면의 '소모임 코드 입장'이 /community?join=code 로 진입하면 코드 입장 다이얼로그를
+  // 바로 연다(게스트는 openJoinDialog가 로그인 유도). 새로고침 시 반복되지 않도록 쿼리는 지운다.
+  if (route.query.join === 'code') {
+    openJoinDialog()
+    const nextQuery = { ...route.query }
+    delete nextQuery.join
+    void router.replace({ query: nextQuery })
+  }
 })
 </script>
 
@@ -460,25 +469,41 @@ onMounted(() => {
       <form class="community-form" @submit.prevent="handleCreateGroup">
         <label>
           <span>소모임 이름</span>
-          <input
-            v-model="createDraft.name"
-            data-testid="create-group-name"
-            data-dialog-initial-focus
-            type="text"
-            maxlength="30"
-          />
+          <div class="community-form__field">
+            <input
+              v-model="createDraft.name"
+              data-testid="create-group-name"
+              data-dialog-initial-focus
+              type="text"
+              maxlength="30"
+            />
+            <small
+              class="community-form__counter"
+              data-testid="create-group-name-count"
+            >
+              {{ createDraft.name.length }}/30
+            </small>
+          </div>
           <small v-if="createErrors.name" role="alert">{{
             createErrors.name
           }}</small>
         </label>
         <label>
           <span>소개</span>
-          <textarea
-            v-model="createDraft.description"
-            data-testid="create-group-description"
-            rows="3"
-            maxlength="120"
-          />
+          <div class="community-form__field">
+            <textarea
+              v-model="createDraft.description"
+              data-testid="create-group-description"
+              rows="3"
+              maxlength="120"
+            />
+            <small
+              class="community-form__counter"
+              data-testid="create-group-description-count"
+            >
+              {{ createDraft.description.length }}/120
+            </small>
+          </div>
           <small v-if="createErrors.description" role="alert">{{
             createErrors.description
           }}</small>
@@ -788,6 +813,9 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 800;
 }
+.community-form__field {
+  position: relative;
+}
 .community-form input:not([type='radio']),
 .community-form textarea,
 .community-form select {
@@ -807,13 +835,30 @@ onMounted(() => {
     border-color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease;
 }
+.community-form__field input:not([type='radio']) {
+  padding-right: 54px;
+}
+.community-form__field textarea {
+  padding-right: 12px;
+  padding-bottom: 30px;
+}
+.community-form__counter {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+}
 .community-form input:focus,
 .community-form textarea:focus,
 .community-form select:focus {
   border-color: var(--color-accent-blue);
   box-shadow: 0 0 0 3px rgba(79, 116, 219, 0.14);
 }
-.community-form small {
+.community-form small:not(.community-form__counter) {
   color: var(--color-danger, #c2455a);
   font-size: 12px;
   font-weight: 500;

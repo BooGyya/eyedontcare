@@ -10,10 +10,18 @@
  * 화면에서 로그인 유도로 처리한다.
  */
 import { apiRequest } from './http'
-import groupImage1 from '../assets/images/illustrations/illustration-teamwork.png'
-import groupImage2 from '../assets/images/illustrations/illustration-group-join.png'
-import groupImage3 from '../assets/images/games/game-wave.png'
-import groupImage4 from '../assets/images/games/game-blink.png'
+import groupTeamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
+import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
+import mascotImage from '../assets/images/brand/mascot.png'
+import mascotEyeImage from '../assets/images/brand/mascot-eye.png'
+import profileAthleteImage from '../assets/images/profiles/profile-athlete.png'
+import profileCalmImage from '../assets/images/profiles/profile-calm.png'
+import profileCrownImage from '../assets/images/profiles/profile-crown.png'
+import profileDetectiveImage from '../assets/images/profiles/profile-detective.png'
+import profileJoyImage from '../assets/images/profiles/profile-joy.png'
+import profileSmileImage from '../assets/images/profiles/profile-smile.png'
+import profileTiredImage from '../assets/images/profiles/profile-tired.png'
+import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 import type {
   CommunityGroup,
   CommunityGroupVisibility,
@@ -67,11 +75,29 @@ export interface CreateGroupBody {
   capacity: number
 }
 
-const IMAGE_POOL = [groupImage1, groupImage2, groupImage3, groupImage4]
+// 대표 이미지 풀: 게임용 png(games/*)와 로고류(logo/footer-logo/discord-logo/kakao-talk),
+// 결과 연출용 이미지는 제외하고 캐릭터·일러스트만 쓴다.
+const IMAGE_POOL = [
+  groupTeamworkImage,
+  groupJoinImage,
+  mascotImage,
+  mascotEyeImage,
+  profileAthleteImage,
+  profileCalmImage,
+  profileCrownImage,
+  profileDetectiveImage,
+  profileJoyImage,
+  profileSmileImage,
+  profileTiredImage,
+  profileWinkImage,
+]
 
 /** groupId로 대표 이미지를 결정적으로 고른다(같은 소모임은 항상 같은 이미지). */
 function imageForGroupId(groupId: number): string {
-  return IMAGE_POOL[groupId % IMAGE_POOL.length]
+  // groupId가 숫자가 아니면(undefined/NaN 등) IMAGE_POOL[NaN]이 undefined가 되어 이미지가
+  // 통째로 사라진다. 유효한 정수가 아니면 첫 이미지로 고정해 항상 이미지를 보장한다.
+  if (!Number.isFinite(groupId)) return IMAGE_POOL[0]
+  return IMAGE_POOL[Math.abs(Math.trunc(groupId)) % IMAGE_POOL.length]
 }
 
 function toVisibility(code: GroupVisibilityCode): CommunityGroupVisibility {

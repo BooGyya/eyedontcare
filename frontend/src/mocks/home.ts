@@ -78,6 +78,6 @@ export const homeQuickActions: QuickAction[] = [
     description: '친구들과 소모임을 만들고 함께 게임을 즐겨요!',
     image: groupIllustrationImage,
     tone: 'purple',
-    notice: '소모임 기능은 다음 단계에서 준비할 예정이에요.',
+    destination: '/community?join=code',
   },
 ]

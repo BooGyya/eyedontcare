@@ -41,7 +41,9 @@ import {
   makeInitialRhythmState,
   startRhythmRound,
   updateRhythmRound,
+  type RhythmJudgement,
   type RhythmInput,
+  type RhythmLane,
   type RhythmNote,
 } from '../lib/games/rhythm-core'
 import { analyzeAudioUrlToBeatmap } from '../lib/games/audio-beatmap'
@@ -467,6 +469,17 @@ const rhythmOpponent = ref({ score: 0, combo: 0, hearts: 5 })
 const rhythmOpponentSynced = ref(false)
 /** 상대가 먼저 체력을 다 잃어서 내가 이긴 경우를 표시한다(결과 화면 승패 판정에 사용). */
 const opponentHealthDepleted = ref(false)
+interface RhythmFeedback {
+  id: number
+  input: RhythmInput | 'NONE'
+  judgement: RhythmJudgement
+  lanes: RhythmLane[]
+}
+
+const rhythmFeedback = ref<RhythmFeedback | null>(null)
+let rhythmFeedbackId = 0
+let rhythmFeedbackTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+
 const rhythmMine = computed(() => ({
   score: rhythmGameState.value.score,
   combo: rhythmGameState.value.combo,
@@ -496,6 +509,43 @@ const rhythmRightNotes = computed(() =>
 )
 let rhythmRafHandle: number | undefined
 let unsubscribeRhythmEvents: (() => void) | undefined
+
+function rhythmInputToLanes(input: RhythmInput | 'NONE'): RhythmLane[] {
+  if (input === 'BOTH_EYES') return ['LEFT_EYE', 'RIGHT_EYE']
+  if (input === 'LEFT_EYE' || input === 'RIGHT_EYE') return [input]
+  return []
+}
+
+function clearRhythmFeedback(): void {
+  if (rhythmFeedbackTimer !== undefined) {
+    globalThis.clearTimeout(rhythmFeedbackTimer)
+    rhythmFeedbackTimer = undefined
+  }
+  rhythmFeedback.value = null
+}
+
+function showRhythmFeedback(
+  input: RhythmInput | 'NONE',
+  judgement: RhythmJudgement,
+  lanes = rhythmInputToLanes(input),
+): void {
+  if (judgement === 'EMPTY' || lanes.length === 0) return
+
+  if (rhythmFeedbackTimer !== undefined) {
+    globalThis.clearTimeout(rhythmFeedbackTimer)
+  }
+
+  rhythmFeedback.value = {
+    id: ++rhythmFeedbackId,
+    input,
+    judgement,
+    lanes: [...new Set(lanes)],
+  }
+  rhythmFeedbackTimer = globalThis.setTimeout(() => {
+    rhythmFeedback.value = null
+    rhythmFeedbackTimer = undefined
+  }, 650)
+}
 
 /**
  * 노트의 CSS `left`(%) 값을 계산한다. `.hit-zone`이 왼쪽 15% 지점에 고정돼 있어서(judge line),
@@ -594,7 +644,14 @@ async function initRhythmGame() {
     const now = rhythmUsesMusicClock.value
       ? (rhythmAudio?.currentTime ?? 0) * 1000
       : event.occurredAt
-    applyRhythmInput(rhythmGameState.value, input, now)
+    const inputResult = applyRhythmInput(rhythmGameState.value, input, now)
+    if (inputResult.hit) {
+      showRhythmFeedback(
+        inputResult.input,
+        inputResult.judgement,
+        inputResult.notes.map((note) => note.lane),
+      )
+    }
     sendRhythmState()
   })
 
@@ -625,7 +682,20 @@ function runRhythmLoop() {
       ? (rhythmAudio?.currentTime ?? 0) * 1000
       : rafNow
     rhythmNow.value = now
+    const previousNoteStatuses = new Map(
+      rhythmGameState.value.notes.map((note) => [note.id, note.status]),
+    )
     const result = updateRhythmRound(rhythmGameState.value, now)
+    const missedLanes = rhythmGameState.value.notes
+      .filter(
+        (note) =>
+          note.status === 'MISS' &&
+          previousNoteStatuses.get(note.id) === 'PENDING',
+      )
+      .map((note) => note.lane)
+    if (missedLanes.length > 0) {
+      showRhythmFeedback(rhythmGameState.value.lastInput, 'MISS', missedLanes)
+    }
     // UPDATED(노트를 놓쳐 체력이 깎임)뿐 아니라 FINISHED(체력 소진으로 종료)도 상대에게 알려야
     // 한다 — 안 그러면 내가 체력 0으로 죽었다는 마지막 상태가 상대에게 영영 전달되지 않는다.
     if (result === 'UPDATED' || result === 'FINISHED') sendRhythmState()
@@ -657,6 +727,7 @@ function stopRhythmGame() {
   }
   unsubscribeRhythmEvents?.()
   unsubscribeRhythmEvents = undefined
+  clearRhythmFeedback()
   stopRhythmAudio()
   rhythmTracking.stop()
   rhythmGameSession.close()
@@ -2290,7 +2361,13 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             <span>시간 {{ rhythmTimeLabel }} / 00:30</span
             ><progress :value="rhythmProgressPercent" max="100" />
           </div>
-          <div class="rhythm-stage">
+          <div
+            class="rhythm-stage"
+            :class="{
+              'rhythm-stage--feedback': rhythmFeedback !== null,
+              'rhythm-stage--miss': rhythmFeedback?.judgement === 'MISS',
+            }"
+          >
             <div
               v-if="rhythmIsAnalyzingAudio"
               class="rhythm-analyzing"
@@ -2299,20 +2376,87 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
               <span class="rhythm-analyzing__spinner" aria-hidden="true" />
               <p>곡을 분석하고 있어요…</p>
             </div>
-            <div class="rhythm-lane">
-              <b>왼쪽 눈 감기</b><span class="hit-zone" />
+            <Transition name="rhythm-judgement-pop">
+              <div
+                v-if="rhythmFeedback"
+                :key="rhythmFeedback.id"
+                class="rhythm-stage-feedback"
+                :class="`rhythm-stage-feedback--${rhythmFeedback.judgement.toLowerCase()}`"
+                aria-live="polite"
+              >
+                <strong>{{ rhythmFeedback.judgement }}</strong>
+              </div>
+            </Transition>
+            <Transition name="rhythm-combo-pop">
+              <div
+                v-if="rhythmMine.combo >= 2"
+                :key="rhythmMine.combo"
+                class="rhythm-combo-display"
+              >
+                <strong>x{{ rhythmMine.combo }}</strong>
+                <span>COMBO</span>
+              </div>
+            </Transition>
+            <div
+              class="rhythm-lane rhythm-lane--left"
+              :class="{
+                'rhythm-lane--feedback':
+                  rhythmFeedback?.lanes.includes('LEFT_EYE'),
+                'rhythm-lane--miss':
+                  rhythmFeedback?.judgement === 'MISS' &&
+                  rhythmFeedback?.lanes.includes('LEFT_EYE'),
+              }"
+            >
+              <b>왼쪽 눈 감기</b>
+              <span class="hit-zone" />
+              <span
+                v-if="rhythmFeedback?.lanes.includes('LEFT_EYE')"
+                :key="`rhythm-left-feedback-${rhythmFeedback.id}`"
+                class="rhythm-feedback-pulse"
+                :class="{
+                  'rhythm-feedback-pulse--miss':
+                    rhythmFeedback.judgement === 'MISS',
+                }"
+                aria-hidden="true"
+              />
               <i
                 v-for="note in rhythmLeftNotes"
                 :key="note.id"
+                :class="{
+                  'rhythm-note--near': noteLeftPercent(note) <= 30,
+                }"
                 :style="{ left: `${noteLeftPercent(note)}%` }"
                 >●</i
               >
             </div>
-            <div class="rhythm-lane">
-              <b>오른쪽 눈 감기</b><span class="hit-zone" />
+            <div
+              class="rhythm-lane rhythm-lane--right"
+              :class="{
+                'rhythm-lane--feedback':
+                  rhythmFeedback?.lanes.includes('RIGHT_EYE'),
+                'rhythm-lane--miss':
+                  rhythmFeedback?.judgement === 'MISS' &&
+                  rhythmFeedback?.lanes.includes('RIGHT_EYE'),
+              }"
+            >
+              <b>오른쪽 눈 감기</b>
+              <span class="hit-zone" />
+              <span
+                v-if="rhythmFeedback?.lanes.includes('RIGHT_EYE')"
+                :key="`rhythm-right-feedback-${rhythmFeedback.id}`"
+                class="rhythm-feedback-pulse"
+                :class="{
+                  'rhythm-feedback-pulse--miss':
+                    rhythmFeedback.judgement === 'MISS',
+                }"
+                aria-hidden="true"
+              />
               <i
                 v-for="note in rhythmRightNotes"
                 :key="note.id"
+                :class="{
+                  'rhythm-note--near': noteLeftPercent(note) <= 30,
+                }"
                 :style="{ left: `${noteLeftPercent(note)}%` }"
                 >●</i
               >
@@ -2656,7 +2800,18 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         <small>상대보다 더 많이 깜빡여 보세요!</small>
       </aside>
       <aside v-else-if="isCompetitive" class="info-panel opponent-panel">
-        <template v-if="game.id === 'hold'">
+        <template v-if="game.id === 'hold' && mode === 'ai'">
+          <p class="eyebrow">AI</p>
+          <div class="eye-see-camera eye-see-camera--ai">
+            <img
+              :src="airAiRobotImage"
+              alt="눈싸움 AI 로봇 상대"
+              draggable="false"
+            />
+          </div>
+          <p class="camera-state">AI가 눈싸움에 집중하고 있어요.</p>
+        </template>
+        <template v-else-if="game.id === 'hold'">
           <p class="eyebrow">친구</p>
           <div class="eye-see-camera eye-see-camera--friend">
             <video
@@ -3110,6 +3265,37 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   align-items: center;
   justify-content: space-between;
 }
+.rhythm-top {
+  gap: 14px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+.rhythm-top > span {
+  flex: 0 0 auto;
+  min-width: 112px;
+}
+.rhythm-top progress {
+  width: min(260px, 48%);
+  height: 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: #e8eaf4;
+  accent-color: #5ce2b7;
+}
+.rhythm-top progress::-webkit-progress-bar {
+  border-radius: inherit;
+  background: #e8eaf4;
+}
+.rhythm-top progress::-webkit-progress-value {
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5ce2b7, #7aa8ff);
+}
+.rhythm-top progress::-moz-progress-bar {
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5ce2b7, #7aa8ff);
+}
 .status-dot {
   padding: 7px 10px;
   border: 0;
@@ -3502,10 +3688,163 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   gap: 18px;
   min-height: 310px;
   padding: 35px;
+  overflow: hidden;
+  isolation: isolate;
   border: 0;
   border-radius: 16px;
   color: #fff;
-  background: #151b4d;
+  background:
+    radial-gradient(
+      circle at 15% 28%,
+      rgba(255, 112, 188, 0.12),
+      transparent 23%
+    ),
+    radial-gradient(
+      circle at 15% 76%,
+      rgba(111, 157, 255, 0.12),
+      transparent 23%
+    ),
+    #151b4d;
+}
+.rhythm-stage::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 54px 54px;
+  content: '';
+  pointer-events: none;
+}
+.rhythm-stage::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    rgba(255, 255, 255, 0.07) 15%,
+    transparent 31%,
+    transparent 69%,
+    rgba(255, 255, 255, 0.05) 85%,
+    transparent 100%
+  );
+  content: '';
+  opacity: 0.45;
+  pointer-events: none;
+  animation: rhythm-stage-beat 2.4s ease-in-out infinite;
+}
+.rhythm-stage--feedback {
+  box-shadow: inset 0 0 48px rgba(103, 255, 209, 0.12);
+}
+.rhythm-stage--miss {
+  box-shadow: inset 0 0 48px rgba(255, 127, 159, 0.16);
+}
+.rhythm-stage-feedback {
+  position: absolute;
+  top: 47%;
+  left: 50%;
+  z-index: 4;
+  display: grid;
+  padding: 4px 14px 6px;
+  gap: 0;
+  justify-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(12, 16, 54, 0.32);
+  pointer-events: none;
+  text-align: center;
+  text-shadow:
+    0 0 8px currentColor,
+    0 3px 14px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, -50%);
+}
+.rhythm-stage-feedback strong {
+  font-size: clamp(24px, 3.2vw, 42px);
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+}
+.rhythm-stage-feedback--perfect {
+  color: #67ffd1;
+}
+.rhythm-stage-feedback--great {
+  color: #8db6ff;
+}
+.rhythm-stage-feedback--good {
+  color: #ffd36b;
+}
+.rhythm-stage-feedback--miss {
+  color: #ff7f9f;
+}
+.rhythm-combo-display {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  z-index: 4;
+  display: grid;
+  justify-items: end;
+  color: #fff;
+  pointer-events: none;
+  text-align: right;
+  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.45);
+}
+.rhythm-combo-display strong {
+  color: #a7ffdf;
+  font-size: clamp(30px, 4vw, 52px);
+  font-weight: 1000;
+  line-height: 0.95;
+}
+.rhythm-combo-display span {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+.rhythm-judgement-pop-enter-active,
+.rhythm-judgement-pop-leave-active {
+  animation: rhythm-judgement-pop 0.65s var(--ease-out, ease-out) both;
+}
+.rhythm-judgement-pop-leave-active {
+  animation-direction: reverse;
+}
+@keyframes rhythm-judgement-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.68);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+  72% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -58%) scale(0.96);
+  }
+}
+.rhythm-combo-pop-enter-active,
+.rhythm-combo-pop-leave-active {
+  animation: rhythm-combo-pop 0.35s var(--ease-out, ease-out) both;
+}
+.rhythm-combo-pop-leave-active {
+  animation-direction: reverse;
+}
+@keyframes rhythm-combo-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.72);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .gameplay-layout--rhythm .gameplay-board {
   display: flex;
@@ -3522,37 +3861,81 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 }
 .rhythm-lane {
   position: relative;
+  z-index: 1;
+  --rhythm-hit-line-offset: clamp(18px, 2vw, 26px);
   height: 110px;
-  border-bottom: 3px solid #ff78ba;
+  border-bottom: 0;
 }
-.rhythm-lane:last-child {
-  border-color: #77a7ff;
+.rhythm-lane--left {
+  --rhythm-lane-color: #ff78ba;
+}
+.rhythm-lane--right {
+  --rhythm-lane-color: #77a7ff;
+}
+.rhythm-lane::after {
+  position: absolute;
+  right: 0;
+  bottom: var(--rhythm-hit-line-offset);
+  left: 0;
+  z-index: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--rhythm-lane-color, #ff78ba);
+  box-shadow: 0 0 8px
+    color-mix(in srgb, var(--rhythm-lane-color, #ff78ba) 70%, transparent);
+  content: '';
+  opacity: 0.95;
+}
+.rhythm-lane--feedback::after {
+  background: #a7ffdf;
+  box-shadow: 0 0 14px rgba(103, 255, 209, 0.95);
+}
+.rhythm-lane--miss::after {
+  background: #ff7f9f;
+  box-shadow: 0 0 14px rgba(255, 127, 159, 0.95);
 }
 .rhythm-lane b {
   position: absolute;
   top: 0;
   left: 0;
   padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   background: #4a265d;
+  font-size: 13px;
+  letter-spacing: 0.02em;
 }
-.rhythm-lane:last-child b {
+.rhythm-lane--right b {
   background: #213f78;
 }
 .rhythm-lane i {
   position: absolute;
   right: auto;
   bottom: 20px;
+  z-index: 3;
   display: grid;
   width: 44px;
   height: 44px;
   place-items: center;
+  overflow: visible;
   border: 4px solid #fff;
   border-radius: 50%;
   color: #e84d98;
   background: #ffd3ea;
   box-shadow: 0 0 12px #fd5dab;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
   animation: rhythm-note-glow 1.8s ease-in-out infinite;
+}
+.rhythm-lane i::before {
+  position: absolute;
+  inset: 7px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  content: '';
+  opacity: 0.65;
 }
 .rhythm-lane i:nth-of-type(2) {
   animation-delay: 0.15s;
@@ -3563,10 +3946,23 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 .rhythm-lane i:nth-of-type(4) {
   animation-delay: 0.45s;
 }
-.rhythm-lane:last-child i {
+.rhythm-lane--right i {
   color: #396ad5;
   background: #c9dcff;
   box-shadow: 0 0 12px #609aff;
+}
+.rhythm-note--near {
+  transform: scale(1.18);
+}
+.rhythm-lane--left .rhythm-note--near {
+  box-shadow:
+    0 0 16px #fd5dab,
+    0 0 30px rgba(255, 93, 171, 0.65);
+}
+.rhythm-lane--right .rhythm-note--near {
+  box-shadow:
+    0 0 16px #609aff,
+    0 0 30px rgba(96, 154, 255, 0.65);
 }
 @keyframes rhythm-note-glow {
   0%,
@@ -3577,12 +3973,176 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     opacity: 1;
   }
 }
+@keyframes rhythm-stage-beat {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateX(-4%);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translateX(4%);
+  }
+}
+@keyframes rhythm-target-breathe {
+  0%,
+  100% {
+    opacity: 0.48;
+    transform: translate(-50%, 50%) scale(0.94);
+  }
+  50% {
+    opacity: 0.86;
+    transform: translate(-50%, 50%) scale(1.04);
+  }
+}
 .hit-zone {
   position: absolute;
-  bottom: 0;
+  bottom: var(--rhythm-hit-line-offset);
   left: 15%;
+  z-index: 2;
   height: 80px;
-  border-left: 4px solid #fff;
+  border-left: 2px solid currentColor;
+  color: rgba(255, 255, 255, 0.75);
+}
+.hit-zone::before {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 76px;
+  height: 76px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    currentColor 0 5px,
+    rgba(255, 255, 255, 0.08) 6px 15px,
+    transparent 16px
+  );
+  box-shadow:
+    0 0 16px currentColor,
+    inset 0 0 12px rgba(255, 255, 255, 0.12);
+  content: '';
+  opacity: 0.7;
+  pointer-events: none;
+  transform: translate(-50%, 50%);
+  animation: rhythm-target-breathe 1.6s ease-in-out infinite;
+}
+.hit-zone::after {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+  content: '';
+  pointer-events: none;
+  transform: translate(-50%, 50%);
+}
+.rhythm-lane--left .hit-zone {
+  color: #ff8ec8;
+}
+.rhythm-lane--right .hit-zone {
+  color: #8db6ff;
+}
+.rhythm-lane--feedback .hit-zone {
+  border-left-color: #a7ffdf;
+  color: #a7ffdf;
+  box-shadow: 0 0 16px rgba(103, 255, 209, 0.95);
+}
+.rhythm-lane--miss .hit-zone {
+  border-left-color: #ff7f9f;
+  color: #ff7f9f;
+  box-shadow: 0 0 16px rgba(255, 127, 159, 0.95);
+}
+.rhythm-feedback-pulse {
+  position: absolute;
+  bottom: var(--rhythm-hit-line-offset);
+  left: 15%;
+  z-index: 1;
+  width: 82px;
+  height: 82px;
+  border: 3px solid #a7ffdf;
+  border-radius: 50%;
+  box-shadow:
+    0 0 12px rgba(103, 255, 209, 0.95),
+    inset 0 0 18px rgba(103, 255, 209, 0.35);
+  pointer-events: none;
+  transform: translate(-50%, 50%);
+  animation: rhythm-hit-ripple 0.65s ease-out both;
+}
+.rhythm-feedback-pulse::before,
+.rhythm-feedback-pulse::after {
+  position: absolute;
+  inset: 10px;
+  border: 2px solid currentColor;
+  border-radius: inherit;
+  content: '';
+}
+.rhythm-feedback-pulse::before {
+  color: rgba(167, 255, 223, 0.9);
+  animation: rhythm-hit-ripple-inner 0.65s ease-out both;
+}
+.rhythm-feedback-pulse::after {
+  inset: -12px;
+  color: rgba(167, 255, 223, 0.6);
+  animation: rhythm-hit-ripple-outer 0.65s ease-out both;
+}
+.rhythm-feedback-pulse--miss {
+  border-color: #ff7f9f;
+  box-shadow:
+    0 0 12px rgba(255, 127, 159, 0.95),
+    inset 0 0 18px rgba(255, 127, 159, 0.35);
+}
+.rhythm-feedback-pulse--miss::before {
+  color: rgba(255, 127, 159, 0.9);
+}
+.rhythm-feedback-pulse--miss::after {
+  color: rgba(255, 127, 159, 0.6);
+}
+@keyframes rhythm-hit-ripple {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 50%) scale(0.55);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 50%) scale(1.35);
+  }
+}
+@keyframes rhythm-hit-ripple-inner {
+  0% {
+    opacity: 1;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+@keyframes rhythm-hit-ripple-outer {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-stage::after,
+  .rhythm-stage-feedback,
+  .rhythm-combo-display,
+  .hit-zone::before,
+  .rhythm-feedback-pulse,
+  .rhythm-feedback-pulse::before,
+  .rhythm-feedback-pulse::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 .webcam-panel .camera-state {
   color: #278957;
@@ -4234,6 +4794,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 }
 .eye-see-camera--friend {
   background: #fff6f6;
+}
+.eye-see-camera--ai {
+  background: #fff5f6;
 }
 .eye-see-status {
   display: grid;

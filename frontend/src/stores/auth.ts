@@ -153,8 +153,16 @@ export const useAuthStore = defineStore('auth', () => {
     closeDialog()
   }
 
+  /** 부팅 시 세션 복원 시도의 완료 시점. 라우터 가드가 복원 전에 오판하지 않도록 기다린다. */
+  let sessionRestore: Promise<void> = Promise.resolve()
+
   /** 부팅 시 저장된 토큰으로 세션을 복원한다. 실패하면 조용히 게스트로 남는다. */
-  async function restoreSession() {
+  function restoreSession() {
+    sessionRestore = doRestoreSession()
+    return sessionRestore
+  }
+
+  async function doRestoreSession() {
     const accessToken = getAccessToken()
     if (!accessToken) return
     const userId = decodeUserId(accessToken)
@@ -169,6 +177,11 @@ export const useAuthStore = defineStore('auth', () => {
       // 토큰이 만료됐고 재발급도 실패한 경우 등 — 게스트로 유지.
       resetToGuest()
     }
+  }
+
+  /** 세션 복원 시도가 끝날 때까지 기다린다. 복원을 시작하지 않았다면 즉시 반환된다. */
+  function waitForSessionRestore() {
+    return sessionRestore
   }
 
   /** 닉네임/프로필 이미지 수정. 응답(UserResponse)으로 user를 갱신해 헤더/메뉴와 즉시 일관. */
@@ -217,6 +230,7 @@ export const useAuthStore = defineStore('auth', () => {
     startKakaoLogin,
     signOut,
     restoreSession,
+    waitForSessionRestore,
     updateProfile,
     changePassword,
     withdraw,
