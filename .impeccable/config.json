@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/pages/HomePage.vue"
+        ],
+        "createdAt": "2026-08-05T05:52:02.812Z",
+        "reason": "히어로 말풍선 꼬리(border 삼각형 기법) — 카드 강조선 아님, 사용자 확인된 디자인"
+      }
+    ]
+  }
+}
