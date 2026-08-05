@@ -15,7 +15,11 @@ import {
 } from '../api/group'
 import { communityPosts } from '../mocks/community'
 import type { CommunityPost } from '../types/community'
-import { COMMENT_MAX_LENGTH, POST_MAX_LENGTH } from '../types/community'
+import {
+  COMMENT_COOLDOWN_MS,
+  COMMENT_MAX_LENGTH,
+  POST_MAX_LENGTH,
+} from '../types/community'
 
 const route = useRoute()
 const router = useRouter()
@@ -108,6 +112,9 @@ function submitPost() {
   showToast('후기를 남겼어요!')
 }
 
+// 마지막으로 댓글을 작성한 시각. 짧은 간격의 연속 작성(난사)을 막는 쿨다운 기준이다.
+let lastCommentAt = 0
+
 function submitComment(post: CommunityPost) {
   const content = (commentDrafts.value[post.id] ?? '').trim()
   if (!content) return
@@ -116,6 +123,23 @@ function submitComment(post: CommunityPost) {
     showToast(`댓글은 ${COMMENT_MAX_LENGTH}자까지 입력할 수 있어요.`)
     return
   }
+  // 연속 작성 쿨다운: 버튼 비활성화만으로는 우회되므로 제출 로직에서 막는다.
+  const now = Date.now()
+  if (now - lastCommentAt < COMMENT_COOLDOWN_MS) {
+    showToast('댓글을 너무 빠르게 작성하고 있어요. 잠시 후 다시 시도해 주세요.')
+    return
+  }
+  // 동일 내용 중복 방지: 이 글의 마지막 댓글과 작성자·내용이 같으면 막는다.
+  const lastComment = post.comments[post.comments.length - 1]
+  if (
+    lastComment &&
+    lastComment.author === auth.user.nickname &&
+    lastComment.content === content
+  ) {
+    showToast('같은 내용을 연속으로 작성할 수 없어요.')
+    return
+  }
+  lastCommentAt = now
   post.comments.push({
     id: `local-comment-${Date.now()}`,
     author: auth.user.nickname,

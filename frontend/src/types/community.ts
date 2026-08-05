@@ -40,6 +40,12 @@ export const COMMENT_MAX_LENGTH = 200
  */
 export const POST_MAX_LENGTH = 500
 
+/**
+ * 소모임 댓글 연속 작성 쿨다운(ms). 짧은 시간에 댓글을 난사하는 것을 막는 프론트 측 임시 방어값이다.
+ * 백엔드 댓글 API가 생기면 서버 측 rate limit도 이 정책과 맞춰 우회 요청까지 막아야 한다.
+ */
+export const COMMENT_COOLDOWN_MS = 3000
+
 export type CommunityComment = {
   id: string
   author: string
