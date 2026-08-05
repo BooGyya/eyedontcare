@@ -17,6 +17,7 @@ import { currentParticipantKey, resolveIdentity } from '../api/identity'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
 import type { GameSessionStateData } from '../types/gameSession'
+import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import {
   applyBlinkEvent,
   formatRemainingTime as formatBlinkRemainingTime,
@@ -82,9 +83,13 @@ import airAiRobotImage from '../assets/images/games/game-air-ai-robot.png'
 const route = useRoute()
 const router = useRouter()
 const drawScoreOpen = ref(false)
+const isReplayCountdownOpen = ref(false)
+const replayCountdown = ref(3)
 const selectedColor = ref('#161c2d')
 const gameplayLayoutRef = ref<globalThis.HTMLElement | null>(null)
 let airGameScrollTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+let replayCountdownTimer: ReturnType<typeof globalThis.setInterval> | undefined
+let playStartedAt = ''
 
 function scrollToAirGameStart() {
   const gameplayLayout = gameplayLayoutRef.value
@@ -1032,32 +1037,69 @@ function stopAirHockeyGame() {
   airGameSession.close()
 }
 
-onMounted(() => {
-  // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
-  if (handleMidGameRefresh()) return
+function clearReplayCountdown() {
+  if (!replayCountdownTimer) return
+  globalThis.clearInterval(replayCountdownTimer)
+  replayCountdownTimer = undefined
+}
 
-  if (game.value?.id === 'hold') {
+function startGame() {
+  if (!game.value) return
+  playStartedAt = new Date().toISOString()
+
+  if (game.value.id === 'hold') {
     void initStareGame()
   }
-  if (game.value?.id === 'blink') {
+  if (game.value.id === 'blink') {
     void initBlinkGame()
   }
-  if (game.value?.id === 'rhythm') {
+  if (game.value.id === 'rhythm') {
     void initRhythmGame()
   }
-  if (game.value?.id === 'air') {
+  if (game.value.id === 'air') {
     void initAirHockeyGame()
     void nextTick(scrollToAirGameStart)
     airGameScrollTimer = globalThis.setTimeout(scrollToAirGameStart, 250)
   }
-  if (game.value?.id === 'draw') {
+  if (game.value.id === 'draw') {
     void initDrawGame()
   }
   globalThis.window.addEventListener('beforeunload', handleBeforeUnload)
   cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
+}
+
+function finishReplayCountdown() {
+  clearReplayCountdown()
+  isReplayCountdownOpen.value = false
+  const playQuery = { ...route.query }
+  delete playQuery.replay
+  void router.replace({ query: playQuery })
+  startGame()
+}
+
+function openReplayCountdown() {
+  clearReplayCountdown()
+  replayCountdown.value = 3
+  isReplayCountdownOpen.value = true
+  replayCountdownTimer = globalThis.setInterval(() => {
+    if (replayCountdown.value <= 1) {
+      finishReplayCountdown()
+      return
+    }
+    replayCountdown.value -= 1
+  }, 1000)
+}
+
+onMounted(() => {
+  // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
+  if (handleMidGameRefresh()) return
+
+  if (route.query.replay === '1') openReplayCountdown()
+  else startGame()
 })
 
 onUnmounted(() => {
+  clearReplayCountdown()
   if (airGameScrollTimer) globalThis.clearTimeout(airGameScrollTimer)
   if (cameraWatchdog) globalThis.clearInterval(cameraWatchdog)
   // 정상적인 화면 이탈(라우터 이동)에서만 진행 표시를 지운다. 브라우저 새로고침은 컴포넌트
@@ -1139,7 +1181,6 @@ function heartStates(count: number) {
 // 게임 종료 시 결과를 저장하는 파이프라인. 실패해도 화면 전환은 막지 않는다.
 const { submitPlayedResult } = useGameResultSubmission()
 const lastGameResultStore = useLastGameResultStore()
-const playStartedAt = new Date().toISOString()
 
 async function toResult() {
   if (!game.value) return
@@ -1906,6 +1947,13 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 </script>
 
 <template>
+  <GameStartCountdownModal
+    :open="isReplayCountdownOpen"
+    :countdown="replayCountdown"
+    countdown-label="게임 다시 시작 카운트다운"
+    :dismissible="false"
+  />
+
   <GamePlayShell
     v-if="game && session"
     :title="game.id === 'draw' ? '눈으로 그리기' : displayTitle"
