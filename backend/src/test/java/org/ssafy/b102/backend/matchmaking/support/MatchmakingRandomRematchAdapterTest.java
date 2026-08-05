@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.service.MatchNotifier;
+import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
 import org.ssafy.b102.backend.matchmaking.service.RandomRematchService;
 import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequestResult;
 
@@ -29,6 +30,9 @@ class MatchmakingRandomRematchAdapterTest {
 
 	@Mock
 	private MatchNotifier notifier;
+
+	@Mock
+	private MatchmakingService matchmakingService;
 
 	@InjectMocks
 	private MatchmakingRandomRematchAdapter adapter;
@@ -47,6 +51,7 @@ class MatchmakingRandomRematchAdapterTest {
 			.isEqualTo(RandomRematchRequestResult.ALREADY_REQUEUED);
 
 		verify(notifier).notifyRequeued(PARTICIPANT_KEY, GameName.HOCKEY);
+		verify(matchmakingService).tryMatchAfterRequeue(GameName.HOCKEY);
 	}
 
 	@Test
@@ -60,6 +65,7 @@ class MatchmakingRandomRematchAdapterTest {
 			PARTICIPANT_KEY,
 			MatchmakingErrorCode.REMATCH_PARTICIPANT_INVALID
 		);
+		verify(matchmakingService, never()).tryMatchAfterRequeue(GameName.HOCKEY);
 	}
 
 	@Test
@@ -75,6 +81,24 @@ class MatchmakingRandomRematchAdapterTest {
 			org.mockito.ArgumentMatchers.any(),
 			org.mockito.ArgumentMatchers.any()
 		);
+		verify(matchmakingService).tryMatchAfterRequeue(GameName.HOCKEY);
+	}
+
+	@Test
+	void immediateMatchFailureDoesNotRollbackRegistration() {
+		when(service.requeueRemaining(ROOM_ID, GameName.HOCKEY, PARTICIPANT_KEY))
+			.thenReturn(RandomRematchRequestResult.REQUEUED);
+		doThrow(new IllegalStateException("match attempt failed"))
+			.when(matchmakingService).tryMatchAfterRequeue(GameName.HOCKEY);
+
+		assertThat(adapter.requeueRemaining(ROOM_ID, GameName.HOCKEY, PARTICIPANT_KEY))
+			.isEqualTo(RandomRematchRequestResult.REQUEUED);
+		verify(notifier).notifyRequeued(PARTICIPANT_KEY, GameName.HOCKEY);
+		verify(matchmakingService).tryMatchAfterRequeue(GameName.HOCKEY);
+		verify(notifier, never()).notifyError(
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any()
+		);
 	}
 
 	@Test
@@ -85,5 +109,6 @@ class MatchmakingRandomRematchAdapterTest {
 		assertThat(adapter.requeueRemaining(ROOM_ID, GameName.HOCKEY, PARTICIPANT_KEY))
 			.isEqualTo(RandomRematchRequestResult.FAILED);
 		verify(notifier).notifyError(PARTICIPANT_KEY, MatchmakingErrorCode.REMATCH_FAILED);
+		verify(matchmakingService, never()).tryMatchAfterRequeue(GameName.HOCKEY);
 	}
 }

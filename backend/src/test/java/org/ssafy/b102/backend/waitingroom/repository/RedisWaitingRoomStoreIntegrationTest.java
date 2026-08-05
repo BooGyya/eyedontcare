@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -51,6 +52,9 @@ class RedisWaitingRoomStoreIntegrationTest {
 		"edc:test:waiting-room:participants:c93c76b2-7f78-4275-b8af-7cdd921bbb4f";
 	private static final String INVITE_CODE_KEY =
 		"edc:test:waiting-room:invite-code:0123";
+	private static final String IN_GAME_MEMBER_KEY = "USER:87654321";
+	private static final String IN_GAME_GUEST_KEY =
+		"GUEST:00000000-0000-0000-0000-000087654321";
 
 	@Autowired
 	private RedisWaitingRoomStore store;
@@ -58,9 +62,19 @@ class RedisWaitingRoomStoreIntegrationTest {
 	@Autowired
 	private StringRedisTemplate redisTemplate;
 
+	@Autowired
+	private RedisKeyBuilder redisKeyBuilder;
+
 	@AfterEach
 	void tearDown() {
 		redisTemplate.delete(List.of(ROOM_KEY, PARTICIPANTS_KEY, INVITE_CODE_KEY));
+		redisTemplate.delete(List.of(
+			matchmakingEntryKey(IN_GAME_MEMBER_KEY),
+			rematchKey(IN_GAME_MEMBER_KEY),
+			rematchKey(IN_GAME_GUEST_KEY)
+		));
+		redisTemplate.opsForZSet().remove(matchmakingQueueKey(), IN_GAME_MEMBER_KEY);
+		redisTemplate.opsForZSet().remove(matchmakingQueueKey(), IN_GAME_GUEST_KEY);
 	}
 
 	@Test
@@ -201,6 +215,61 @@ class RedisWaitingRoomStoreIntegrationTest {
 		).isEqualTo(RandomRoomLeaveResult.Status.ALREADY_CLOSED);
 		assertThat(redisTemplate.getExpire(ROOM_KEY, TimeUnit.MILLISECONDS))
 			.isLessThanOrEqualTo(ttlBefore);
+	}
+
+	@Test
+	void randomInGameLeaveKeepsRoomParticipantsAndMatchmakingStateUnchanged() {
+		String memberKey = IN_GAME_MEMBER_KEY;
+		String guestKey = IN_GAME_GUEST_KEY;
+		Instant now = Instant.parse("2026-07-30T04:00:00Z");
+		createRandomRoom(memberKey, guestKey);
+		completeRandomCalibration(memberKey);
+		completeRandomCalibration(guestKey);
+		assertThat(store.updateRandomReadyAtomically(
+			new UpdateReadyCommand(ROOM_ID, null, memberKey, true, 2, TTL),
+			UUID.randomUUID(),
+			now.plusSeconds(3)
+		).status()).isEqualTo(RandomReadyResult.Status.UPDATED);
+		UUID countdownId = UUID.randomUUID();
+		Instant countdownEndsAt = now.plusSeconds(4);
+		assertThat(store.updateRandomReadyAtomically(
+			new UpdateReadyCommand(ROOM_ID, null, guestKey, true, 2, TTL),
+			countdownId,
+			countdownEndsAt
+		).status()).isEqualTo(RandomReadyResult.Status.COUNTDOWN_STARTED);
+		assertThat(store.completeCountdownAtomically(
+			new CompleteCountdownCommand(
+				ROOM_ID,
+				null,
+				countdownId,
+				countdownEndsAt,
+				2,
+				TTL
+			)
+		)).isEqualTo(CompleteCountdownResult.STARTED);
+		Map<Object, Object> participantsBefore = redisTemplate.opsForHash()
+			.entries(PARTICIPANTS_KEY);
+
+		RandomRoomLeaveResult result = store.leaveRandomRoomAtomically(
+			new LeaveRandomRoomCommand(ROOM_ID, memberKey, Duration.ofSeconds(30))
+		);
+
+		assertThat(result.status()).isEqualTo(RandomRoomLeaveResult.Status.NOT_JOINABLE);
+		WaitingRoomSnapshot snapshot = store.findSnapshot(ROOM_ID).orElseThrow();
+		assertThat(snapshot.room().roomStatus()).isEqualTo(RoomStatus.IN_GAME);
+		assertThat(snapshot.participants())
+			.extracting(WaitingRoomParticipant::participantKey)
+			.containsExactlyInAnyOrder(memberKey, guestKey);
+		assertThat(redisTemplate.opsForHash().entries(PARTICIPANTS_KEY))
+			.isEqualTo(participantsBefore);
+		assertThat(redisTemplate.hasKey(INVITE_CODE_KEY)).isFalse();
+		assertThat(redisTemplate.hasKey(matchmakingEntryKey(memberKey))).isFalse();
+		assertThat(redisTemplate.hasKey(rematchKey(memberKey))).isFalse();
+		assertThat(redisTemplate.hasKey(rematchKey(guestKey))).isFalse();
+		assertThat(redisTemplate.opsForZSet().score(matchmakingQueueKey(), memberKey))
+			.isNull();
+		assertThat(redisTemplate.opsForZSet().score(matchmakingQueueKey(), guestKey))
+			.isNull();
 	}
 
 	@Test
@@ -949,6 +1018,13 @@ class RedisWaitingRoomStoreIntegrationTest {
 	}
 
 	private void createRandomRoom() {
+		createRandomRoom(
+			"USER:1",
+			"GUEST:00000000-0000-0000-0000-000000000002"
+		);
+	}
+
+	private void createRandomRoom(String firstParticipantKey, String secondParticipantKey) {
 		Instant createdAt = Instant.parse("2026-07-30T04:00:00Z");
 		WaitingRoom room = new WaitingRoom(
 			ROOM_ID,
@@ -963,9 +1039,9 @@ class RedisWaitingRoomStoreIntegrationTest {
 				new CreateRandomRoomCommand(
 					room,
 					List.of(
-						randomParticipant("USER:1", 1, createdAt),
+						randomParticipant(firstParticipantKey, 1, createdAt),
 						randomParticipant(
-							"GUEST:00000000-0000-0000-0000-000000000002",
+							secondParticipantKey,
 							2,
 							createdAt
 						)
@@ -1001,6 +1077,27 @@ class RedisWaitingRoomStoreIntegrationTest {
 				)
 			)
 		).isEqualTo(UpdateCalibrationResult.UPDATED);
+	}
+
+	private String matchmakingEntryKey(String participantKey) {
+		return redisKeyBuilder.build("matchmaking", "entry", participantKey);
+	}
+
+	private String rematchKey(String participantKey) {
+		return redisKeyBuilder.build(
+			"matchmaking",
+			"rematch",
+			participantKey,
+			ROOM_ID.toString()
+		);
+	}
+
+	private String matchmakingQueueKey() {
+		return redisKeyBuilder.build(
+			"matchmaking",
+			"queue",
+			GameName.EYEFIGHT.name()
+		);
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)

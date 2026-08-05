@@ -25,10 +25,11 @@ redis.call(
     'waitingRoomId', '',
     'queuedAt', ARGV[3],
     'statusChangedAt', ARGV[3],
-    'matchAttemptId', ''
+    'matchAttemptId', '',
+    'rematchToken', ARGV[6]
 )
 redis.call('PEXPIRE', KEYS[1], ARGV[4])
 redis.call('ZADD', KEYS[2], ARGV[3], ARGV[5])
-redis.call('SET', KEYS[3], '1', 'PX', ARGV[4])
+redis.call('SET', KEYS[3], ARGV[6], 'PX', ARGV[4])
 
 return 1

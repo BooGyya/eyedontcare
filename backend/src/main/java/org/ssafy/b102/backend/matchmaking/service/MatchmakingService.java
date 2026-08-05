@@ -8,17 +8,25 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.global.error.BusinessException;
+import org.ssafy.b102.backend.guest.service.GuestSessionService;
+import org.ssafy.b102.backend.guest.support.GuestParticipantKey;
 import org.ssafy.b102.backend.matchmaking.dto.response.MatchStatusResponse;
+import org.ssafy.b102.backend.matchmaking.entity.MatchStatus;
 import org.ssafy.b102.backend.matchmaking.entity.MatchmakingEntry;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
-import org.ssafy.b102.backend.guest.service.GuestSessionService;
-import org.ssafy.b102.backend.guest.support.GuestParticipantKey;
+import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository.EntryDeleteResult;
 import org.ssafy.b102.backend.user.repository.UserRepository;
+import org.ssafy.b102.backend.waitingroom.entity.RoomStatus;
+import org.ssafy.b102.backend.waitingroom.entity.RoomType;
+import org.ssafy.b102.backend.waitingroom.exception.WaitingRoomErrorCode;
+import org.ssafy.b102.backend.waitingroom.repository.WaitingRoomSnapshot;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
+import org.ssafy.b102.backend.waitingroom.service.WaitingRoomService;
 
 /**
  * 랜덤 매칭 신청과 취소.
@@ -26,8 +34,7 @@ import org.ssafy.b102.backend.waitingroom.service.RandomRoomCreator;
  * <p>매칭 성사는 별도 스케줄러 없이 신청 시점에 즉시 시도한다. 2인 매칭이라 대기자가 있으면
  * 신청과 동시에 성사되므로 지연이 생기지 않는다.
  *
- * <p>Redis 트랜잭션을 쓰지 않는다. 명령 자체의 원자성으로 경쟁 조건이 해소되기 때문이며
- * 근거는 {@link MatchmakingEntryRepository}에 적어두었다.
+ * <p>entry 등록과 큐 등록은 {@link MatchmakingEntryRepository}의 Redis script로 원자 처리한다.
  *
  * <p>{@link RandomRoomCreator}를 {@link ObjectProvider}로 받는 이유는 WaitingRoom 도메인이
  * 아직 없기 때문이다. 구현체가 없으면 매칭 성사 단계를 건너뛰고 참가자는 계속 대기한다.
@@ -49,7 +56,26 @@ public class MatchmakingService {
 	private final MatchNotifier matchNotifier;
 	private final UserRepository userRepository;
 	private final GuestSessionService guestSessionService;
+	private final ObjectProvider<WaitingRoomService> waitingRoomService;
 
+	@Autowired
+	public MatchmakingService(
+		MatchmakingEntryRepository matchmakingEntryRepository,
+		ObjectProvider<RandomRoomCreator> randomRoomCreator,
+		MatchNotifier matchNotifier,
+		UserRepository userRepository,
+		GuestSessionService guestSessionService,
+		ObjectProvider<WaitingRoomService> waitingRoomService
+	) {
+		this.matchmakingEntryRepository = matchmakingEntryRepository;
+		this.randomRoomCreator = randomRoomCreator;
+		this.matchNotifier = matchNotifier;
+		this.userRepository = userRepository;
+		this.guestSessionService = guestSessionService;
+		this.waitingRoomService = waitingRoomService;
+	}
+
+	/** 테스트와 기존 조립 코드를 위한 생성자. WaitingRoom 조회가 없으면 보수적으로 entry를 보호한다. */
 	public MatchmakingService(
 		MatchmakingEntryRepository matchmakingEntryRepository,
 		ObjectProvider<RandomRoomCreator> randomRoomCreator,
@@ -57,24 +83,38 @@ public class MatchmakingService {
 		UserRepository userRepository,
 		GuestSessionService guestSessionService
 	) {
-		this.matchmakingEntryRepository = matchmakingEntryRepository;
-		this.randomRoomCreator = randomRoomCreator;
-		this.matchNotifier = matchNotifier;
-		this.userRepository = userRepository;
-		this.guestSessionService = guestSessionService;
+		this(
+			matchmakingEntryRepository,
+			randomRoomCreator,
+			matchNotifier,
+			userRepository,
+			guestSessionService,
+			null
+		);
 	}
 
 	public MatchStatusResponse join(String participantKey, String gameType) {
 		validateParticipant(participantKey);
 		GameName resolvedGameType = resolveGameType(gameType);
+		return join(participantKey, resolvedGameType, true);
+	}
+
+	private MatchStatusResponse join(
+		String participantKey,
+		GameName gameType,
+		boolean allowStaleRecovery
+	) {
 
 		MatchmakingEntry requested =
-			MatchmakingEntry.searching(participantKey, resolvedGameType, Instant.now());
+			MatchmakingEntry.searching(participantKey, gameType, Instant.now());
 		if (!matchmakingEntryRepository.enqueue(requested)) {
+			if (allowStaleRecovery && recoverStaleEntry(participantKey)) {
+				return join(participantKey, gameType, false);
+			}
 			throw new BusinessException(MatchmakingErrorCode.ALREADY_IN_QUEUE);
 		}
 
-		tryMatch(resolvedGameType);
+		tryMatch(gameType);
 
 		return MatchStatusResponse.from(
 			matchmakingEntryRepository.find(participantKey).orElse(requested)
@@ -114,6 +154,74 @@ public class MatchmakingService {
 	 */
 	public Optional<MatchmakingEntry> findEntry(String participantKey) {
 		return matchmakingEntryRepository.find(participantKey);
+	}
+
+	/**
+	 * 이미 존재하는 entry가 실제 큐·대기방과 연결되어 있는지 확인하고, stale일 때만 한 번 정리한다.
+	 * Redis 또는 WaitingRoom 조회 장애는 stale로 오판하지 않고 호출자에게 전파한다.
+	 */
+	private boolean recoverStaleEntry(String participantKey) {
+		Optional<MatchmakingEntry> current = matchmakingEntryRepository.find(participantKey);
+		if (current.isEmpty()) {
+			return false;
+		}
+
+		MatchmakingEntry entry = current.get();
+		if (entry.matchStatus() == MatchStatus.SEARCHING) {
+			return matchmakingEntryRepository.deleteStaleSearchingIfQueueMissing(
+				participantKey,
+				entry.gameType()
+			);
+		}
+		if (
+			entry.matchStatus() != MatchStatus.ENTERING_ROOM &&
+			entry.matchStatus() != MatchStatus.IN_WAITING_ROOM
+		) {
+			return false;
+		}
+
+		UUID roomId = entry.waitingRoomId();
+		if (roomId == null || waitingRoomService == null) {
+			return false;
+		}
+		if (!isStaleWaitingRoom(entry, roomId, participantKey)) {
+			return false;
+		}
+
+		EntryDeleteResult result = matchmakingEntryRepository.deleteIfRoomMatches(
+			participantKey,
+			roomId
+		);
+		return result == EntryDeleteResult.DELETED || result == EntryDeleteResult.NOT_FOUND;
+	}
+
+	private boolean isStaleWaitingRoom(
+		MatchmakingEntry entry,
+		UUID roomId,
+		String participantKey
+	) {
+		WaitingRoomService service = waitingRoomService.getIfAvailable();
+		if (service == null) {
+			return false;
+		}
+
+		try {
+			WaitingRoomSnapshot snapshot = service.findSnapshot(roomId);
+			boolean participantPresent = snapshot.participants().stream()
+				.anyMatch(participant -> participantKey.equals(participant.participantKey()));
+			return !roomId.equals(snapshot.room().roomId())
+				|| snapshot.room().roomType() != RoomType.RANDOM
+				|| snapshot.room().gameName() != entry.gameType()
+				|| snapshot.room().roomStatus() == RoomStatus.CLOSED
+				|| !participantPresent;
+		} catch (BusinessException exception) {
+			if (
+				exception.getErrorCode() == WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND
+			) {
+				return true;
+			}
+			throw exception;
+		}
 	}
 
 	/**
@@ -160,6 +268,14 @@ public class MatchmakingService {
 
 		reserved.forEach(entry ->
 			matchNotifier.notifyMatched(entry.participantKey(), waitingRoomId.get(), gameType));
+	}
+
+	/**
+	 * 재매칭 entry가 SEARCHING으로 등록된 직후 기존 매칭 알고리즘을 한 번 실행한다.
+	 * WaitingRoom은 Matchmaking 구현체에 직접 결합하지 않고 adapter를 통해 호출한다.
+	 */
+	public void tryMatchAfterRequeue(GameName gameType) {
+		tryMatch(gameType);
 	}
 
 	/**
