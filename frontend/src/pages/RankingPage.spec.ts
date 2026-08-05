@@ -82,11 +82,11 @@ describe('RankingPage', () => {
     expect(getGameRanking).not.toHaveBeenCalled()
   })
 
-  it('로그인 사용자에게 첫 게임(깜빡임 참기) 랭킹을 불러와 렌더한다', async () => {
+  it('로그인 사용자에게 첫 게임(눈 깜빡이기) 랭킹을 불러와 렌더한다', async () => {
     const { wrapper } = await mountRankingPage()
 
     expect(getGameRanking).toHaveBeenCalledWith('BLINK')
-    expect(wrapper.text()).toContain('깜빡임 참기')
+    expect(wrapper.text()).toContain('눈 깜빡이기')
     expect(wrapper.get('[data-testid="podium-rank-1"]').text()).toContain('1위')
     expect(wrapper.get('[data-testid="ranking-row-4"]').text()).toContain('눈사람')
   })
