@@ -15,6 +15,7 @@ import {
 } from '../api/group'
 import { communityPosts } from '../mocks/community'
 import type { CommunityPost } from '../types/community'
+import { COMMENT_MAX_LENGTH } from '../types/community'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +99,11 @@ function submitPost() {
 function submitComment(post: CommunityPost) {
   const content = (commentDrafts.value[post.id] ?? '').trim()
   if (!content) return
+  // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
+  if (content.length > COMMENT_MAX_LENGTH) {
+    showToast(`댓글은 ${COMMENT_MAX_LENGTH}자까지 입력할 수 있어요.`)
+    return
+  }
   post.comments.push({
     id: `local-comment-${Date.now()}`,
     author: auth.user.nickname,
@@ -563,9 +569,15 @@ watch(
                 <input
                   v-model="commentDrafts[post.id]"
                   type="text"
+                  :maxlength="COMMENT_MAX_LENGTH"
                   placeholder="댓글을 남겨보세요"
                   @keyup.enter="submitComment(post)"
                 />
+                <span class="community-detail__comment-count">
+                  {{ (commentDrafts[post.id] ?? '').length }}/{{
+                    COMMENT_MAX_LENGTH
+                  }}
+                </span>
                 <button
                   type="button"
                   :disabled="!(commentDrafts[post.id] ?? '').trim()"
@@ -938,5 +950,12 @@ watch(
 .community-detail__comment-form button:disabled {
   background: var(--color-muted);
   cursor: not-allowed;
+}
+.community-detail__comment-count {
+  align-self: center;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 </style>
