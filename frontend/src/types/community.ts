@@ -34,6 +34,12 @@ export type CommunityGroupDraft = {
  */
 export const COMMENT_MAX_LENGTH = 200
 
+/**
+ * 소모임 게임 후기(post) 최대 글자 수. 프론트 입력 제한의 기준값이며, 백엔드 게시판 API가
+ * 생기면 DTO/엔티티의 @Size(max)도 이 값과 동일하게 맞춰야 한다.
+ */
+export const POST_MAX_LENGTH = 500
+
 export type CommunityComment = {
   id: string
   author: string

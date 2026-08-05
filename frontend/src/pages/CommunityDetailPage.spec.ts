@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CommunityDetailPage from './CommunityDetailPage.vue'
 import { useAuthStore } from '../stores/auth'
 import type { GroupDetailResponse } from '../api/group'
-import { COMMENT_MAX_LENGTH } from '../types/community'
+import { COMMENT_MAX_LENGTH, POST_MAX_LENGTH } from '../types/community'
 
 const getGroup = vi.fn<() => Promise<GroupDetailResponse>>()
 const leaveGroup = vi.fn<() => Promise<void>>()
@@ -183,6 +183,28 @@ describe('CommunityDetailPage', () => {
     const tooLong = '가'.repeat(COMMENT_MAX_LENGTH + 1)
     await input.setValue(tooLong)
     await wrapper.find('.community-detail__comment-form button').trigger('click')
+
+    expect(wrapper.text()).not.toContain(tooLong)
+  })
+
+  it('후기 작성에 최대 글자 수 제한이 걸려 있고 초과 후기는 등록되지 않는다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const writeButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().trim() === '글쓰기')
+    expect(writeButton).toBeDefined()
+    await writeButton!.trigger('click')
+
+    const textarea = wrapper.find('.community-detail__composer-textarea')
+    expect(textarea.exists()).toBe(true)
+    expect(textarea.attributes('maxlength')).toBe(String(POST_MAX_LENGTH))
+
+    const tooLong = '가'.repeat(POST_MAX_LENGTH + 1)
+    await textarea.setValue(tooLong)
+    await wrapper
+      .find('.community-detail__composer button[type="submit"]')
+      .trigger('click')
 
     expect(wrapper.text()).not.toContain(tooLong)
   })
