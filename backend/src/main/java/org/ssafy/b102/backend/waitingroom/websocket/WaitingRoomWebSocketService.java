@@ -249,18 +249,19 @@ public class WaitingRoomWebSocketService {
 	) {
 		WaitingRoomAuthFrame frame = parseAuthFrame(payload);
 		ResolvedWaitingRoomParticipant identity = resolveIdentity(frame);
-		WaitingRoomSnapshot snapshot =
-			waitingRoomService.findSnapshot(authentication.roomId());
-		WaitingRoomParticipant participant =
-			validateParticipant(snapshot, identity.participantKey());
+		WaitingRoomSnapshot knownSnapshot = null;
+		WaitingRoomConnectionContext context = null;
+		try {
+			knownSnapshot = waitingRoomService.findSnapshot(authentication.roomId());
+			WaitingRoomParticipant participant =
+				validateParticipant(knownSnapshot, identity.participantKey());
 
-		WebSocketSession safeSession = new ConcurrentWebSocketSessionDecorator(
-			authentication.session(),
-			Math.toIntExact(properties.sendTimeLimit().toMillis()),
-			properties.bufferSizeLimit()
-		);
-		WaitingRoomConnectionContext context =
-			new WaitingRoomConnectionContext(
+			WebSocketSession safeSession = new ConcurrentWebSocketSessionDecorator(
+				authentication.session(),
+				Math.toIntExact(properties.sendTimeLimit().toMillis()),
+				properties.bufferSizeLimit()
+			);
+			context = new WaitingRoomConnectionContext(
 				authentication.session().getId(),
 				authentication.roomId(),
 				identity.participantKey(),
@@ -268,15 +269,15 @@ public class WaitingRoomWebSocketService {
 				clock.instant(),
 				safeSession
 			);
-		if (!registry.registerIfAbsent(context)) {
-			throw new BusinessException(
-				WaitingRoomErrorCode.WEBSOCKET_ALREADY_CONNECTED
-			);
-		}
+			if (!registry.registerIfAbsent(context)) {
+				throw new BusinessException(
+					WaitingRoomErrorCode.WEBSOCKET_ALREADY_CONNECTED
+				);
+			}
 
-		try {
 			WaitingRoomSnapshot verified =
 				waitingRoomService.findSnapshot(authentication.roomId());
+			knownSnapshot = verified;
 			validateParticipant(verified, identity.participantKey());
 			sendRoomState(context.session(), verified);
 			if (verified.room().roomType() == RoomType.RANDOM) {
@@ -286,12 +287,60 @@ public class WaitingRoomWebSocketService {
 				);
 			}
 		} catch (BusinessException exception) {
-			registry.unregister(context.sessionId());
+			if (context != null) {
+				registry.unregister(context.sessionId());
+			}
+			if (shouldCleanupFailedParticipant(exception.getErrorCode(), knownSnapshot)) {
+				cleanupFailedParticipant(
+					authentication.roomId(),
+					identity.participantKey()
+				);
+			}
 			throw exception;
 		} catch (RuntimeException exception) {
+			if (context == null) {
+				throw exception;
+			}
 			registry.unregister(context.sessionId());
 			close(context.session(), CloseStatus.SERVER_ERROR);
-			leaveAndBroadcast(context);
+			// 저장소/전송 장애는 확정적인 입장 실패가 아니므로 정상 leave cleanup을 수행하지 않는다.
+		}
+	}
+
+	private boolean shouldCleanupFailedParticipant(
+		ErrorCode errorCode,
+		WaitingRoomSnapshot snapshot
+	) {
+		if (snapshot != null && snapshot.room().roomType() != RoomType.RANDOM) {
+			return false;
+		}
+		return errorCode == WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND
+			|| errorCode == WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE
+			|| errorCode == WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND;
+	}
+
+	private void cleanupFailedParticipant(UUID roomId, String participantKey) {
+		RandomRoomLifecyclePort port;
+		try {
+			port = lifecyclePort();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"인증 실패 cleanup adapter 조회에 실패했습니다. roomId={}",
+				roomId,
+				exception
+			);
+			return;
+		}
+		if (port == null) {
+			return;
+		}
+		try {
+			port.cleanupFailedParticipant(roomId, participantKey);
+		} catch (RuntimeException exception) {
+			log.warn(
+				"랜덤 대기방 입장 실패 cleanup에 실패했습니다. roomId={}",
+				roomId
+			);
 		}
 	}
 
@@ -416,6 +465,11 @@ public class WaitingRoomWebSocketService {
 					broadcastLatestState(context.roomId());
 				}
 			} else {
+				RandomRoomLeaveResult result = outcome.randomResult();
+				if (result.status() == RandomRoomLeaveResult.Status.ALREADY_CLOSED) {
+					cleanupRematchAfterPreviousRoomDisconnect(context);
+					return;
+				}
 				handleLeaveOutcome(outcome);
 			}
 		} catch (BusinessException exception) {
@@ -467,39 +521,160 @@ public class WaitingRoomWebSocketService {
 		if (result.status() != RandomRoomLeaveResult.Status.CLOSED_NOW) {
 			return;
 		}
-		countdownCoordinator.cancel(result.roomId());
-		broadcastRandomClosed(result.roomId());
-		requestRematchIfRemainingSessionAlive(result);
+		if (result.previousRoomStatus() == RoomStatus.COUNTDOWN) {
+			countdownCoordinator.cancel(result.roomId());
+		}
+		cleanupParticipantAfterRandomLeave(result);
+		Optional<WaitingRoomSnapshot> closedSnapshot = broadcastRandomClosed(result);
+		closedSnapshot.ifPresent(snapshot ->
+			requestRematchIfRemainingSessionAlive(result, snapshot)
+		);
 		closeRoomSessions(result.roomId());
 	}
 
-	private void broadcastRandomClosed(UUID roomId) {
-		WaitingRoomSnapshot snapshot = waitingRoomService.findSnapshot(roomId);
-		for (WaitingRoomConnectionContext context : registry.findByRoomId(roomId)) {
+	private void cleanupParticipantAfterRandomLeave(RandomRoomLeaveResult result) {
+		if (result.quitterParticipantKey() == null || result.quitterParticipantKey().isBlank()) {
+			return;
+		}
+		RandomRoomLifecyclePort port;
+		try {
+			port = lifecyclePort();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"정상 RANDOM leave lifecycle adapter 조회에 실패해 entry cleanup을 생략합니다. roomId={}",
+				result.roomId(),
+				exception
+			);
+			return;
+		}
+		if (port == null) {
+			return;
+		}
+		try {
+			port.cleanupParticipantAfterLeave(result.roomId(), result.quitterParticipantKey());
+		} catch (RuntimeException exception) {
+			log.warn(
+				"정상 RANDOM leave entry cleanup에 실패했지만 CLOSED 처리는 유지합니다. roomId={}",
+				result.roomId(),
+				exception
+			);
+		}
+	}
+
+	private void cleanupRematchAfterPreviousRoomDisconnect(
+		WaitingRoomConnectionContext context
+	) {
+		RandomRoomLifecyclePort port;
+		try {
+			port = lifecyclePort();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"자동 재매칭 disconnect cleanup adapter 조회에 실패했습니다. roomId={}",
+				context.roomId(),
+				exception
+			);
+			return;
+		}
+		if (port == null) {
+			return;
+		}
+		try {
+			port.cleanupRematchAfterPreviousRoomDisconnect(
+				context.roomId(),
+				context.participantKey()
+			);
+		} catch (RuntimeException exception) {
+			log.warn(
+				"자동 재매칭 disconnect cleanup에 실패했지만 WebSocket 종료는 유지합니다. roomId={}",
+				context.roomId(),
+				exception
+			);
+		}
+	}
+
+	private Optional<WaitingRoomSnapshot> broadcastRandomClosed(RandomRoomLeaveResult result) {
+		final WaitingRoomSnapshot snapshot;
+		try {
+			snapshot = waitingRoomService.findSnapshot(result.roomId());
+		} catch (RuntimeException exception) {
+			log.warn(
+				"RANDOM CLOSED 상태 또는 participants 조회에 실패했습니다. roomId={}",
+				result.roomId(),
+				exception
+			);
+			return Optional.empty();
+		}
+		if (!isValidClosedRandomSnapshot(snapshot, result)) {
+			log.warn(
+				"RANDOM leave participants 정합성이 맞지 않아 재매칭을 생략합니다. roomId={}",
+				result.roomId()
+			);
+			return Optional.empty();
+		}
+		final java.util.List<WaitingRoomConnectionContext> contexts;
+		try {
+			contexts = registry.findByRoomId(result.roomId());
+		} catch (RuntimeException exception) {
+			log.warn(
+				"RANDOM CLOSED session 조회에 실패해 재매칭을 생략합니다. roomId={}",
+				result.roomId(),
+				exception
+			);
+			return Optional.empty();
+		}
+		UUID roomId = result.roomId();
+		for (WaitingRoomConnectionContext context : contexts) {
 			try {
 				sendRoomState(context.session(), snapshot);
 			} catch (RuntimeException exception) {
 				log.warn("랜덤 대기방 CLOSED 상태 전송에 실패했습니다. roomId={}", roomId);
 			}
 		}
+		return Optional.of(snapshot);
 	}
 
 	private void requestRematchIfRemainingSessionAlive(
-		RandomRoomLeaveResult leaveResult
+		RandomRoomLeaveResult leaveResult,
+		WaitingRoomSnapshot snapshot
 	) {
-		Optional<WaitingRoomConnectionContext> remaining =
-			registry.findByRoomAndParticipant(
+		if (leaveResult.remainingParticipantKey() == null || leaveResult.remainingParticipantKey().isBlank()) {
+			return;
+		}
+		Optional<WaitingRoomConnectionContext> remaining;
+		try {
+			remaining = registry.findByRoomAndParticipant(
 				leaveResult.roomId(),
 				leaveResult.remainingParticipantKey()
 			);
+		} catch (RuntimeException exception) {
+			log.warn(
+				"남은 참가자 WebSocket session 조회에 실패해 재매칭을 생략합니다. roomId={}",
+				leaveResult.roomId(),
+				exception
+			);
+			return;
+		}
 		if (
 			remaining.isEmpty() ||
 			!remaining.get().session().isOpen() ||
-			remaining.get().isLeaveSuppressed()
+			remaining.get().isLeaveSuppressed() ||
+			!snapshot.participants().stream().anyMatch(
+				participant -> leaveResult.remainingParticipantKey().equals(participant.participantKey())
+			)
 		) {
 			return;
 		}
-		RandomRematchRequester requester = rematchRequester();
+		final RandomRematchRequester requester;
+		try {
+			requester = rematchRequester();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"랜덤 재매칭 adapter 조회에 실패해 재매칭을 생략합니다. roomId={}",
+				leaveResult.roomId(),
+				exception
+			);
+			return;
+		}
 		if (requester == null) {
 			log.warn(
 				"랜덤 재매칭 adapter가 없습니다. roomId={}, action=requeue",
@@ -516,9 +691,73 @@ public class WaitingRoomWebSocketService {
 			if (result == RandomRematchRequestResult.FAILED) {
 				log.warn("랜덤 자동 재매칭 요청에 실패했습니다. roomId={}", leaveResult.roomId());
 			}
+			if (
+				(result == RandomRematchRequestResult.REQUEUED ||
+					result == RandomRematchRequestResult.ALREADY_REQUEUED) &&
+				!hasCurrentOpenSession(remaining.get())
+			) {
+				cleanupRematchAfterPreviousRoomDisconnect(remaining.get());
+			}
 		} catch (RuntimeException exception) {
 			log.warn("랜덤 자동 재매칭 adapter 호출에 실패했습니다. roomId={}", leaveResult.roomId());
 		}
+	}
+
+	private boolean hasCurrentOpenSession(
+		WaitingRoomConnectionContext expected
+	) {
+		try {
+			return registry.findByRoomAndParticipant(
+				expected.roomId(),
+				expected.participantKey()
+			).filter(current -> current.sessionId().equals(expected.sessionId()))
+				.filter(current -> current.session().isOpen())
+				.filter(current -> !current.isLeaveSuppressed())
+				.isPresent();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"재매칭 후 남은 참가자 session 재확인에 실패해 entry를 유지합니다. roomId={}",
+				expected.roomId(),
+				exception
+			);
+			return true;
+		}
+	}
+
+	private boolean isValidClosedRandomSnapshot(
+		WaitingRoomSnapshot snapshot,
+		RandomRoomLeaveResult result
+	) {
+		if (
+			snapshot == null ||
+			snapshot.room() == null ||
+			snapshot.participants() == null ||
+			!result.roomId().equals(snapshot.room().roomId()) ||
+			snapshot.room().roomType() != RoomType.RANDOM ||
+			snapshot.room().gameName() != result.gameName() ||
+			snapshot.room().roomStatus() != RoomStatus.CLOSED ||
+			result.quitterParticipantKey() == null ||
+			result.remainingParticipantKey() == null ||
+			result.quitterParticipantKey().equals(result.remainingParticipantKey()) ||
+			snapshot.participants().size() != 2
+		) {
+			return false;
+		}
+		if (snapshot.participants().stream().anyMatch(
+			participant -> participant == null || participant.participantKey() == null
+		)) {
+			return false;
+		}
+		return snapshot.participants().stream()
+			.map(WaitingRoomParticipant::participantKey)
+			.distinct()
+			.toList()
+			.containsAll(
+				java.util.Set.of(
+					result.quitterParticipantKey(),
+					result.remainingParticipantKey()
+				)
+			);
 	}
 
 	private RandomRematchRequester rematchRequester() {

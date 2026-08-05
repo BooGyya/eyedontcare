@@ -48,7 +48,9 @@ function handleBackdropClick(event: {
 }
 
 function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  // 백엔드 EmailPolicy와 동일 규칙: 최상위 도메인(TLD)을 알파벳 2자 이상으로 강제해
+  // 321@321.321 처럼 문법상 유효하지만 실사용 불가한 형식을 막는다.
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email)
 }
 
 function validateSignup() {
@@ -144,6 +146,7 @@ watch(
     }
 
     restoreScroll()
+    clearForms()
     globalThis.removeEventListener('keydown', handleKeydown)
   },
 )

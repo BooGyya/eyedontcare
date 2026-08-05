@@ -9,11 +9,19 @@ import calmFaceImage from '../assets/images/profiles/profile-calm.png'
 import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
 import WeeklyRankingCard from '../components/home/WeeklyRankingCard.vue'
 import { useToast } from '../composables/useToast'
-import { homeQuickActions, weeklyRankingGames } from '../mocks/home'
-import type { QuickAction } from '../types/home'
+import { getRankingSummary, toWeeklyRankingGames } from '../api/ranking'
+import { homeQuickActions, weeklyRankingGamePresets } from '../mocks/home'
+import type { QuickAction, WeeklyRankingGame } from '../types/home'
 
 const router = useRouter()
 const { showToast } = useToast()
+const weeklyRankingGames = ref<WeeklyRankingGame[]>(
+  weeklyRankingGamePresets.map((preset) => ({
+    ...preset,
+    records: [],
+    myRank: 0,
+  })),
+)
 const currentHeroSlide = ref(0)
 const currentRankingIndex = ref(0)
 const visibleRankingCount = ref(3)
@@ -36,7 +44,7 @@ const isHeroDragging = ref(false)
 const heroDidDrag = ref(false)
 
 const maxRankingIndex = computed(() =>
-  Math.max(0, weeklyRankingGames.length - visibleRankingCount.value),
+  Math.max(0, weeklyRankingGames.value.length - visibleRankingCount.value),
 )
 const rankingTrackStyle = computed(() => ({
   '--ranking-index': currentRankingIndex.value,
@@ -234,7 +242,20 @@ onMounted(() => {
   updateVisibleRankingCount()
   globalThis.addEventListener('resize', updateVisibleRankingCount)
   startHeroTimer()
+  void loadWeeklyRanking()
 })
+
+async function loadWeeklyRanking() {
+  try {
+    const summary = await getRankingSummary(3)
+    weeklyRankingGames.value = toWeeklyRankingGames(
+      weeklyRankingGamePresets,
+      summary,
+    )
+  } catch {
+    // 게스트/네트워크 오류 등으로 조회에 실패하면 빈 카드(참여 유도 문구)를 그대로 둔다.
+  }
+}
 
 onBeforeUnmount(() => {
   globalThis.removeEventListener('resize', updateVisibleRankingCount)
@@ -519,7 +540,7 @@ function handleQuickAction(action: QuickAction) {
             </svg>
             <span class="visually-hidden">🏆</span>
           </span>
-          이번 주 랭킹 TOP 3
+          이번주 랭킹 TOP3
         </h2>
       </div>
 

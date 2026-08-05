@@ -2,8 +2,7 @@
  * 게임 결과 조회 REST 호출.
  *
  * 목록은 요약(승패/순위/모드/날짜)만, 상세는 참가자·게임별 결과(JSON)를 준다.
- * 제출(`submitGameResult`)은 게임 종료 시 결과를 저장한다 — 게임 점수가 실제화되기 전까지는
- * mock 값을 담아 보낸다([[useGameResultSubmission]]).
+ * 제출(`submitGameResult`)은 게임 종료 시 실제 게임 결과를 저장한다.
  */
 import { apiRequest } from './http'
 import type {

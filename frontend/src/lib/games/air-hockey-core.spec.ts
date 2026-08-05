@@ -57,16 +57,29 @@ describe('air-hockey-core: 물리 엔진 (프로토타입에서 변경 없음)',
     expect(state.puck.vy < 0).toBe(true)
   })
 
-  it('타격(strike)하면 퍽이 가속된다', () => {
+  it('패들이 퍽에 닿을 만큼 가까우면 타격으로 퍽이 가속된다', () => {
     const state = makeInitialAirHockeyState()
     state.puck.held = false
     state.puck.x = state.bottom.x
-    state.puck.y = AIR_HOCKEY_HEIGHT - 260
+    state.puck.y = state.bottom.y - 50
     state.puck.vx = 0
     state.puck.vy = 120
 
     expect(applyStrike(state, 'bottom', 1000)).toBe(true)
     expect(state.puck.vy < 0).toBe(true)
+  })
+
+  it('패들이 퍽에서 멀면 타격해도 퍽이 움직이지 않는다', () => {
+    const state = makeInitialAirHockeyState()
+    state.puck.held = false
+    state.puck.x = state.bottom.x
+    state.puck.y = state.bottom.y - 300
+    state.puck.vx = 0
+    state.puck.vy = 120
+
+    applyStrike(state, 'bottom', 1000)
+    expect(state.puck.vy).toBe(120)
+    expect(state.puck.vx).toBe(0)
   })
 
   it('골대 안으로 들어가면 골, 벽이면 wall로 판정한다', () => {

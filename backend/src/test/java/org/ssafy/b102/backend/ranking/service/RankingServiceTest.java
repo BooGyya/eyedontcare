@@ -102,6 +102,41 @@ class RankingServiceTest {
 	}
 
 	@Test
+	void 점수가_0_이하이면_랭킹에서_제외한다() {
+		givenBlink(List.of(
+			score(1L, 128, T1),
+			score(2L, 0, T2)
+		));
+		givenNicknames();
+
+		GameRankingResponse response =
+			rankingService.getGameRanking(1L, "BLINK", 1, 20);
+
+		assertThat(response.rankings())
+			.extracting(RankingEntry::userId)
+			.containsExactly(1L);
+	}
+
+	@Test
+	void 탈퇴한_회원은_랭킹에서_제외한다() {
+		givenBlink(List.of(
+			score(1L, 128, T1),
+			score(2L, 116, T2)
+		));
+		when(userRepository.findAllById(any())).thenReturn(List.of(
+			user(1L, "u1"),
+			withdrawnUser(2L, "withdrawn-2")
+		));
+
+		GameRankingResponse response =
+			rankingService.getGameRanking(1L, "BLINK", 1, 20);
+
+		assertThat(response.rankings())
+			.extracting(RankingEntry::userId)
+			.containsExactly(1L);
+	}
+
+	@Test
 	void 에어하키_랭킹은_승리_횟수_기준이고_패배는_무시한다() {
 		when(rankingRepository.findWeeklyParticipants(
 			eq(GameName.HOCKEY), eq(PlayMode.RANDOM), any(), any()
@@ -251,6 +286,12 @@ class RankingServiceTest {
 	private static User user(Long id, String nickname) {
 		User user = User.createSocial(nickname);
 		setField(User.class, user, "id", id);
+		return user;
+	}
+
+	private static User withdrawnUser(Long id, String nickname) {
+		User user = user(id, nickname);
+		setField(User.class, user, "deletedAt", Instant.parse("2026-08-01T00:00:00Z"));
 		return user;
 	}
 

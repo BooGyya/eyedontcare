@@ -27,10 +27,19 @@ export const GAME_NAME_BY_ID: Record<GameDetailId, GameName> = {
 /** 백엔드 `GameName` enum → 사용자에게 보여줄 한글 게임명. */
 export const GAME_DISPLAY_NAME: Record<GameName, string> = {
   EYEFIGHT: '눈싸움',
-  BLINK: '깜빡임 참기',
+  BLINK: '눈 깜빡이기',
   DRAWING: '눈으로 그리기',
   RHYTHM: '리듬 게임',
   HOCKEY: '에어하키',
+}
+
+/** 백엔드 `GameName` enum → 영문 게임명. 랭킹 카테고리 등 브랜드 표기에 쓴다. */
+export const GAME_ENGLISH_NAME: Record<GameName, string> = {
+  EYEFIGHT: 'Eye See',
+  BLINK: 'Eye Show Speed',
+  DRAWING: 'Eye Draw',
+  RHYTHM: 'Blink the Beat',
+  HOCKEY: 'Eye Hockey',
 }
 
 export interface WaitingRoomParticipant {
@@ -118,5 +127,4 @@ export type WaitingRoomCommandFrame =
 
 /** 대기방 인증에 사용할 신원(둘 중 하나). */
 export type WaitingRoomIdentity =
-  | { accessToken: string }
-  | { guestSessionId: string }
+  { accessToken: string } | { guestSessionId: string }

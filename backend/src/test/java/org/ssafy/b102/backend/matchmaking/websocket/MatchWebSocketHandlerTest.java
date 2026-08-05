@@ -141,6 +141,34 @@ class MatchWebSocketHandlerTest {
 	}
 
 	@Test
+	void replacedOldSocketCloseKeepsNewDirectSearchingEntry() throws Exception {
+		StubWebSocketSession oldSession = new StubWebSocketSession("old");
+		StubWebSocketSession newSession = new StubWebSocketSession("new");
+		service.setEntry(MatchmakingEntry.searching(MEMBER_KEY, GameName.EYEFIGHT, NOW));
+		handler.handleTextMessage(oldSession, memberFrame(MEMBER_USER_ID));
+		handler.handleTextMessage(newSession, memberFrame(MEMBER_USER_ID));
+
+		handler.afterConnectionClosed(oldSession, CloseStatus.NORMAL);
+
+		assertThat(registry.find(MEMBER_KEY)).hasValue(newSession);
+		assertThat(service.silentlyCancelled()).isEmpty();
+	}
+
+	@Test
+	void replacedOldSocketCloseKeepsNewRematchSearchingEntry() throws Exception {
+		StubWebSocketSession oldSession = new StubWebSocketSession("old");
+		StubWebSocketSession newSession = new StubWebSocketSession("new");
+		service.setEntry(MatchmakingEntry.searching(MEMBER_KEY, GameName.HOCKEY, NOW));
+		handler.handleTextMessage(oldSession, memberFrame(MEMBER_USER_ID));
+		handler.handleTextMessage(newSession, memberFrame(MEMBER_USER_ID));
+
+		handler.afterConnectionClosed(oldSession, CloseStatus.NORMAL);
+
+		assertThat(registry.find(MEMBER_KEY)).hasValue(newSession);
+		assertThat(service.silentlyCancelled()).isEmpty();
+	}
+
+	@Test
 	void connectionClosedBeforeAuthDoesNothing() {
 		StubWebSocketSession session = new StubWebSocketSession("s1");
 

@@ -122,8 +122,7 @@ public class GroupService {
 		String normalizedKeyword = keyword == null ? "" : keyword;
 
 		Page<Group> groups = groupRepository
-			.findByVisibilityAndNameContaining(
-				GroupVisibility.PUBLIC,
+			.findByNameContaining(
 				normalizedKeyword,
 				pageable
 			);

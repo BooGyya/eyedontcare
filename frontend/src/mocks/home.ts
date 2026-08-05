@@ -6,15 +6,13 @@ import gameRhythmImage from '../assets/images/games/game-rhythm-main.png'
 import gameWaveImage from '../assets/images/games/game-wave.png'
 import discordLogoImage from '../assets/images/illustrations/discord-logo.png'
 import groupIllustrationImage from '../assets/images/illustrations/illustration-teamwork.png'
-import athleteProfile from '../assets/images/profiles/profile-athlete.png'
-import calmProfile from '../assets/images/profiles/profile-calm.png'
-import crownProfile from '../assets/images/profiles/profile-crown.png'
-import detectiveProfile from '../assets/images/profiles/profile-detective.png'
-import joyProfile from '../assets/images/profiles/profile-joy.png'
-import smileProfile from '../assets/images/profiles/profile-smile.png'
-import type { QuickAction, WeeklyRankingGame } from '../types/home'
+import type { QuickAction, WeeklyRankingGamePreset } from '../types/home'
 
-export const weeklyRankingGames: WeeklyRankingGame[] = [
+/**
+ * 이번 주 랭킹 카드의 고정 표시 정보(제목/이미지/톤 등). 실제 랭킹(records)과 내 순위(myRank)는
+ * `GET /api/v1/rankings` 응답으로 채운다({@link ../api/ranking.ts}).
+ */
+export const weeklyRankingGamePresets: WeeklyRankingGamePreset[] = [
   {
     id: 'blink',
     title: 'Eye Show Speed (눈 깜빡이기)',
@@ -22,30 +20,6 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     image: gameBlinkImage,
     tone: 'purple',
     unit: '회',
-    records: [
-      {
-        rank: 2,
-        value: 116,
-        label: '116',
-        nickname: '초롱이',
-        avatar: joyProfile,
-      },
-      {
-        rank: 1,
-        value: 128,
-        label: '128',
-        nickname: '눈빛왕',
-        avatar: crownProfile,
-      },
-      {
-        rank: 3,
-        value: 103,
-        label: '103',
-        nickname: '반짝콩',
-        avatar: smileProfile,
-      },
-    ],
-    myRank: 7,
   },
   {
     id: 'draw',
@@ -54,30 +28,6 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     image: gameDrawImage,
     tone: 'mint',
     unit: '점',
-    records: [
-      {
-        rank: 2,
-        value: 2230,
-        label: '2230',
-        nickname: '몽글이',
-        avatar: athleteProfile,
-      },
-      {
-        rank: 1,
-        value: 2450,
-        label: '2450',
-        nickname: '선긋기달인',
-        avatar: detectiveProfile,
-      },
-      {
-        rank: 3,
-        value: 1980,
-        label: '1980',
-        nickname: '보라콩',
-        avatar: smileProfile,
-      },
-    ],
-    myRank: 5,
   },
   {
     id: 'stare',
@@ -86,30 +36,6 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     image: gameHoldImage,
     tone: 'blue',
     unit: '초',
-    records: [
-      {
-        rank: 2,
-        value: 79.3,
-        label: '79.3',
-        nickname: '눈동자',
-        avatar: crownProfile,
-      },
-      {
-        rank: 1,
-        value: 87.5,
-        label: '87.5',
-        nickname: '집중마스터',
-        avatar: athleteProfile,
-      },
-      {
-        rank: 3,
-        value: 72.1,
-        label: '72.1',
-        nickname: '별빛',
-        avatar: detectiveProfile,
-      },
-    ],
-    myRank: 12,
   },
   {
     id: 'challenge',
@@ -118,30 +44,6 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     image: gameRhythmImage,
     tone: 'orange',
     unit: '회',
-    records: [
-      {
-        rank: 2,
-        value: 487,
-        label: '487',
-        nickname: '콤보 장인',
-        avatar: athleteProfile,
-      },
-      {
-        rank: 1,
-        value: 532,
-        label: '532',
-        nickname: '리듬의 별',
-        avatar: crownProfile,
-      },
-      {
-        rank: 3,
-        value: 421,
-        label: '421',
-        nickname: '눈빛 비트',
-        avatar: smileProfile,
-      },
-    ],
-    myRank: 9,
   },
   {
     id: 'air',
@@ -150,30 +52,6 @@ export const weeklyRankingGames: WeeklyRankingGame[] = [
     image: gameAirImage,
     tone: 'sky',
     unit: '점',
-    records: [
-      {
-        rank: 2,
-        value: 4980,
-        label: '4980',
-        nickname: '시선 골키퍼',
-        avatar: athleteProfile,
-      },
-      {
-        rank: 1,
-        value: 5260,
-        label: '5260',
-        nickname: '바람의 지배자',
-        avatar: detectiveProfile,
-      },
-      {
-        rank: 3,
-        value: 4640,
-        label: '4640',
-        nickname: '눈을 건강하게 지키는 플레이어',
-        avatar: calmProfile,
-      },
-    ],
-    myRank: 8,
   },
 ]
 

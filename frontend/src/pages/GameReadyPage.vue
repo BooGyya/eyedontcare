@@ -13,6 +13,7 @@ import { createInviteRoom, joinInviteRoom } from '../api/waitingRoom'
 import { ApiError } from '../api/http'
 import { currentAccessToken, resolveIdentity } from '../api/identity'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
+import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import type {
   WaitingRoomGameStartData,
   WaitingRoomIdentity,
@@ -47,7 +48,6 @@ const isCalibrationOpen = ref(false)
 const isCameraErrorOpen = ref(false)
 const isGameStartDialogOpen = ref(false)
 const countdown = ref(3)
-const isGamePlaybackPending = ref(false)
 const cameraStream = ref<globalThis.MediaStream | null>(null)
 
 // --- 실제 눈/시선 인식 (캘리브레이션) ---
@@ -296,7 +296,6 @@ function clearGameStartCountdown() {
 function openGameStartDialog() {
   clearGameStartCountdown()
   countdown.value = 3
-  isGamePlaybackPending.value = false
   isGameStartDialogOpen.value = true
 
   countdownTimer = globalThis.setInterval(() => {
@@ -314,25 +313,22 @@ function openGameStartDialog() {
   }, 1000)
 }
 
-// 실시간 세션(초대/랜덤): 서버가 방을 COUNTDOWN으로 바꾸고 종료 시각을 주면 그에 맞춰 3-2-1을
-// 그린다. 화면 전환은 서버의 GAME_START 수신 시에만 일어난다(handleGameStart).
+// 실시간 세션(초대/랜덤): 서버가 방을 COUNTDOWN으로 바꾸면 3-2-1을 그린다.
+// 서버 절대 종료시각으로 남은 초를 계산하면 네트워크 지연·클라 시계 오차로 한쪽이 1·1·1로
+// 보이므로, 표시는 수신 시점부터 로컬로 3→2→1을 센다(서버 countdown은 3초). 실제 화면 전환은
+// 서버의 GAME_START 수신 시에만 일어난다(handleGameStart)므로 표시가 조금 어긋나도 무방하다.
 function openServerCountdown(endsAtIso: string) {
+  void endsAtIso
   clearGameStartCountdown()
-  const endsAt = new Date(endsAtIso).getTime()
-  const sync = () => {
-    const remaining = Math.ceil((endsAt - Date.now()) / 1000)
-    countdown.value = Math.min(3, Math.max(1, remaining))
-  }
-  sync()
-  isGamePlaybackPending.value = false
+  countdown.value = 3
   isGameStartDialogOpen.value = true
   countdownTimer = globalThis.setInterval(() => {
-    if (Date.now() >= endsAt) {
+    if (countdown.value <= 1) {
       clearGameStartCountdown()
       return
     }
-    sync()
-  }, 250)
+    countdown.value -= 1
+  }, 1000)
 }
 
 function closeGameStartDialog() {
@@ -437,7 +433,7 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
   if (!result.success) {
     eyeSampleFeedback.value = 'insufficient'
     playCalibrationSound('reject')
-    showToast(eyeSampleFailureMessage(result.reason))
+    showToast(eyeSampleFailureMessage(result.reason, kind))
     return
   }
 
@@ -453,6 +449,7 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
  */
 function eyeSampleFailureMessage(
   reason: 'no_face' | 'eyes_open' | 'eyes_closed' | undefined,
+  kind: 'open' | 'closed',
 ): string {
   if (reason === 'eyes_closed') {
     return '이 단계는 눈을 뜬 상태를 기록해요. 눈을 크게 뜨고 다시 눌러주세요.'
@@ -460,7 +457,8 @@ function eyeSampleFailureMessage(
   if (reason === 'eyes_open') {
     return '이 단계는 눈을 감은 상태를 기록해요. 눈을 꼭 감고 다시 눌러주세요.'
   }
-  return '얼굴이 잘 인식되지 않았어요. 카메라를 정면으로 보고 다시 시도해 주세요.'
+  const targetLabel = kind === 'open' ? '눈을 뜬' : '눈을 감은'
+  return `${targetLabel} 상태를 기록하지 못했어요. 카메라를 정면으로 보고 다시 시도해 주세요.`
 }
 
 async function recordGazeCalibrationPoint() {
@@ -985,7 +983,12 @@ onBeforeUnmount(() => {
           <span>{{ isCameraConnected ? '내 웹캠' : '내 준비 상태' }}</span>
         </div>
         <ol class="my-progress" aria-label="나의 게임 준비 진행 단계">
-          <li :class="{ complete: isCameraConnected }">
+          <li
+            :class="{
+              complete: isCameraConnected,
+              error: !isCameraConnected,
+            }"
+          >
             <b aria-hidden="true">
               <svg v-if="isCameraConnected" viewBox="0 0 24 24">
                 <path
@@ -997,10 +1000,20 @@ onBeforeUnmount(() => {
                   stroke-linejoin="round"
                 />
               </svg>
-              <template v-else>1</template>
+              <svg v-else viewBox="0 0 24 24">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
             </b>
             <span>카메라</span>
-            <small>{{ isCameraConnected ? '완료' : '확인 필요' }}</small>
+            <small>
+              {{ isCameraConnected ? '완료' : '카메라 연결 필요' }}
+            </small>
           </li>
           <li :class="{ complete: isCalibrated }">
             <b aria-hidden="true">
@@ -1268,7 +1281,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="calibration-stage">
             <video
-              v-if="cameraStream"
+              v-if="cameraStream && isCameraConnected"
               ref="previewVideo"
               autoplay
               muted
@@ -1281,11 +1294,21 @@ onBeforeUnmount(() => {
               alt="카메라 연결 전 안내 마스코트"
               draggable="false"
             />
+            <div
+              v-if="!isCameraConnected"
+              class="calibration-camera-status"
+              role="status"
+              aria-live="polite"
+            >
+              <strong>카메라가 연결되지 않았어요</strong>
+              <span>카메라를 연결한 뒤 캘리브레이션을 진행해 주세요.</span>
+            </div>
 
             <!-- 눈 뜬/감은 기준 기록 단계: 실시간 얼굴 인식 상태와 기록 진행 상황을 보여준다 -->
             <template
               v-if="
-                calibrationStage === 'open' || calibrationStage === 'closed'
+                isCameraConnected &&
+                (calibrationStage === 'open' || calibrationStage === 'closed')
               "
             >
               <div class="calibration-live-status" role="status">
@@ -1314,94 +1337,53 @@ onBeforeUnmount(() => {
             <!-- 시선 좌표 보정 단계: 9개 지점을 순서대로 응시하며 진행한다 -->
             <template v-else-if="calibrationStage === 'gaze'">
               <i
+                v-if="isCameraConnected"
                 class="calibration-target"
                 :style="gazeCalibrationTargetStyle"
                 aria-hidden="true"
               />
-              <p>
-                지점 {{ gazeCalibrationTargetIndex + 1 }} /
-                {{ eyeTracking.gazeCalibrationTargets.length }}
-              </p>
             </template>
           </div>
-          <footer>
-            <button
-              type="button"
-              class="secondary"
-              :disabled="isSamplingEyeStep || isSamplingGaze"
-              @click="handleCalibrationBack"
+          <div class="calibration-controls">
+            <div
+              v-if="calibrationStage === 'gaze'"
+              class="calibration-point-status"
+              role="status"
+              aria-live="polite"
             >
-              {{ calibrationBackLabel }}</button
-            ><button
-              type="button"
-              class="primary"
-              data-dialog-initial-focus
-              :disabled="isSamplingEyeStep || isSamplingGaze"
-              @click="handleCalibrationNext"
-            >
-              {{ calibrationPrimaryLabel }}
-            </button>
-          </footer>
+              지점 {{ gazeCalibrationTargetIndex + 1 }} /
+              {{ eyeTracking.gazeCalibrationTargets.length }}
+            </div>
+            <footer>
+              <button
+                type="button"
+                class="secondary"
+                :disabled="isSamplingEyeStep || isSamplingGaze"
+                @click="handleCalibrationBack"
+              >
+                {{ calibrationBackLabel }}</button
+              ><button
+                type="button"
+                class="primary"
+                data-dialog-initial-focus
+                :disabled="
+                  isSamplingEyeStep || isSamplingGaze || !isCameraConnected
+                "
+                @click="handleCalibrationNext"
+              >
+                {{ calibrationPrimaryLabel }}
+              </button>
+            </footer>
+          </div>
         </section>
       </div>
     </Transition>
 
-    <Transition name="dialog-pop">
-      <div
-        v-if="isGameStartDialogOpen"
-        class="ready-dialog-backdrop"
-        @click="handleDialogBackdrop($event, closeGameStartDialog)"
-      >
-        <section
-          ref="dialogRef"
-          class="ready-dialog ready-dialog--game-start"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="game-start-title"
-          aria-describedby="game-start-description"
-          tabindex="-1"
-        >
-          <span class="ready-dialog__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path
-                d="M5 13l4 4L19 7"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </span>
-          <h2 id="game-start-title">
-            {{
-              isGamePlaybackPending
-                ? '게임 플레이 준비 중'
-                : '게임이 시작됩니다'
-            }}
-          </h2>
-          <p id="game-start-description">
-            <template v-if="isGamePlaybackPending">
-              게임 플레이 화면은 준비 중이에요.
-            </template>
-            <template v-else>
-              게임 준비가 완료되었습니다.<br />
-              카운트다운이 끝나면 게임을 시작할 예정이에요.
-            </template>
-          </p>
-          <div
-            v-if="!isGamePlaybackPending"
-            class="game-start-countdown"
-            aria-label="게임 시작 예정 카운트다운"
-            aria-live="assertive"
-          >
-            <Transition name="count-tick">
-              <b :key="countdown">{{ countdown }}</b>
-            </Transition>
-          </div>
-        </section>
-      </div>
-    </Transition>
+    <GameStartCountdownModal
+      :open="isGameStartDialogOpen"
+      :countdown="countdown"
+      @close="closeGameStartDialog"
+    />
   </Teleport>
 </template>
 
@@ -1719,6 +1701,15 @@ onBeforeUnmount(() => {
   border-color: #75c694;
   background: #e6f7eb;
 }
+.my-progress .error {
+  border: 1px solid #f1caca;
+  color: #b75555;
+  background: #fff0f0;
+}
+.my-progress .error b {
+  border-color: #d98282;
+  background: #ffe7e7;
+}
 .participant-action,
 .primary {
   min-height: 43px;
@@ -1894,21 +1885,37 @@ onBeforeUnmount(() => {
   height: min(64vh, 620px);
   object-fit: contain;
 }
-.calibration-stage p {
+.calibration-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 42px;
+  gap: 16px;
+  margin-top: 18px;
+}
+.calibration-point-status {
   position: absolute;
-  bottom: 12px;
+  top: 50%;
   left: 50%;
-  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  width: fit-content;
+  flex-shrink: 0;
   padding: 7px 10px;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(79, 116, 219, 0.22);
   border-radius: 99px;
   color: var(--color-muted);
   background: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 .calibration-target {
   position: absolute;
+  z-index: 1;
   width: 18px;
   height: 18px;
   border: 5px solid #fff;
@@ -1917,6 +1924,33 @@ onBeforeUnmount(() => {
   animation: calib-pulse 1.6s ease-in-out infinite;
   /* left/top은 gazeCalibrationTargetStyle이 0~1 좌표를 %로 변환해 인라인으로 넣어준다. */
   transform: translate(-50%, -50%);
+}
+.calibration-camera-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  width: min(80%, 360px);
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 20px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(79, 116, 219, 0.18);
+  border-radius: 16px;
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.94);
+  text-align: center;
+}
+.calibration-camera-status strong {
+  font-size: 15px;
+}
+.calibration-camera-status span {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 @keyframes calib-pulse {
   0%,
@@ -1954,65 +1988,12 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
-  margin-top: 18px;
+  margin-top: 0;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .calibration-dialog footer button {
   min-width: 112px;
-}
-.ready-dialog--game-start {
-  text-align: center;
-}
-.ready-dialog--game-start .ready-dialog__icon {
-  margin: 0 auto;
-  color: #278957;
-  background: #e6f7eb;
-}
-.game-start-countdown {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-  min-height: 82px;
-  margin: 22px 0;
-}
-.game-start-countdown b {
-  position: absolute;
-  display: grid;
-  width: 82px;
-  height: 82px;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--color-accent-blue);
-  background: var(--color-blue-soft);
-  font-size: 42px;
-  animation: count-ring 1s ease-out infinite;
-}
-@keyframes count-ring {
-  from {
-    box-shadow: 0 0 0 0 rgba(79, 116, 219, 0.35);
-  }
-  to {
-    box-shadow: 0 0 0 18px rgba(79, 116, 219, 0);
-  }
-}
-.count-tick-enter-active {
-  transition:
-    transform 140ms var(--ease-out),
-    opacity 140ms var(--ease-out);
-}
-.count-tick-leave-active {
-  transition:
-    transform 140ms ease,
-    opacity 140ms ease;
-}
-.count-tick-enter-from {
-  opacity: 0;
-  transform: scale(0.85);
-}
-.count-tick-leave-to {
-  opacity: 0;
-  transform: scale(1.15);
 }
 .dialog-pop-enter-active,
 .dialog-pop-leave-active {
@@ -2032,9 +2013,6 @@ onBeforeUnmount(() => {
 .dialog-pop-leave-to :is(.ready-dialog, .calibration-dialog) {
   opacity: 0;
   transform: scale(0.96) translateY(8px);
-}
-.ready-dialog--game-start .primary {
-  width: 100%;
 }
 .missing {
   padding: 60px;
@@ -2087,6 +2065,23 @@ button:focus-visible,
   .calibration-stage img {
     min-height: 250px;
     height: 250px;
+  }
+  .calibration-controls {
+    display: grid;
+    min-height: 0;
+    justify-items: end;
+    gap: 12px;
+  }
+  .calibration-point-status {
+    position: static;
+    justify-self: center;
+    transform: none;
+  }
+  .calibration-dialog footer {
+    width: auto;
+  }
+  .calibration-dialog footer button {
+    flex: initial;
   }
 }
 </style>

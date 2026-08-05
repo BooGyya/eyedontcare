@@ -27,6 +27,7 @@ class MatchmakingEntryReservationTest {
 	private static final GameName GAME = GameName.HOCKEY;
 	private static final String A = "USER:1";
 	private static final String B = "USER:2";
+	private static final String GUEST = "GUEST:550e8400-e29b-41d4-a716-446655440000";
 	private static final Instant PAST = Instant.parse("2026-07-01T00:00:00Z");
 
 	@Autowired
@@ -40,8 +41,48 @@ class MatchmakingEntryReservationTest {
 
 	@BeforeEach
 	void setUp() {
-		List.of(A, B).forEach(repository::delete);
-		stringRedisTemplate.delete(queueKey());
+		List.of(A, B, GUEST).forEach(repository::delete);
+		for (GameName game : GameName.values()) {
+			stringRedisTemplate.delete(redisKeyBuilder.build("matchmaking", "queue", game.name()));
+		}
+	}
+
+	@Test
+	void enqueueRepairsQueueOnlyGhostAndCreatesEntryAtomically() {
+		stringRedisTemplate.opsForZSet().add(queueKey(), A, PAST.toEpochMilli());
+
+		boolean created = repository.enqueue(MatchmakingEntry.searching(A, GAME, PAST));
+
+		assertThat(created).isTrue();
+		assertThat(repository.find(A)).isPresent();
+		assertThat(stringRedisTemplate.opsForZSet().size(queueKey())).isEqualTo(1L);
+	}
+
+	@Test
+	void enqueueRejectsExistingEntryWithoutLeavingQueueGhost() {
+		repository.enqueue(MatchmakingEntry.searching(A, GAME, PAST));
+		stringRedisTemplate.opsForZSet().remove(queueKey(), A);
+
+		boolean created = repository.enqueue(
+			MatchmakingEntry.searching(A, GAME, PAST.plusSeconds(1))
+		);
+
+		assertThat(created).isFalse();
+		assertThat(stringRedisTemplate.opsForZSet().score(queueKey(), A)).isNull();
+		assertThat(repository.find(A)).get()
+			.satisfies(entry -> assertThat(entry.queuedAt()).isEqualTo(PAST));
+	}
+
+	@Test
+	void enqueueUsesSameAtomicRegistrationForGuestParticipant() {
+		boolean created = repository.enqueue(
+			MatchmakingEntry.searching(GUEST, GAME, PAST)
+		);
+
+		assertThat(created).isTrue();
+		assertThat(repository.find(GUEST)).isPresent();
+		assertThat(stringRedisTemplate.opsForZSet().score(queueKey(), GUEST))
+			.isEqualTo((double) PAST.toEpochMilli());
 	}
 
 	@Test
@@ -134,6 +175,83 @@ class MatchmakingEntryReservationTest {
 		assertThat(requeued).isFalse();
 		assertThat(repository.find(A)).get()
 			.satisfies(e -> assertThat(e.matchStatus()).isEqualTo(MatchStatus.MATCHING));
+	}
+
+	@Test
+	void staleSearchingHashWithoutQueueIsRemovedAtomically() {
+		repository.enqueue(MatchmakingEntry.searching(A, GAME, PAST));
+		stringRedisTemplate.opsForZSet().remove(queueKey(), A);
+
+		boolean removed = repository.deleteStaleSearchingIfQueueMissing(A, GAME);
+
+		assertThat(removed).isTrue();
+		assertThat(repository.find(A)).isEmpty();
+	}
+
+	@Test
+	void queuedSearchingEntryIsProtectedFromStaleCleanup() {
+		repository.enqueue(MatchmakingEntry.searching(A, GAME, PAST));
+
+		boolean removed = repository.deleteStaleSearchingIfQueueMissing(A, GAME);
+
+		assertThat(removed).isFalse();
+		assertThat(repository.find(A)).isPresent();
+	}
+
+	@Test
+	void compareDeleteRemovesMatchingRoomAndQueueMember() {
+		UUID roomId = UUID.randomUUID();
+		repository.save(new MatchmakingEntry(
+			A,
+			GAME,
+			MatchStatus.IN_WAITING_ROOM,
+			roomId,
+			PAST,
+			PAST,
+			UUID.randomUUID()
+		));
+		stringRedisTemplate.opsForZSet().add(queueKey(), A, PAST.toEpochMilli());
+
+		MatchmakingEntryRepository.EntryDeleteResult result =
+			repository.deleteIfRoomMatches(A, roomId);
+
+		assertThat(result)
+			.isEqualTo(MatchmakingEntryRepository.EntryDeleteResult.DELETED);
+		assertThat(repository.find(A)).isEmpty();
+		assertThat(stringRedisTemplate.opsForZSet().score(queueKey(), A)).isNull();
+	}
+
+	@Test
+	void compareDeleteProtectsDifferentRoomEntry() {
+		UUID currentRoomId = UUID.randomUUID();
+		repository.save(new MatchmakingEntry(
+			A,
+			GAME,
+			MatchStatus.ENTERING_ROOM,
+			currentRoomId,
+			PAST,
+			PAST,
+			UUID.randomUUID()
+		));
+
+		MatchmakingEntryRepository.EntryDeleteResult result =
+			repository.deleteIfRoomMatches(A, UUID.randomUUID());
+
+		assertThat(result)
+			.isEqualTo(MatchmakingEntryRepository.EntryDeleteResult.ROOM_MISMATCH);
+		assertThat(repository.find(A)).isPresent();
+	}
+
+	@Test
+	void compareDeleteOfMissingEntryIsIdempotentNoOp() {
+		stringRedisTemplate.opsForZSet().add(queueKey(), A, PAST.toEpochMilli());
+
+		MatchmakingEntryRepository.EntryDeleteResult result =
+			repository.deleteIfRoomMatches(A, UUID.randomUUID());
+
+		assertThat(result)
+			.isEqualTo(MatchmakingEntryRepository.EntryDeleteResult.NOT_FOUND);
+		assertThat(stringRedisTemplate.opsForZSet().score(queueKey(), A)).isNull();
 	}
 
 	private void enqueuePair() {

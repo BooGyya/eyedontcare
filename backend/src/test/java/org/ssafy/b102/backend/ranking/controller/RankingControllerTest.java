@@ -62,6 +62,30 @@ class RankingControllerTest {
 	}
 
 	@Test
+	void 게스트도_홈_요약_랭킹을_조회한다() throws Exception {
+		SecurityContextHolder.clearContext();
+		StubRankingService service = new StubRankingService();
+		service.listResponse = new RankingListResponse(
+			"weekly", WEEK_START, List.of(new GameRankingSummary(
+				GameName.BLINK, RankType.BEST_SCORE, "count",
+				List.of(new RankingEntry(1, 7L, "방울반짝", 128, null)),
+				null))
+		);
+
+		MockMvcBuilders
+			.standaloneSetup(new RankingController(service))
+			.setCustomArgumentResolvers(
+				new AuthenticationPrincipalArgumentResolver())
+			.setControllerAdvice(new GlobalExceptionHandler())
+			.build()
+			.perform(get("/api/v1/rankings").param("limit", "3"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.games[0].myRank").doesNotExist());
+
+		assertThat(service.capturedLimit).isEqualTo(3);
+	}
+
+	@Test
 	void 게임별_랭킹을_조회한다() throws Exception {
 		StubRankingService service = new StubRankingService();
 		service.gameResponse = new GameRankingResponse(

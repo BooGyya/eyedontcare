@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import GamePlayPage from './GamePlayPage.vue'
 import GameResultPage from './GameResultPage.vue'
 import { recognizeDrawing } from '../api/draw'
+import { useLastGameResultStore } from '../stores/lastGameResult'
+import type { LastGameOutcome } from '../stores/lastGameResult'
+import type { GameDetailId } from '../types/game-detail'
 
 const GUEST_STORAGE_KEY = 'eye-dont-care.guestSessionId'
 
@@ -112,6 +115,140 @@ function createGameRouter() {
   })
 }
 
+function createResultPinia(
+  gameId: GameDetailId,
+  drawRounds = false,
+  isNewRecord = drawRounds,
+) {
+  const pinia = createPinia()
+  const store = useLastGameResultStore(pinia)
+  store.set({
+    gameId,
+    mode: 'solo',
+    outcome: 'COMPLETED',
+    isNewRecord,
+    headline: '게임이 종료되었습니다!',
+    summary: drawRounds
+      ? '3개 라운드의 그림 인식 결과를 확인해보세요.'
+      : '플레이 결과를 확인해보세요.',
+    scoreLabel: '최종 점수',
+    score: drawRounds ? '680점' : '120점',
+    stats: [],
+    ...(drawRounds
+      ? {
+          drawRounds: [
+            {
+              round: 1,
+              difficulty: 'EASY',
+              prompt: '안경',
+              aiGuess: '안경',
+              confidence: 0.8,
+              answer: '',
+              aiCorrect: true,
+              answerCorrect: false,
+              success: true,
+              baseScore: 100,
+              timeBonus: 40,
+              confidenceBonus: 40,
+              score: 180,
+              reason: '테스트 결과',
+            },
+            {
+              round: 2,
+              difficulty: 'MEDIUM',
+              prompt: '우산',
+              aiGuess: '우산',
+              confidence: 0.9,
+              answer: '',
+              aiCorrect: true,
+              answerCorrect: false,
+              success: true,
+              baseScore: 150,
+              timeBonus: 50,
+              confidenceBonus: 80,
+              score: 230,
+              reason: '테스트 결과',
+            },
+            {
+              round: 3,
+              difficulty: 'HARD',
+              prompt: '강아지',
+              aiGuess: '강아지',
+              confidence: 1,
+              answer: '',
+              aiCorrect: true,
+              answerCorrect: false,
+              success: true,
+              baseScore: 200,
+              timeBonus: 60,
+              confidenceBonus: 110,
+              score: 270,
+              reason: '테스트 결과',
+            },
+          ],
+        }
+      : {}),
+  })
+  return pinia
+}
+
+function createDrawResultPinia(
+  gameId: GameDetailId,
+  mode: 'ai' | 'friends' | 'random' = 'random',
+) {
+  const pinia = createPinia()
+  const store = useLastGameResultStore(pinia)
+  store.set({
+    gameId,
+    mode,
+    outcome: 'DRAW',
+    opponentNickname: '상대 플레이어',
+    headline: 'DRAW',
+    summary: '마지막까지 팽팽한 승부였어요!',
+    scoreLabel: '최종 점수',
+    score: gameId === 'air' ? '3' : '1,860점',
+    opponentScore: gameId === 'air' ? '3' : '1,860점',
+    stats: [
+      {
+        label: '최대 콤보',
+        value: '20',
+        opponentValue: '20',
+      },
+    ],
+  })
+  return pinia
+}
+
+function createCompetitiveResultPinia(
+  gameId: GameDetailId,
+  outcome: LastGameOutcome,
+  mode: 'friends' | 'random' = 'friends',
+) {
+  const pinia = createPinia()
+  const store = useLastGameResultStore(pinia)
+  store.set({
+    gameId,
+    mode,
+    outcome,
+    opponentNickname: '상대 플레이어',
+    headline: outcome === 'LOSE' ? '아쉽게 졌어요' : '승리했어요!',
+    summary: '대결 결과를 확인해 보세요.',
+    scoreLabel: '최종 점수',
+    score: gameId === 'blink' ? '3' : '1,860점',
+    opponentScore: gameId === 'blink' ? '5' : '1,240점',
+    stats:
+      gameId === 'blink'
+        ? []
+        : [
+            {
+              label: '최대 콤보',
+              value: '24',
+            },
+          ],
+  })
+  return pinia
+}
+
 describe('gameplay routes', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -128,9 +265,42 @@ describe('gameplay routes', () => {
         global: { plugins: [router, createPinia()] },
       })
       expect(wrapper.find('.play-shell').exists()).toBe(true)
+      expect(wrapper.find('button.finish').exists()).toBe(false)
       wrapper.unmount()
     },
   )
+
+  it('shows a countdown before starting a replay', async () => {
+    vi.useFakeTimers()
+
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=solo&replay=1')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await nextTick()
+
+    const getCountdown = () =>
+      document.body.querySelector('[aria-label="게임 다시 시작 카운트다운"]')
+
+    expect(getCountdown()).not.toBeNull()
+    expect(getCountdown()?.textContent).toContain('3')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(getCountdown()?.textContent).toContain('2')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(getCountdown()?.textContent).toContain('1')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    await nextTick()
+
+    expect(getCountdown()).toBeNull()
+    expect(router.currentRoute.value.query.replay).toBeUndefined()
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
 
   it('shows the round score dialog and advances to the next round after AI judging succeeds', async () => {
     vi.mocked(recognizeDrawing).mockResolvedValue({
@@ -231,7 +401,77 @@ describe('gameplay routes', () => {
     },
   )
 
-  it('moves to the result screen when the opponent runs out of health first', async () => {
+  it.each(['friends', 'random'])(
+    'moves to the result screen and stores the opponent score in %s mode',
+    async (mode) => {
+      globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+      vi.stubGlobal('WebSocket', MockWebSocket)
+      MockWebSocket.instances = []
+
+      const router = createGameRouter()
+      await router.push(`/games/rhythm/play?mode=${mode}&roomId=room-1`)
+      await router.isReady()
+      const pinia = createPinia()
+      const wrapper = mount(GamePlayPage, {
+        global: { plugins: [router, pinia] },
+      })
+      await nextTick()
+
+      const ws = MockWebSocket.instances[0]
+      expect(ws).toBeTruthy()
+      ws.simulateOpen()
+      ws.simulateMessage({
+        type: 'SESSION_STATE',
+        data: {
+          roomId: 'room-1',
+          gameName: 'RHYTHM',
+          participants: [
+            {
+              participantKey: 'GUEST:guest-1',
+              displayName: '내 게스트',
+              roomRole: 'HOST',
+              slotNo: 1,
+              isReady: true,
+              calibrationStatus: 'COMPLETED',
+              joinedAt: new Date().toISOString(),
+            },
+            {
+              participantKey: 'GUEST:opponent',
+              displayName: '상대 게스트',
+              roomRole: 'PLAYER',
+              slotNo: 2,
+              isReady: true,
+              calibrationStatus: 'COMPLETED',
+              joinedAt: new Date().toISOString(),
+            },
+          ],
+        },
+      })
+      ws.simulateMessage({
+        type: 'PLAYER_EVENT',
+        data: {
+          participantKey: 'GUEST:opponent',
+          eventType: 'RHYTHM_STATE',
+          payload: { score: 340, combo: 0, health: 0 },
+          occurredAt: new Date().toISOString(),
+        },
+      })
+
+      await nextTick()
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
+      expect(router.currentRoute.value.name).toBe('game-result')
+      expect(useLastGameResultStore(pinia).current?.opponentNickname).toBe(
+        '게스트 플레이어',
+      )
+      expect(useLastGameResultStore(pinia).current?.opponentScore).toBe('340점')
+
+      wrapper.unmount()
+      vi.unstubAllGlobals()
+      globalThis.sessionStorage.clear()
+    },
+  )
+
+  it('shows a registered opponent nickname in the result store', async () => {
     globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
     vi.stubGlobal('WebSocket', MockWebSocket)
     MockWebSocket.instances = []
@@ -239,8 +479,9 @@ describe('gameplay routes', () => {
     const router = createGameRouter()
     await router.push('/games/rhythm/play?mode=friends&roomId=room-1')
     await router.isReady()
+    const pinia = createPinia()
     const wrapper = mount(GamePlayPage, {
-      global: { plugins: [router, createPinia()] },
+      global: { plugins: [router, pinia] },
     })
     await nextTick()
 
@@ -248,9 +489,36 @@ describe('gameplay routes', () => {
     expect(ws).toBeTruthy()
     ws.simulateOpen()
     ws.simulateMessage({
+      type: 'SESSION_STATE',
+      data: {
+        roomId: 'room-1',
+        gameName: 'RHYTHM',
+        participants: [
+          {
+            participantKey: 'GUEST:guest-1',
+            displayName: '게스트 플레이어',
+            roomRole: 'HOST',
+            slotNo: 1,
+            isReady: true,
+            calibrationStatus: 'COMPLETED',
+            joinedAt: new Date().toISOString(),
+          },
+          {
+            participantKey: 'USER:42',
+            displayName: '회원 닉네임',
+            roomRole: 'PLAYER',
+            slotNo: 2,
+            isReady: true,
+            calibrationStatus: 'COMPLETED',
+            joinedAt: new Date().toISOString(),
+          },
+        ],
+      },
+    })
+    ws.simulateMessage({
       type: 'PLAYER_EVENT',
       data: {
-        participantKey: 'GUEST:opponent',
+        participantKey: 'USER:42',
         eventType: 'RHYTHM_STATE',
         payload: { score: 340, combo: 0, health: 0 },
         occurredAt: new Date().toISOString(),
@@ -260,6 +528,9 @@ describe('gameplay routes', () => {
     await nextTick()
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0))
     expect(router.currentRoute.value.name).toBe('game-result')
+    expect(useLastGameResultStore(pinia).current?.opponentNickname).toBe(
+      '회원 닉네임',
+    )
 
     wrapper.unmount()
     vi.unstubAllGlobals()
@@ -267,22 +538,149 @@ describe('gameplay routes', () => {
   })
 
   it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
-    'renders the %s result route from mock data',
+    'renders the %s result route from a real result',
     async (gameId) => {
       const router = createGameRouter()
       await router.push(`/games/${gameId}/result?mode=solo`)
       await router.isReady()
-      const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+      const pinia = createResultPinia(gameId as GameDetailId, gameId === 'draw')
+      const wrapper = mount(GameResultPage, {
+        global: { plugins: [router, pinia] },
+      })
       expect(wrapper.find('.result-shell').exists()).toBe(true)
       wrapper.unmount()
     },
   )
 
-  it('shows the redesigned draw result summary with round score tooltips', async () => {
+  it('passes a replay flag when starting again from the result screen', async () => {
+    const router = createGameRouter()
+    await router.push('/games/blink/result?mode=solo&result=completed')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: { plugins: [router, createResultPinia('blink')] },
+    })
+
+    const replayButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === '다시 플레이')
+    expect(replayButton).toBeTruthy()
+
+    await replayButton?.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(router.currentRoute.value.name).toBe('game-play')
+    expect(router.currentRoute.value.query.replay).toBe('1')
+    expect(router.currentRoute.value.query.result).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each([true, false])(
+    'renders the blink solo result asset based on the new-record state: %s',
+    async (isNewRecord) => {
+      const router = createGameRouter()
+      await router.push('/games/blink/result?mode=solo')
+      await router.isReady()
+      const wrapper = mount(GameResultPage, {
+        global: {
+          plugins: [router, createResultPinia('blink', false, isNewRecord)],
+        },
+      })
+
+      const resultHero = wrapper.get('.result-hero')
+      const imageSrc = resultHero.get('img').attributes('src')
+
+      expect(wrapper.find('.record-badge').exists()).toBe(isNewRecord)
+      if (isNewRecord) {
+        expect(resultHero.classes()).not.toContain(
+          'result-hero--blink-record-missed',
+        )
+      } else {
+        expect(resultHero.classes()).toContain(
+          'result-hero--blink-record-missed',
+        )
+      }
+      expect(imageSrc).toContain(
+        isNewRecord ? 'game-blink.png' : 'profile-blink-record-missed',
+      )
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['WIN', 'LOSE', 'DRAW'] as const)(
+    'renders the blink %s competitive result with the shared duel UI',
+    async (outcome) => {
+      const router = createGameRouter()
+      await router.push('/games/blink/result?mode=friends')
+      await router.isReady()
+      const wrapper = mount(GameResultPage, {
+        global: {
+          plugins: [router, createCompetitiveResultPinia('blink', outcome)],
+        },
+      })
+
+      expect(wrapper.find('.air-result').exists()).toBe(true)
+      expect(wrapper.find('.air-duel-scoreboard').exists()).toBe(true)
+      expect(wrapper.find('.blink-result').exists()).toBe(false)
+      expect(wrapper.find('.duel-loss').exists()).toBe(false)
+      expect(wrapper.text()).toContain('3')
+      expect(wrapper.text()).toContain('5')
+      expect(wrapper.text()).not.toContain('3회')
+      expect(wrapper.text()).not.toContain('5회')
+      expect(wrapper.text()).not.toContain('깜빡임 횟수')
+
+      if (outcome === 'WIN') {
+        expect(wrapper.text()).toContain('YOU WIN!')
+      } else if (outcome === 'LOSE') {
+        expect(wrapper.text()).toContain('YOU LOSE...')
+        expect(wrapper.text()).not.toContain('YOU WIN!')
+      } else {
+        expect(wrapper.text()).toContain('DRAW')
+        expect(wrapper.text()).not.toContain('YOU WIN!')
+      }
+
+      wrapper.unmount()
+    },
+  )
+
+  it('does not render an unknown competitive result as a win', async () => {
+    const router = createGameRouter()
+    await router.push('/games/rhythm/result?mode=friends')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: {
+        plugins: [router, createCompetitiveResultPinia('rhythm', 'UNKNOWN')],
+      },
+    })
+
+    expect(wrapper.find('.competitive-pending-result').exists()).toBe(true)
+    expect(wrapper.find('.duel-loss').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('YOU WIN!')
+    wrapper.unmount()
+  })
+
+  it('does not render a fallback result when the result store is empty', async () => {
+    const router = createGameRouter()
+    await router.push('/games/rhythm/result?mode=solo')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+
+    expect(wrapper.find('.result-shell').exists()).toBe(false)
+    expect(wrapper.find('.missing').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('1,860점')
+    wrapper.unmount()
+  })
+
+  it('shows the draw result summary with real round score tooltips', async () => {
     const router = createGameRouter()
     await router.push('/games/draw/result?mode=solo')
     await router.isReady()
-    const wrapper = mount(GameResultPage, { global: { plugins: [router] } })
+    const pinia = createResultPinia('draw', true)
+    const wrapper = mount(GameResultPage, {
+      global: { plugins: [router, pinia] },
+    })
 
     expect(wrapper.text()).toContain('게임이 종료되었습니다!')
     expect(wrapper.text()).toContain(
@@ -316,4 +714,33 @@ describe('gameplay routes', () => {
     expect(gamesButton?.exists()).toBe(true)
     wrapper.unmount()
   })
+
+  it.each(['air', 'rhythm', 'blink'])(
+    'renders the draw result assets for %s competitive games',
+    async (gameId) => {
+      const router = createGameRouter()
+      await router.push('/games/' + gameId + '/result?mode=random')
+      await router.isReady()
+      const wrapper = mount(GameResultPage, {
+        global: {
+          plugins: [router, createDrawResultPinia(gameId as GameDetailId)],
+        },
+      })
+
+      expect(wrapper.text()).toContain('DRAW')
+      expect(wrapper.text()).toContain('팽팽했어요!')
+      expect(wrapper.text()).not.toContain('YOU WIN!')
+      expect(
+        wrapper.get('img[alt="무승부 결과 배너 캐릭터"]').attributes('src'),
+      ).toContain('profile-draw-result-banner')
+      expect(
+        wrapper.get('img[alt="무승부 내 플레이어"]').attributes('src'),
+      ).toContain('profile-main-character-versus-draw')
+      expect(
+        wrapper.get('img[alt="무승부 상대 플레이어"]').attributes('src'),
+      ).toContain('profile-rival-character-versus-draw')
+
+      wrapper.unmount()
+    },
+  )
 })

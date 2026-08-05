@@ -1,10 +1,15 @@
 package org.ssafy.b102.backend.waitingroom.websocket;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
@@ -210,7 +215,7 @@ class WaitingRoomWebSocketServiceTest {
 	}
 
 	@Test
-	void initialStateSendFailureUnregistersClosesAndLeaves() {
+	void initialStateSendFailureUnregistersClosesWithoutLeaveCleanup() {
 		when(jwtTokenProvider.parseAccessTokenUserId("token"))
 			.thenReturn(Optional.of(1L));
 		when(participantResolver.resolveExisting(any(), eq(null)))
@@ -221,13 +226,37 @@ class WaitingRoomWebSocketServiceTest {
 			.thenReturn(snapshot(RoomStatus.WAITING));
 		when(waitingRoomService.leaveByParticipantKey(ROOM_ID, "USER:1"))
 			.thenReturn(LeaveWaitingRoomResult.LEFT);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
 		StubWebSocketSession session = new FailingWebSocketSession("s1");
 
 		authenticate(session);
 
 		assertThat(registry.findBySessionId("s1")).isEmpty();
 		assertThat(session.closeStatus()).isEqualTo(CloseStatus.SERVER_ERROR);
-		verify(waitingRoomService).leaveByParticipantKey(ROOM_ID, "USER:1");
+		verify(waitingRoomService, never()).leaveByParticipantKey(ROOM_ID, "USER:1");
+		verify(waitingRoomService, never()).leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1");
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+	}
+
+	@Test
+	void randomInitialStateSendFailureKeepsMatchmakingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.WAITING));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new FailingWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		verify(lifecycle, never()).cleanupParticipantAfterLeave(any(), any());
+		verify(waitingRoomService, never()).leaveWithOutcomeByParticipantKey(any(), any());
+		assertThat(session.closeStatus()).isEqualTo(CloseStatus.SERVER_ERROR);
 	}
 
 	@Test
@@ -331,6 +360,10 @@ class WaitingRoomWebSocketServiceTest {
 		ObjectProvider<RandomRoomLifecyclePort> lifecycleProvider =
 			mock(ObjectProvider.class);
 		when(rematchProvider.getIfAvailable()).thenReturn(requester);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		when(lifecycleProvider.getIfAvailable()).thenReturn(lifecycle);
+		doThrow(new IllegalStateException("redis unavailable"))
+			.when(lifecycle).cleanupParticipantAfterLeave(ROOM_ID, "USER:1");
 		when(
 			requester.requeueRemaining(ROOM_ID, GameName.EYEFIGHT, "USER:2")
 		).thenReturn(RandomRematchRequestResult.REQUEUED);
@@ -389,10 +422,473 @@ class WaitingRoomWebSocketServiceTest {
 			GameName.EYEFIGHT,
 			"USER:2"
 		);
+		verify(lifecycle).cleanupParticipantAfterLeave(ROOM_ID, "USER:1");
 		assertThat(remaining.lastSentPayload()).contains("\"roomStatus\":\"CLOSED\"");
 		assertThat(quitter.closeStatus()).isEqualTo(CloseStatus.NORMAL);
 		assertThat(remaining.closeStatus()).isEqualTo(CloseStatus.NORMAL);
 		assertThat(registry.findByRoomId(ROOM_ID)).isEmpty();
+		service.connectionClosed(quitter);
+		service.connectionClosed(remaining);
+		verify(requester).requeueRemaining(ROOM_ID, GameName.EYEFIGHT, "USER:2");
+		verify(lifecycle, never()).cleanupRematchAfterPreviousRoomDisconnect(any(), any());
+	}
+
+	@Test
+	void actualDisconnectAfterRematchCleansPreviousRoomEntryOnce() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		StubWebSocketSession remaining = new StubWebSocketSession("remaining-session");
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"remaining-session",
+				ROOM_ID,
+				"USER:2",
+				RoomRole.PLAYER,
+				NOW,
+				remaining
+			)
+		);
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:2"))
+			.thenReturn(WaitingRoomLeaveOutcome.random(alreadyClosedResult()));
+
+		service.connectionClosed(remaining);
+		service.connectionClosed(remaining);
+
+		verify(lifecycle, times(1)).cleanupRematchAfterPreviousRoomDisconnect(
+			ROOM_ID,
+			"USER:2"
+		);
+	}
+
+	@Test
+	void guestDisconnectAfterRematchUsesSameCleanup() {
+		String guestKey = "GUEST:00000000-0000-0000-0000-000000000002";
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		StubWebSocketSession remaining = new StubWebSocketSession("guest-session");
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"guest-session",
+				ROOM_ID,
+				guestKey,
+				RoomRole.PLAYER,
+				NOW,
+				remaining
+			)
+		);
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, guestKey))
+			.thenReturn(WaitingRoomLeaveOutcome.random(alreadyClosedResult()));
+
+		service.connectionClosed(remaining);
+
+		verify(lifecycle).cleanupRematchAfterPreviousRoomDisconnect(ROOM_ID, guestKey);
+	}
+
+	@Test
+	void rematchCleanupFailureDoesNotFailDisconnectCallback() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		StubWebSocketSession remaining = new StubWebSocketSession("remaining-session");
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"remaining-session",
+				ROOM_ID,
+				"USER:2",
+				RoomRole.PLAYER,
+				NOW,
+				remaining
+			)
+		);
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:2"))
+			.thenReturn(WaitingRoomLeaveOutcome.random(alreadyClosedResult()));
+		doThrow(new IllegalStateException("redis unavailable"))
+			.when(lifecycle)
+			.cleanupRematchAfterPreviousRoomDisconnect(ROOM_ID, "USER:2");
+
+		assertThatCode(() -> service.connectionClosed(remaining)).doesNotThrowAnyException();
+		assertThat(registry.findBySessionId("remaining-session")).isEmpty();
+	}
+
+	@Test
+	void disconnectBetweenRequeueAndServerCloseTriggersRematchCleanup() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		StubWebSocketSession remaining = new StubWebSocketSession("remaining-session");
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"remaining-session",
+				ROOM_ID,
+				"USER:2",
+				RoomRole.PLAYER,
+				NOW,
+				remaining
+			)
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.CLOSED));
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:2"))
+			.thenReturn(WaitingRoomLeaveOutcome.random(alreadyClosedResult()));
+		doAnswer(invocation -> {
+			remaining.close();
+			service.connectionClosed(remaining);
+			return RandomRematchRequestResult.REQUEUED;
+		}).when(requester).requeueRemaining(ROOM_ID, GameName.EYEFIGHT, "USER:2");
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(lifecycle, atLeastOnce()).cleanupRematchAfterPreviousRoomDisconnect(
+			ROOM_ID,
+			"USER:2"
+		);
+		assertThat(registry.findBySessionId("remaining-session")).isEmpty();
+	}
+
+	@Test
+	void randomLeaveWithoutRemainingOpenSessionDoesNotRequeue() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID)).thenReturn(randomSnapshot(RoomStatus.CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+		verify(lifecycle).cleanupParticipantAfterLeave(ROOM_ID, "USER:1");
+	}
+
+	@Test
+	void randomLeaveWithClosedRemainingSessionDoesNotRequeue() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		StubWebSocketSession remaining = new StubWebSocketSession("remaining-session");
+		remaining.close();
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"remaining-session",
+				ROOM_ID,
+				"USER:2",
+				RoomRole.PLAYER,
+				NOW,
+				remaining
+			)
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID)).thenReturn(randomSnapshot(RoomStatus.CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+	}
+
+	@Test
+	void randomLeaveWithParticipantSnapshotMismatchDoesNotRequeue() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshotWithKeys(RoomStatus.CLOSED, List.of("USER:1", "USER:3")));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+	}
+
+	@Test
+	void randomLeaveWithCorruptedParticipantCountDoesNotRequeue() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshotWithKeys(
+				RoomStatus.CLOSED,
+				List.of("USER:1", "USER:2", "USER:3")
+			));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+	}
+
+	@Test
+	void randomLeaveWithEmptyParticipantSnapshotDoesNotRequeue() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshotWithKeys(RoomStatus.CLOSED, List.of()));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+	}
+
+	@Test
+	void randomLeaveSnapshotFailureDoesNotRequeue() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.WAITING)));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new IllegalStateException("redis timeout"));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+		verify(lifecycle).cleanupParticipantAfterLeave(ROOM_ID, "USER:1");
+	}
+
+	@Test
+	void alreadyClosedRandomLeaveIsNoOp() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		RandomRoomLeaveResult alreadyClosed = new RandomRoomLeaveResult(
+			RandomRoomLeaveResult.Status.ALREADY_CLOSED,
+			ROOM_ID,
+			GameName.EYEFIGHT,
+			"USER:1",
+			"USER:2",
+			RoomStatus.WAITING
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(alreadyClosed));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(waitingRoomService, never()).findSnapshot(ROOM_ID);
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+		verify(lifecycle, never()).cleanupParticipantAfterLeave(any(), any());
+		verify(lifecycle, never()).cleanupRematchAfterPreviousRoomDisconnect(any(), any());
+	}
+
+	@Test
+	void randomCountdownLeaveCancelsScheduledTaskAndDoesNotStartGame() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		@SuppressWarnings("rawtypes")
+		ScheduledFuture future = mock(ScheduledFuture.class);
+		when(taskScheduler.schedule(any(Runnable.class), any(Instant.class))).thenReturn(future);
+		countdownCoordinator.scheduleIfAbsent(ROOM_ID, NOW.plusSeconds(3), () ->	{});
+		registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				"remaining-session",
+				ROOM_ID,
+				"USER:2",
+				RoomRole.PLAYER,
+				NOW,
+				new StubWebSocketSession("remaining-session")
+			)
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(WaitingRoomLeaveOutcome.random(closedResult(RoomStatus.COUNTDOWN)));
+		when(waitingRoomService.findSnapshot(ROOM_ID)).thenReturn(randomSnapshot(RoomStatus.CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		verify(future).cancel(false);
+		verify(requester).requeueRemaining(ROOM_ID, GameName.EYEFIGHT, "USER:2");
+		verify(commandService, never()).completeCountdown(any(), any(), any(), any());
+	}
+
+	@Test
+	void inGameLeaveDoesNotInvokeRematch() {
+		RandomRematchRequester requester = mock(RandomRematchRequester.class);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useRandomDependencies(requester, lifecycle);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenThrow(new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE));
+
+		assertThatThrownBy(() -> service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		)).isInstanceOf(BusinessException.class);
+
+		verify(requester, never()).requeueRemaining(any(), any(), any());
+		verify(lifecycle, never()).cleanupParticipantAfterLeave(any(), any());
+		verify(lifecycle, never()).cleanupRematchAfterPreviousRoomDisconnect(any(), any());
+	}
+
+	@Test
+	void randomAuthenticationFailureCleansMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.CLOSED));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:1");
+		assertThat(session.lastSentPayload()).contains("WAITING-007");
+	}
+
+	@Test
+	void missingWaitingRoomCleansMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:1");
+		assertThat(session.lastSentPayload()).contains("WAITING-008");
+	}
+
+	@Test
+	void missingParticipantCleansMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:3", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.WAITING));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:3");
+		assertThat(session.lastSentPayload()).contains("WAITING-009");
+	}
+
+	@Test
+	void waitingRoomStoreFailureDoesNotCleanupMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		assertThat(session.lastSentPayload()).contains("WAITING-003");
+	}
+
+	@Test
+	void unexpectedAuthenticationRuntimeDoesNotCleanupMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new IllegalStateException("redis timeout"));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		assertThat(session.lastSentPayload()).contains("WAITING-003");
+	}
+
+	@Test
+	void inviteAuthenticationFailureDoesNotCallMatchmakingCleanup() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "HOST"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(snapshot(RoomStatus.CLOSED));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		assertThat(session.lastSentPayload()).contains("WAITING-007");
+	}
+
+	@Test
+	void cleanupFailureDoesNotReplaceOriginalAuthenticationError() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.CLOSED));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		doThrow(new IllegalStateException("cleanup failed"))
+			.when(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:1");
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		assertThat(session.lastSentPayload()).contains("WAITING-007");
+		assertThat(session.closeStatus()).isEqualTo(CloseStatus.POLICY_VIOLATION);
 	}
 
 	@Test
@@ -477,6 +973,89 @@ class WaitingRoomWebSocketServiceTest {
 		);
 	}
 
+	private void useLifecycle(RandomRoomLifecyclePort lifecycle) {
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRoomLifecyclePort> lifecycleProvider =
+			mock(ObjectProvider.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRematchRequester> rematchProvider =
+			mock(ObjectProvider.class);
+		when(lifecycleProvider.getIfAvailable()).thenReturn(lifecycle);
+		when(rematchProvider.getIfAvailable()).thenReturn(null);
+		service = new WaitingRoomWebSocketService(
+			waitingRoomService,
+			commandService,
+			participantResolver,
+			registry,
+			countdownCoordinator,
+			jwtTokenProvider,
+			null,
+			JsonMapper.builder().findAndAddModules().build(),
+			new WaitingRoomWebSocketProperties(
+				Duration.ofSeconds(5),
+				Duration.ofSeconds(5),
+				65536
+			),
+			taskScheduler,
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			lifecycleProvider,
+			rematchProvider
+		);
+	}
+
+	private void useRandomDependencies(
+		RandomRematchRequester requester,
+		RandomRoomLifecyclePort lifecycle
+	) {
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRoomLifecyclePort> lifecycleProvider = mock(ObjectProvider.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRematchRequester> rematchProvider = mock(ObjectProvider.class);
+		when(lifecycleProvider.getIfAvailable()).thenReturn(lifecycle);
+		when(rematchProvider.getIfAvailable()).thenReturn(requester);
+		service = new WaitingRoomWebSocketService(
+			waitingRoomService,
+			commandService,
+			participantResolver,
+			registry,
+			countdownCoordinator,
+			jwtTokenProvider,
+			null,
+			JsonMapper.builder().findAndAddModules().build(),
+			new WaitingRoomWebSocketProperties(
+				Duration.ofSeconds(5),
+				Duration.ofSeconds(5),
+				65536
+			),
+			taskScheduler,
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			lifecycleProvider,
+			rematchProvider
+		);
+	}
+
+	private RandomRoomLeaveResult closedResult(RoomStatus previousStatus) {
+		return new RandomRoomLeaveResult(
+			RandomRoomLeaveResult.Status.CLOSED_NOW,
+			ROOM_ID,
+			GameName.EYEFIGHT,
+			"USER:1",
+			"USER:2",
+			previousStatus
+		);
+	}
+
+	private RandomRoomLeaveResult alreadyClosedResult() {
+		return new RandomRoomLeaveResult(
+			RandomRoomLeaveResult.Status.ALREADY_CLOSED,
+			ROOM_ID,
+			GameName.EYEFIGHT,
+			"USER:1",
+			"USER:2",
+			RoomStatus.WAITING
+		);
+	}
+
 	private WaitingRoomSnapshot snapshot(RoomStatus status) {
 		UUID countdownId = status == RoomStatus.COUNTDOWN
 			? UUID.fromString("d93c76b2-7f78-4275-b8af-7cdd921bbb4f")
@@ -543,6 +1122,10 @@ class WaitingRoomWebSocketServiceTest {
 	}
 
 	private WaitingRoomSnapshot randomSnapshot(RoomStatus status) {
+		return randomSnapshotWithKeys(status, List.of("USER:1", "USER:2"));
+	}
+
+	private WaitingRoomSnapshot randomSnapshotWithKeys(RoomStatus status, List<String> keys) {
 		return new WaitingRoomSnapshot(
 			new WaitingRoom(
 				ROOM_ID,
@@ -552,26 +1135,17 @@ class WaitingRoomWebSocketServiceTest {
 				status,
 				NOW
 			),
-			List.of(
-				new WaitingRoomParticipant(
-					"USER:1",
-					"PLAYER1",
+			keys.stream()
+				.map(key -> new WaitingRoomParticipant(
+					key,
+					key,
 					RoomRole.PLAYER,
-					1,
+					keys.indexOf(key) + 1,
 					false,
 					CalibrationStatus.PENDING,
 					NOW
-				),
-				new WaitingRoomParticipant(
-					"USER:2",
-					"PLAYER2",
-					RoomRole.PLAYER,
-					2,
-					false,
-					CalibrationStatus.PENDING,
-					NOW
-				)
-			)
+				))
+			.toList()
 		);
 	}
 

@@ -1,8 +1,7 @@
 /**
  * 게임 종료 시 결과를 저장하는 제출 파이프라인.
  *
- * 게임들이 아직 실제 점수/승패를 계산하지 않으므로 지금은 mock 값을 담아 보낸다. 게임 로직이
- * 실제화되면 outcome/score/participants만 실값으로 바꾸면 된다. 저장은 best-effort —
+ * 게임 로직에서 계산한 실제 점수와 승패를 결과 API에 전달한다. 저장은 best-effort —
  * 신원이 없거나(게스트 미참여), gameId 매핑이 없거나, POST가 실패해도 게임 흐름을 막지 않는다.
  */
 import { resolveGameId } from '../api/game'
@@ -12,7 +11,11 @@ import { useAuthStore } from '../stores/auth'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
 import type { GameDetailId } from '../types/game-detail'
 import type { GameSessionMode } from '../types/gameplay'
-import type { GameOutcome, GameResultPlayMode } from '../types/gameResult'
+import type {
+  GameOutcome,
+  GameResultPlayMode,
+  SubmitGameResultResponse,
+} from '../types/gameResult'
 
 const MODE_TO_PLAY_MODE: Record<GameSessionMode, GameResultPlayMode> = {
   solo: 'SOLO',
@@ -38,28 +41,24 @@ export function useGameResultSubmission() {
     score: number
     outcome?: GameOutcome
     resultData?: Record<string, unknown>
-  }): Promise<void> {
+  }): Promise<SubmitGameResultResponse | null> {
     const participantKey = currentParticipantKey()
     const participantType = currentParticipantType()
-    if (!participantKey || !participantType) return // 신원 없음 → 스킵
+    if (!participantKey || !participantType) return null
 
     const gameId = await resolveGameId(
       GAME_NAME_BY_ID[options.gameSlug],
       MODE_TO_PLAY_MODE[options.mode],
     )
-    if (gameId === null) return // (gameName × playMode) 매핑 없음 → 스킵
+    if (gameId === null) return null
 
-    const outcome: GameOutcome =
-      options.outcome ??
-      (options.gameSlug === 'draw' || options.mode === 'solo'
-        ? 'COMPLETED'
-        : 'WIN')
+    const outcome: GameOutcome = options.outcome ?? 'COMPLETED'
     const displayName = auth.isAuthenticated
       ? auth.user.nickname
       : '게스트 플레이어'
 
     try {
-      await submitGameResult({
+      const response = await submitGameResult({
         playId: newPlayId(),
         gameId,
         startedAt: options.startedAt,
@@ -81,8 +80,10 @@ export function useGameResultSubmission() {
           },
         },
       })
+      return response
     } catch {
       // best-effort: 저장 실패는 게임 흐름을 막지 않는다.
+      return null
     }
   }
 

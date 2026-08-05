@@ -58,6 +58,8 @@ export interface SubmitGameResultRequest {
 /** `POST /game-results` 응답 data. */
 export interface SubmitGameResultResponse {
   resultId: number
+  isNewRecord: boolean
+  previousBestScore: number | null
 }
 
 /** `GET /game-results/{id}` 상세 응답. */
