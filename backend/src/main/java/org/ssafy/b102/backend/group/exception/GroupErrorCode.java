@@ -75,6 +75,12 @@ public enum GroupErrorCode implements ErrorCode {
 		HttpStatus.NOT_FOUND,
 		"GROUP-012",
 		"후기를 찾을 수 없습니다."
+	),
+
+	PRIVATE_GROUP_MEMBER_ONLY(
+		HttpStatus.FORBIDDEN,
+		"GROUP-013",
+		"비공개 소모임은 멤버만 접근할 수 있습니다."
 	);
 
 	private final HttpStatus status;

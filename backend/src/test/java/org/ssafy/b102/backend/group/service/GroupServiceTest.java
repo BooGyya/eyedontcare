@@ -277,6 +277,38 @@ class GroupServiceTest {
 	}
 
 	@Test
+	void 비공개_소모임_비멤버_상세_조회는_GROUP_013이다() {
+		Group group = group(GroupVisibility.PRIVATE, 30);
+		when(groupRepository.findById(GROUP_ID))
+			.thenReturn(Optional.of(group));
+		when(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, MEMBER_ID))
+			.thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> groupService.getGroup(MEMBER_ID, GROUP_ID))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.getErrorCode())
+					.isEqualTo(GroupErrorCode.PRIVATE_GROUP_MEMBER_ONLY));
+	}
+
+	@Test
+	void 비공개_소모임_멤버는_상세를_조회할_수_있다() {
+		Group group = group(GroupVisibility.PRIVATE, 30);
+		when(groupRepository.findById(GROUP_ID))
+			.thenReturn(Optional.of(group));
+		when(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, MEMBER_ID))
+			.thenReturn(Optional.of(member(MEMBER_ID, GroupRole.MEMBER)));
+		when(groupMemberRepository.findByGroupIdOrderByJoinedAtAsc(GROUP_ID))
+			.thenReturn(List.of(member(MEMBER_ID, GroupRole.MEMBER)));
+		when(userRepository.findAllById(any()))
+			.thenReturn(List.of(user(MEMBER_ID, "멤버")));
+
+		GroupDetailResponse response =
+			groupService.getGroup(MEMBER_ID, GROUP_ID);
+
+		assertThat(response.isJoined()).isTrue();
+	}
+
+	@Test
 	void 없는_소모임_상세는_GROUP_001이다() {
 		when(groupRepository.findById(GROUP_ID)).thenReturn(Optional.empty());
 
