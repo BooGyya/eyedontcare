@@ -144,6 +144,7 @@ watch(
     }
 
     restoreScroll()
+    clearForms()
     globalThis.removeEventListener('keydown', handleKeydown)
   },
 )
