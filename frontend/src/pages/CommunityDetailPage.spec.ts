@@ -4,7 +4,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CommunityDetailPage from './CommunityDetailPage.vue'
 import { useAuthStore } from '../stores/auth'
-import type { GroupDetailResponse } from '../api/group'
+import type {
+  GroupCommentResponse,
+  GroupDetailResponse,
+  GroupPostListResponse,
+  GroupPostResponse,
+} from '../api/group'
 import {
   COMMENT_COOLDOWN_MS,
   COMMENT_MAX_LENGTH,
@@ -14,7 +19,20 @@ import {
 const getGroup = vi.fn<() => Promise<GroupDetailResponse>>()
 const leaveGroup = vi.fn<() => Promise<void>>()
 const joinGroupById = vi.fn<() => Promise<unknown>>()
+const getGroupPosts = vi.fn<() => Promise<GroupPostListResponse>>()
+const createGroupPost =
+  vi.fn<(groupId: string, content: string) => Promise<GroupPostResponse>>()
+const createGroupComment =
+  vi.fn<
+    (
+      groupId: string,
+      postId: string,
+      content: string,
+    ) => Promise<GroupCommentResponse>
+  >()
 
+// getGroupPosts/createGroupPost/createGroupComment만 가짜로 바꾸고, 변환기(toCommunityPost 등
+// 순수 함수)는 실제 구현을 그대로 쓴다.
 vi.mock('../api/group', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/group')>()
   return {
@@ -22,6 +40,11 @@ vi.mock('../api/group', async (importOriginal) => {
     getGroup: () => getGroup(),
     leaveGroup: () => leaveGroup(),
     joinGroupById: () => joinGroupById(),
+    getGroupPosts: () => getGroupPosts(),
+    createGroupPost: (groupId: string, content: string) =>
+      createGroupPost(groupId, content),
+    createGroupComment: (groupId: string, postId: string, content: string) =>
+      createGroupComment(groupId, postId, content),
   }
 })
 
@@ -55,6 +78,21 @@ function detail(
       },
     ],
     ...overrides,
+  }
+}
+
+function postList(): GroupPostListResponse {
+  return {
+    posts: [
+      {
+        postId: 100,
+        author: '리더',
+        isLeader: true,
+        content: '기존 후기',
+        createdAt: '2026-08-01T00:00:00Z',
+        comments: [],
+      },
+    ],
   }
 }
 
@@ -105,30 +143,32 @@ describe('CommunityDetailPage', () => {
     getGroup.mockReset()
     leaveGroup.mockReset()
     joinGroupById.mockReset()
+    getGroupPosts.mockReset()
+    createGroupPost.mockReset()
+    createGroupComment.mockReset()
+
     getGroup.mockResolvedValue(detail())
     leaveGroup.mockResolvedValue()
-  })
+    getGroupPosts.mockResolvedValue(postList())
 
-  it('comment input is limited to 200 characters', async () => {
-    const { wrapper } = await mountDetail()
-
-    const toggleButton = wrapper.find('.community-detail__comment-toggle')
-    expect(toggleButton).toBeDefined()
-    await toggleButton!.trigger('click')
-
-    const input = wrapper.find('.community-detail__comment-form input')
-    expect(input.attributes('maxlength')).toBe('200')
-
-    const initialCommentCount = wrapper.findAll(
-      '.community-detail__comment-list li',
-    ).length
-    await input.setValue('a'.repeat(201))
-    await wrapper
-      .find('.community-detail__comment-form button')
-      .trigger('click')
-
-    expect(wrapper.findAll('.community-detail__comment-list li')).toHaveLength(
-      initialCommentCount,
+    let commentSeq = 0
+    createGroupComment.mockImplementation((_groupId, _postId, content) =>
+      Promise.resolve({
+        commentId: (commentSeq += 1),
+        author: '나',
+        content,
+        createdAt: '2026-08-05T00:00:00Z',
+      }),
+    )
+    createGroupPost.mockImplementation((_groupId, content) =>
+      Promise.resolve({
+        postId: 999,
+        author: '나',
+        isLeader: false,
+        content,
+        createdAt: '2026-08-05T00:00:00Z',
+        comments: [],
+      }),
     )
   })
 
@@ -137,6 +177,7 @@ describe('CommunityDetailPage', () => {
 
     expect(wrapper.text()).toContain('로그인 후 확인')
     expect(getGroup).not.toHaveBeenCalled()
+    expect(getGroupPosts).not.toHaveBeenCalled()
   })
 
   it('상세와 참여자 명단을 렌더한다', async () => {
@@ -169,14 +210,34 @@ describe('CommunityDetailPage', () => {
     )
   })
 
-  it('게시판 섹션에 목 후기가 노출된다', async () => {
+  it('게시판 섹션에 서버 후기를 불러와 렌더한다', async () => {
     const { wrapper } = await mountDetail()
 
+    expect(getGroupPosts).toHaveBeenCalled()
     expect(wrapper.text()).toContain('게임 후기 게시판')
     expect(wrapper.find('.community-detail__post').exists()).toBe(true)
+    expect(wrapper.text()).toContain('기존 후기')
   })
 
-  it('가입한 사용자는 댓글을 남길 수 있다', async () => {
+  it('후기를 작성하면 저장 API를 호출하고 목록에 추가한다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const writeButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().trim() === '글쓰기')
+    await writeButton!.trigger('click')
+
+    await wrapper
+      .find('.community-detail__composer-textarea')
+      .setValue('오늘 눈 운동 완료!')
+    await wrapper.find('.community-detail__composer').trigger('submit')
+    await flushPromises()
+
+    expect(createGroupPost).toHaveBeenCalledWith('5', '오늘 눈 운동 완료!')
+    expect(wrapper.text()).toContain('오늘 눈 운동 완료!')
+  })
+
+  it('가입한 사용자는 댓글을 작성하면 저장 API를 호출한다', async () => {
     const { wrapper } = await mountDetail()
 
     const toggleButton = wrapper
@@ -188,10 +249,10 @@ describe('CommunityDetailPage', () => {
     const input = wrapper.find('.community-detail__comment-form input')
     expect(input.exists()).toBe(true)
     await input.setValue('축하해요~')
+    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await flushPromises()
 
-    const submitButton = wrapper.find('.community-detail__comment-form button')
-    await submitButton.trigger('click')
-
+    expect(createGroupComment).toHaveBeenCalledWith('5', '100', '축하해요~')
     expect(wrapper.text()).toContain('축하해요~')
   })
 
@@ -207,11 +268,11 @@ describe('CommunityDetailPage', () => {
     expect(input.attributes('maxlength')).toBe(String(COMMENT_MAX_LENGTH))
 
     // setValue는 maxlength를 우회하므로, 제출 가드가 초과분을 막는지 검증한다.
-    const tooLong = '가'.repeat(COMMENT_MAX_LENGTH + 1)
-    await input.setValue(tooLong)
+    await input.setValue('가'.repeat(COMMENT_MAX_LENGTH + 1))
     await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await flushPromises()
 
-    expect(wrapper.text()).not.toContain(tooLong)
+    expect(createGroupComment).not.toHaveBeenCalled()
   })
 
   it('짧은 간격으로 연속 작성하면 쿨다운으로 등록되지 않는다', async () => {
@@ -225,12 +286,15 @@ describe('CommunityDetailPage', () => {
     const input = wrapper.find('.community-detail__comment-form input')
     await input.setValue('첫 번째 댓글')
     await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('첫 번째 댓글')
 
     // 곧바로(쿨다운 이내) 다른 내용을 작성해도 막혀야 한다.
     await input.setValue('난사 댓글')
     await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await flushPromises()
     expect(wrapper.text()).not.toContain('난사 댓글')
+    expect(createGroupComment).toHaveBeenCalledTimes(1)
   })
 
   it('쿨다운이 지나도 직전과 같은 내용은 중복으로 막힌다', async () => {
@@ -247,15 +311,14 @@ describe('CommunityDetailPage', () => {
     const input = wrapper.find('.community-detail__comment-form input')
     await input.setValue('중복 방지 댓글')
     await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await flushPromises()
 
     clock += COMMENT_COOLDOWN_MS + 1 // 쿨다운은 지났지만 내용이 동일
     await input.setValue('중복 방지 댓글')
     await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await flushPromises()
 
-    const occurrences = (
-      wrapper.text().match(/중복 방지 댓글/g) ?? []
-    ).length
-    expect(occurrences).toBe(1)
+    expect(createGroupComment).toHaveBeenCalledTimes(1)
     nowSpy.mockRestore()
   })
 
@@ -272,12 +335,10 @@ describe('CommunityDetailPage', () => {
     expect(textarea.exists()).toBe(true)
     expect(textarea.attributes('maxlength')).toBe(String(POST_MAX_LENGTH))
 
-    const tooLong = '가'.repeat(POST_MAX_LENGTH + 1)
-    await textarea.setValue(tooLong)
-    await wrapper
-      .find('.community-detail__composer button[type="submit"]')
-      .trigger('click')
+    await textarea.setValue('가'.repeat(POST_MAX_LENGTH + 1))
+    await wrapper.find('.community-detail__composer').trigger('submit')
+    await flushPromises()
 
-    expect(wrapper.text()).not.toContain(tooLong)
+    expect(createGroupPost).not.toHaveBeenCalled()
   })
 })

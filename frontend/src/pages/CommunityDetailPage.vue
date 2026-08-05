@@ -11,9 +11,13 @@ import {
   leaveGroup,
   deleteGroup,
   kickMember,
+  getGroupPosts,
+  createGroupPost,
+  createGroupComment,
+  toCommunityComment,
+  toCommunityPost,
   type GroupDetailResponse,
 } from '../api/group'
-import { communityPosts } from '../mocks/community'
 import type { CommunityPost } from '../types/community'
 import {
   COMMENT_COOLDOWN_MS,
@@ -51,24 +55,24 @@ function roleLabel(role: string) {
   return role === 'OWNER' ? '방장' : '멤버'
 }
 
-// --- 게임 후기 게시판 (mock-first: 백엔드 게시판 API 연동 전까지 프론트에서만 관리) ---
+// --- 게임 후기 게시판 (백엔드 저장) ---
 const posts = ref<CommunityPost[]>([])
 const openPostIds = ref<Record<string, boolean>>({})
 const commentDrafts = ref<Record<string, string>>({})
 const isComposerOpen = ref(false)
 const composerContent = ref('')
 
-function seedPosts() {
-  // 실제 소모임은 백엔드가 숫자 id를 내려줘서 mock의 문자열 id와 일치하지 않을 수 있다.
-  // 매칭되는 게시글이 없으면 게시판이 비어 보이지 않도록 기본 후기 세트로 대체한다.
-  const matched = communityPosts.filter(
-    (post) => post.groupId === groupId.value,
-  )
-  const source = matched.length > 0 ? matched : communityPosts.slice(0, 3)
-  posts.value = source.map((post) => ({
-    ...post,
-    comments: post.comments.map((comment) => ({ ...comment })),
-  }))
+async function loadPosts() {
+  if (!auth.isAuthenticated) return
+  try {
+    const response = await getGroupPosts(groupId.value)
+    posts.value = response.posts.map((post) =>
+      toCommunityPost(post, groupId.value),
+    )
+  } catch {
+    // 목록 로드 실패는 화면을 막지 않는다(빈 게시판으로 표시).
+    posts.value = []
+  }
 }
 
 function toggleComments(postId: string) {
@@ -87,7 +91,7 @@ function autoGrowComposer(event: globalThis.Event) {
   el.style.height = `${el.scrollHeight}px`
 }
 
-function submitPost() {
+async function submitPost() {
   const content = composerContent.value.trim()
   if (!content) {
     showToast('내용을 입력해 주세요.')
@@ -98,24 +102,23 @@ function submitPost() {
     showToast(`후기는 ${POST_MAX_LENGTH}자까지 입력할 수 있어요.`)
     return
   }
-  posts.value.unshift({
-    id: `local-post-${Date.now()}`,
-    groupId: groupId.value,
-    author: auth.user.nickname,
-    isLeader: detail.value?.isOwner ?? false,
-    content,
-    timeLabel: '방금',
-    comments: [],
-  })
-  composerContent.value = ''
-  isComposerOpen.value = false
-  showToast('후기를 남겼어요!')
+  try {
+    const saved = await createGroupPost(groupId.value, content)
+    posts.value.unshift(toCommunityPost(saved, groupId.value))
+    composerContent.value = ''
+    isComposerOpen.value = false
+    showToast('후기를 남겼어요!')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '후기 저장에 실패했어요.',
+    )
+  }
 }
 
 // 마지막으로 댓글을 작성한 시각. 짧은 간격의 연속 작성(난사)을 막는 쿨다운 기준이다.
 let lastCommentAt = 0
 
-function submitComment(post: CommunityPost) {
+async function submitComment(post: CommunityPost) {
   const content = (commentDrafts.value[post.id] ?? '').trim()
   if (!content) return
   // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
@@ -139,14 +142,16 @@ function submitComment(post: CommunityPost) {
     showToast('같은 내용을 연속으로 작성할 수 없어요.')
     return
   }
-  lastCommentAt = now
-  post.comments.push({
-    id: `local-comment-${Date.now()}`,
-    author: auth.user.nickname,
-    content,
-    timeLabel: '방금',
-  })
-  commentDrafts.value[post.id] = ''
+  try {
+    const saved = await createGroupComment(groupId.value, post.id, content)
+    post.comments.push(toCommunityComment(saved))
+    commentDrafts.value[post.id] = ''
+    lastCommentAt = now
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '댓글 저장에 실패했어요.',
+    )
+  }
 }
 
 async function handleLeave() {
@@ -213,12 +218,15 @@ async function handleJoin() {
 
 onMounted(() => {
   void load()
-  seedPosts()
+  void loadPosts()
 })
 watch(
   () => auth.isAuthenticated,
   (authenticated) => {
-    if (authenticated) void load()
+    if (authenticated) {
+      void load()
+      void loadPosts()
+    }
   },
 )
 </script>

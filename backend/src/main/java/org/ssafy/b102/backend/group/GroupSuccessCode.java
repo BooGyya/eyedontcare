@@ -42,6 +42,21 @@ public enum GroupSuccessCode implements SuccessCode {
 	GROUP_MEMBER_KICK_SUCCESS(
 		"GROUP_MEMBER_KICK_SUCCESS",
 		"멤버를 강퇴했습니다."
+	),
+
+	GROUP_POST_LIST_FOUND(
+		"GROUP_POST_LIST_FOUND",
+		"후기 목록을 조회했습니다."
+	),
+
+	GROUP_POST_CREATE_SUCCESS(
+		"GROUP_POST_CREATE_SUCCESS",
+		"후기를 작성했습니다."
+	),
+
+	GROUP_COMMENT_CREATE_SUCCESS(
+		"GROUP_COMMENT_CREATE_SUCCESS",
+		"댓글을 작성했습니다."
 	);
 
 	private final String code;
