@@ -261,6 +261,7 @@ describe('gameplay routes', () => {
         global: { plugins: [router, createPinia()] },
       })
       expect(wrapper.find('.play-shell').exists()).toBe(true)
+      expect(wrapper.find('button.finish').exists()).toBe(false)
       wrapper.unmount()
     },
   )

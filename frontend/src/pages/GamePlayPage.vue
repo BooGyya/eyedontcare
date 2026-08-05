@@ -2652,10 +2652,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         </template>
       </aside>
     </section>
-    <button type="button" class="finish" @click="toResult">
-      게임 종료 · 결과 보기
-    </button>
-
     <Teleport to="body"
       ><Transition name="dialog-pop"
         ><div
@@ -3244,8 +3240,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 }
 .draw-tools button,
 .rhythm-controls button,
-.hold-controls button,
-.finish {
+.hold-controls button {
   min-height: 40px;
   padding: 0 13px;
   border: 1px solid var(--color-line);
@@ -3274,8 +3269,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   outline: 3px solid var(--color-ink);
   outline-offset: 2px;
 }
-.primary,
-.finish {
+.primary {
   border-color: var(--color-accent-blue) !important;
   color: #fff !important;
   background: var(--color-accent-blue) !important;
@@ -4649,17 +4643,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 .opponent-panel b {
   color: #e04b51;
 }
-.finish {
-  display: block;
-  margin: 18px auto 0;
-}
-.finish {
-  border: 1.5px solid #68748c;
-  border-radius: 14px 20px 15px 18px;
-  font-family: var(--font-display);
-  font-size: 19px;
-}
-.finish,
 .draw-tools .primary {
   transition:
     transform var(--duration-fast) ease,
@@ -4668,7 +4651,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     color var(--duration-fast) ease,
     border-color var(--duration-fast) ease;
 }
-.finish:hover,
 .draw-tools .primary:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-float);
