@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import AccountPage from '../pages/AccountPage.vue'
 import CommunityPage from '../pages/CommunityPage.vue'
 import CommunityDetailPage from '../pages/CommunityDetailPage.vue'
@@ -54,7 +55,12 @@ const router = createRouter({
       name: 'community-detail',
       component: CommunityDetailPage,
     },
-    { path: '/profile', name: 'profile', component: ProfilePage },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: ProfilePage,
+      meta: { requiresAuth: true },
+    },
     {
       path: '/notifications',
       name: 'notifications',
@@ -76,6 +82,17 @@ const router = createRouter({
       },
     },
   ],
+})
+
+// 인증 전용 페이지 가드. 새로고침 직후에는 세션 복원이 끝난 뒤 판정해 로그인
+// 사용자를 잘못 내보내지 않는다. 비로그인 접근은 홈으로 보내고 로그인 창을 연다.
+router.beforeEach(async (to) => {
+  if (!to.meta.requiresAuth) return true
+  const auth = useAuthStore()
+  await auth.waitForSessionRestore()
+  if (auth.isAuthenticated) return true
+  auth.openLogin()
+  return { name: 'home' }
 })
 
 export default router
