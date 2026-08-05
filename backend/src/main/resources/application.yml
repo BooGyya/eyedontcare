@@ -51,4 +51,6 @@ gms:
   api-key: ${GMS_API_KEY:}
   model: ${GMS_MODEL:gpt-4o}
   connect-timeout: 5s
-  read-timeout: 30s
+  # Vision(gpt-4o) 채점은 이미지 크기·게이트웨이 부하에 따라 30초를 넘길 수 있어
+  # 읽기 타임아웃 초과 → 502(BAD_GATEWAY)로 이어졌다. 여유를 둬 정상 응답을 기다린다.
+  read-timeout: 60s

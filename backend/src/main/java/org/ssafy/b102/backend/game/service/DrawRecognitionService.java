@@ -104,36 +104,56 @@ public class DrawRecognitionService {
 			)
 		);
 
-		try {
-			ChatCompletionResponse response = restClient.post()
-				.contentType(MediaType.APPLICATION_JSON)
-				.header(
-					HttpHeaders.AUTHORIZATION,
-					"Bearer " + properties.apiKey()
-				)
-				.body(body)
-				.retrieve()
-				.body(ChatCompletionResponse.class);
+		ChatCompletionResponse response = callGmsWithRetry(body);
 
-			String content = response == null ? null : response.firstContent();
-			if (content == null || content.isBlank()) {
-				throw new BusinessException(
-					GameErrorCode.DRAWING_RECOGNITION_FAILED);
-			}
-			return objectMapper.readValue(content, Recognition.class);
-		} catch (BusinessException exception) {
-			throw exception;
-		} catch (RestClientException | tools.jackson.core.JacksonException exception) {
-			if (exception instanceof RestClientResponseException responseException) {
-				log.warn("GMS 그림 인식 실패: status={} body={}",
-					responseException.getStatusCode(),
-					responseException.getResponseBodyAsString());
-			} else {
-				log.warn("GMS 그림 인식 실패", exception);
-			}
-			throw new BusinessException(
-				GameErrorCode.DRAWING_RECOGNITION_FAILED);
+		String content = response == null ? null : response.firstContent();
+		if (content == null || content.isBlank()) {
+			throw new BusinessException(GameErrorCode.DRAWING_RECOGNITION_FAILED);
 		}
+		try {
+			return objectMapper.readValue(content, Recognition.class);
+		} catch (tools.jackson.core.JacksonException exception) {
+			log.warn("GMS 응답 파싱 실패", exception);
+			throw new BusinessException(GameErrorCode.DRAWING_RECOGNITION_FAILED);
+		}
+	}
+
+	/**
+	 * GMS를 호출한다. 게이트웨이의 일시적 5xx·429는 한 번 재시도해 간헐적 502를 완화하고,
+	 * 연결 실패·읽기 타임아웃은 이미 시간을 소모했으므로 재시도하지 않고 바로 실패 처리한다.
+	 */
+	private ChatCompletionResponse callGmsWithRetry(Map<String, Object> body) {
+		int maxAttempts = 2;
+		for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				return restClient.post()
+					.contentType(MediaType.APPLICATION_JSON)
+					.header(
+						HttpHeaders.AUTHORIZATION,
+						"Bearer " + properties.apiKey()
+					)
+					.body(body)
+					.retrieve()
+					.body(ChatCompletionResponse.class);
+			} catch (RestClientResponseException exception) {
+				boolean transientError =
+					exception.getStatusCode().is5xxServerError()
+						|| exception.getStatusCode().value() == 429;
+				log.warn("GMS 호출 실패: status={} attempt={}/{} body={}",
+					exception.getStatusCode(), attempt, maxAttempts,
+					exception.getResponseBodyAsString());
+				if (transientError && attempt < maxAttempts) {
+					continue;
+				}
+				throw new BusinessException(GameErrorCode.DRAWING_RECOGNITION_FAILED);
+			} catch (RestClientException exception) {
+				log.warn("GMS 호출 실패(연결/타임아웃) attempt={}",
+					attempt, exception);
+				throw new BusinessException(GameErrorCode.DRAWING_RECOGNITION_FAILED);
+			}
+		}
+		// 루프에서 항상 반환하거나 예외를 던지므로 도달하지 않는다. 방어적으로 둔다.
+		throw new BusinessException(GameErrorCode.DRAWING_RECOGNITION_FAILED);
 	}
 
 	private static String userPrompt(RecognizeDrawingRequest request) {
