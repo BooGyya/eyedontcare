@@ -23,8 +23,10 @@ import profileSmileImage from '../assets/images/profiles/profile-smile.png'
 import profileTiredImage from '../assets/images/profiles/profile-tired.png'
 import profileWinkImage from '../assets/images/profiles/profile-wink.png'
 import type {
+  CommunityComment,
   CommunityGroup,
   CommunityGroupVisibility,
+  CommunityPost,
 } from '../types/community'
 
 export type GroupVisibilityCode = 'PUBLIC' | 'PRIVATE'
@@ -186,5 +188,100 @@ export function toCommunityGroup(response: GroupResponse): CommunityGroup {
     isOwner: response.isOwner,
     createdAt: new Date(response.createdAt).getTime(),
     ...(response.joinCode ? { joinCode: response.joinCode } : {}),
+  }
+}
+
+// --- 후기 게시판(글·댓글) ---
+
+/** 후기 댓글 응답(백엔드 원본). */
+export interface GroupCommentResponse {
+  commentId: number
+  author: string | null
+  content: string
+  createdAt: string
+}
+
+/** 후기 글 응답(백엔드 원본). 최신 글이 먼저 온다. */
+export interface GroupPostResponse {
+  postId: number
+  author: string | null
+  isLeader: boolean
+  content: string
+  createdAt: string
+  comments: GroupCommentResponse[]
+}
+
+export interface GroupPostListResponse {
+  posts: GroupPostResponse[]
+}
+
+/** 후기 게시판 목록 조회(가입 여부와 무관하게 회원이면 열람). */
+export async function getGroupPosts(
+  groupId: string,
+): Promise<GroupPostListResponse> {
+  return apiRequest<GroupPostListResponse>(`/groups/${groupId}/posts`)
+}
+
+/** 후기 작성(가입자 전용). 저장된 글을 반환한다. */
+export async function createGroupPost(
+  groupId: string,
+  content: string,
+): Promise<GroupPostResponse> {
+  return apiRequest<GroupPostResponse>(`/groups/${groupId}/posts`, {
+    method: 'POST',
+    body: { content },
+  })
+}
+
+/** 댓글 작성(가입자 전용). 저장된 댓글을 반환한다. */
+export async function createGroupComment(
+  groupId: string,
+  postId: string,
+  content: string,
+): Promise<GroupCommentResponse> {
+  return apiRequest<GroupCommentResponse>(
+    `/groups/${groupId}/posts/${postId}/comments`,
+    { method: 'POST', body: { content } },
+  )
+}
+
+/** 작성 시각(ISO)을 화면용 상대 시간 라벨로 바꾼다. */
+export function toTimeLabel(createdAt: string): string {
+  const created = new Date(createdAt).getTime()
+  const diffMs = Date.now() - created
+  const minute = 60_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diffMs < minute) return '방금'
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)}분 전`
+  if (diffMs < day) return `${Math.floor(diffMs / hour)}시간 전`
+  if (diffMs < 7 * day) return `${Math.floor(diffMs / day)}일 전`
+  const date = new Date(created)
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function toCommunityComment(
+  response: GroupCommentResponse,
+): CommunityComment {
+  return {
+    id: String(response.commentId),
+    author: response.author ?? '알 수 없음',
+    content: response.content,
+    timeLabel: toTimeLabel(response.createdAt),
+  }
+}
+
+export function toCommunityPost(
+  response: GroupPostResponse,
+  groupId: string,
+): CommunityPost {
+  return {
+    id: String(response.postId),
+    groupId,
+    author: response.author ?? '알 수 없음',
+    isLeader: response.isLeader,
+    content: response.content,
+    timeLabel: toTimeLabel(response.createdAt),
+    comments: response.comments.map(toCommunityComment),
   }
 }
