@@ -154,7 +154,7 @@ describe('useGameResultSubmission', () => {
     })
   })
 
-  it('stores rhythm combo and remaining hearts alongside the score', async () => {
+  it('stores rhythm opponent score, combo, and remaining hearts alongside the score', async () => {
     globalThis.localStorage.setItem(ACCESS_TOKEN_KEY, fakeAccessToken(8))
     const calls = stubFetch()
 
@@ -163,13 +163,22 @@ describe('useGameResultSubmission', () => {
       mode: 'solo',
       startedAt: '2026-08-01T10:00:00.000Z',
       score: 1_860,
-      resultData: { maxCombo: 24, remainingHearts: 3 },
+      resultData: {
+        opponentScore: 1_240,
+        maxCombo: 24,
+        remainingHearts: 3,
+      },
     })
 
     const post = calls.find((c) => c.url.includes('/game-results'))
     const body = post?.body as { gameResult: Record<string, unknown> }
     expect(body.gameResult).toEqual({
-      '1': { score: 1_860, maxCombo: 24, remainingHearts: 3 },
+      '1': {
+        score: 1_860,
+        opponentScore: 1_240,
+        maxCombo: 24,
+        remainingHearts: 3,
+      },
     })
   })
 
