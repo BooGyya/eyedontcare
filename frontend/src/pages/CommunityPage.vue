@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/common/PageHeader.vue'
 import CommunityDialog from '../components/groups/CommunityDialog.vue'
 import CommunityGroupCard from '../components/groups/CommunityGroupCard.vue'
@@ -27,6 +27,7 @@ import teamworkImage from '../assets/images/illustrations/illustration-teamwork.
 const { showToast } = useToast()
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const isGuestUser = computed(() => !auth.isAuthenticated)
 
@@ -280,6 +281,14 @@ watch(
 
 onMounted(() => {
   void loadGroups()
+  // 메인 화면의 '소모임 코드 입장'이 /community?join=code 로 진입하면 코드 입장 다이얼로그를
+  // 바로 연다(게스트는 openJoinDialog가 로그인 유도). 새로고침 시 반복되지 않도록 쿼리는 지운다.
+  if (route.query.join === 'code') {
+    openJoinDialog()
+    const nextQuery = { ...route.query }
+    delete nextQuery.join
+    void router.replace({ query: nextQuery })
+  }
 })
 </script>
 
