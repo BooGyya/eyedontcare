@@ -115,14 +115,18 @@ function createGameRouter() {
   })
 }
 
-function createResultPinia(gameId: GameDetailId, drawRounds = false) {
+function createResultPinia(
+  gameId: GameDetailId,
+  drawRounds = false,
+  isNewRecord = drawRounds,
+) {
   const pinia = createPinia()
   const store = useLastGameResultStore(pinia)
   store.set({
     gameId,
     mode: 'solo',
     outcome: 'COMPLETED',
-    isNewRecord: drawRounds,
+    isNewRecord,
     headline: '게임이 종료되었습니다!',
     summary: drawRounds
       ? '3개 라운드의 그림 인식 결과를 확인해보세요.'
@@ -570,6 +574,38 @@ describe('gameplay routes', () => {
     expect(router.currentRoute.value.query.result).toBeUndefined()
     wrapper.unmount()
   })
+
+  it.each([true, false])(
+    'renders the blink solo result asset based on the new-record state: %s',
+    async (isNewRecord) => {
+      const router = createGameRouter()
+      await router.push('/games/blink/result?mode=solo')
+      await router.isReady()
+      const wrapper = mount(GameResultPage, {
+        global: {
+          plugins: [router, createResultPinia('blink', false, isNewRecord)],
+        },
+      })
+
+      const resultHero = wrapper.get('.result-hero')
+      const imageSrc = resultHero.get('img').attributes('src')
+
+      expect(wrapper.find('.record-badge').exists()).toBe(isNewRecord)
+      if (isNewRecord) {
+        expect(resultHero.classes()).not.toContain(
+          'result-hero--blink-record-missed',
+        )
+      } else {
+        expect(resultHero.classes()).toContain(
+          'result-hero--blink-record-missed',
+        )
+      }
+      expect(imageSrc).toContain(
+        isNewRecord ? 'game-blink.png' : 'profile-blink-record-missed',
+      )
+      wrapper.unmount()
+    },
+  )
 
   it.each(['WIN', 'LOSE', 'DRAW'] as const)(
     'renders the blink %s competitive result with the shared duel UI',
