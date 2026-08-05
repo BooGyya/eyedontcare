@@ -2656,7 +2656,18 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         <small>상대보다 더 많이 깜빡여 보세요!</small>
       </aside>
       <aside v-else-if="isCompetitive" class="info-panel opponent-panel">
-        <template v-if="game.id === 'hold'">
+        <template v-if="game.id === 'hold' && mode === 'ai'">
+          <p class="eyebrow">AI</p>
+          <div class="eye-see-camera eye-see-camera--ai">
+            <img
+              :src="airAiRobotImage"
+              alt="눈싸움 AI 로봇 상대"
+              draggable="false"
+            />
+          </div>
+          <p class="camera-state">AI가 눈싸움에 집중하고 있어요.</p>
+        </template>
+        <template v-else-if="game.id === 'hold'">
           <p class="eyebrow">친구</p>
           <div class="eye-see-camera eye-see-camera--friend">
             <video
@@ -4234,6 +4245,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 }
 .eye-see-camera--friend {
   background: #fff6f6;
+}
+.eye-see-camera--ai {
+  background: #fff5f6;
 }
 .eye-see-status {
   display: grid;
