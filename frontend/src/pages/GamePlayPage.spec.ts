@@ -187,6 +187,33 @@ function createResultPinia(gameId: GameDetailId, drawRounds = false) {
   return pinia
 }
 
+function createDrawResultPinia(
+  gameId: GameDetailId,
+  mode: 'ai' | 'friends' | 'random' = 'random',
+) {
+  const pinia = createPinia()
+  const store = useLastGameResultStore(pinia)
+  store.set({
+    gameId,
+    mode,
+    outcome: 'DRAW',
+    opponentNickname: '상대 플레이어',
+    headline: 'DRAW',
+    summary: '마지막까지 팽팽한 승부였어요!',
+    scoreLabel: '최종 점수',
+    score: gameId === 'air' ? '3' : '1,860점',
+    opponentScore: gameId === 'air' ? '3' : '1,860점',
+    stats: [
+      {
+        label: '최대 콤보',
+        value: '20',
+        opponentValue: '20',
+      },
+    ],
+  })
+  return pinia
+}
+
 describe('gameplay routes', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -508,4 +535,33 @@ describe('gameplay routes', () => {
     expect(gamesButton?.exists()).toBe(true)
     wrapper.unmount()
   })
+
+  it.each(['air', 'rhythm', 'blink'])(
+    'renders the draw result assets for %s competitive games',
+    async (gameId) => {
+      const router = createGameRouter()
+      await router.push('/games/' + gameId + '/result?mode=random')
+      await router.isReady()
+      const wrapper = mount(GameResultPage, {
+        global: {
+          plugins: [router, createDrawResultPinia(gameId as GameDetailId)],
+        },
+      })
+
+      expect(wrapper.text()).toContain('DRAW')
+      expect(wrapper.text()).toContain('팽팽했어요!')
+      expect(wrapper.text()).not.toContain('YOU WIN!')
+      expect(
+        wrapper.get('img[alt="무승부 결과 배너 캐릭터"]').attributes('src'),
+      ).toContain('profile-draw-result-banner')
+      expect(
+        wrapper.get('img[alt="무승부 내 플레이어"]').attributes('src'),
+      ).toContain('profile-main-character-versus-draw')
+      expect(
+        wrapper.get('img[alt="무승부 상대 플레이어"]').attributes('src'),
+      ).toContain('profile-rival-character-versus-draw')
+
+      wrapper.unmount()
+    },
+  )
 })
