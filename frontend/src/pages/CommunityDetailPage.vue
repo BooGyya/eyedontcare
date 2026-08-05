@@ -13,6 +13,8 @@ import {
   kickMember,
   type GroupDetailResponse,
 } from '../api/group'
+import { communityPosts } from '../mocks/community'
+import type { CommunityPost } from '../types/community'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,6 +46,67 @@ function roleLabel(role: string) {
   return role === 'OWNER' ? '방장' : '멤버'
 }
 
+// --- 게임 후기 게시판 (mock-first: 백엔드 게시판 API 연동 전까지 프론트에서만 관리) ---
+const posts = ref<CommunityPost[]>([])
+const openPostIds = ref<Record<string, boolean>>({})
+const commentDrafts = ref<Record<string, string>>({})
+const isComposerOpen = ref(false)
+const composerContent = ref('')
+
+function seedPosts() {
+  // 실제 소모임은 백엔드가 숫자 id를 내려줘서 mock의 문자열 id와 일치하지 않을 수 있다.
+  // 매칭되는 게시글이 없으면 게시판이 비어 보이지 않도록 기본 후기 세트로 대체한다.
+  const matched = communityPosts.filter(
+    (post) => post.groupId === groupId.value,
+  )
+  const source = matched.length > 0 ? matched : communityPosts.slice(0, 3)
+  posts.value = source.map((post) => ({
+    ...post,
+    comments: post.comments.map((comment) => ({ ...comment })),
+  }))
+}
+
+function toggleComments(postId: string) {
+  openPostIds.value[postId] = !openPostIds.value[postId]
+}
+
+function toggleComposer() {
+  isComposerOpen.value = !isComposerOpen.value
+  if (!isComposerOpen.value) composerContent.value = ''
+}
+
+function submitPost() {
+  const content = composerContent.value.trim()
+  if (!content) {
+    showToast('내용을 입력해 주세요.')
+    return
+  }
+  posts.value.unshift({
+    id: `local-post-${Date.now()}`,
+    groupId: groupId.value,
+    author: auth.user.nickname,
+    isLeader: detail.value?.isOwner ?? false,
+    content,
+    timeLabel: '방금',
+    comments: [],
+  })
+  composerContent.value = ''
+  isComposerOpen.value = false
+  showToast('후기를 남겼어요!')
+}
+
+function submitComment(post: CommunityPost) {
+  const content = (commentDrafts.value[post.id] ?? '').trim()
+  if (!content) return
+  post.comments.push({
+    id: `local-comment-${Date.now()}`,
+    author: auth.user.nickname,
+    content,
+    timeLabel: '방금',
+  })
+  commentDrafts.value[post.id] = ''
+}
+
 async function handleLeave() {
   if (!detail.value || isBusy.value) return
   isBusy.value = true
@@ -52,7 +115,9 @@ async function handleLeave() {
     showToast('소모임에서 나갔어요.')
     void router.push({ name: 'community' })
   } catch (error) {
-    showToast(error instanceof ApiError ? error.message : '나가기에 실패했어요.')
+    showToast(
+      error instanceof ApiError ? error.message : '나가기에 실패했어요.',
+    )
   } finally {
     isBusy.value = false
   }
@@ -61,7 +126,8 @@ async function handleLeave() {
 async function handleDelete() {
   if (!detail.value || isBusy.value) return
   // 삭제는 되돌릴 수 없으므로 한 번 더 확인한다.
-  if (!globalThis.confirm('소모임을 삭제하면 되돌릴 수 없어요. 삭제할까요?')) return
+  if (!globalThis.confirm('소모임을 삭제하면 되돌릴 수 없어요. 삭제할까요?'))
+    return
   isBusy.value = true
   try {
     await deleteGroup(groupId.value)
@@ -103,7 +169,10 @@ async function handleJoin() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  seedPosts()
+})
 watch(
   () => auth.isAuthenticated,
   (authenticated) => {
@@ -125,12 +194,30 @@ watch(
       class="community-detail__back"
       @click="router.push({ name: 'community' })"
     >
-      ← 목록으로
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M14 6l-6 6 6 6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      소모임 목록으로
     </button>
 
-    <div v-if="!auth.isAuthenticated" class="community-detail__status" role="status">
+    <div
+      v-if="!auth.isAuthenticated"
+      class="community-detail__status"
+      role="status"
+    >
       <p>소모임 상세는 로그인 후 확인할 수 있어요.</p>
-      <button type="button" class="community-detail__primary" @click="auth.openLogin">
+      <button
+        type="button"
+        class="community-detail__primary"
+        @click="auth.openLogin"
+      >
         로그인하기
       </button>
     </div>
@@ -149,16 +236,127 @@ watch(
     <template v-else-if="detail">
       <article class="community-detail__card">
         <div class="community-detail__meta">
-          <span :class="`community-detail__visibility--${detail.visibility.toLowerCase()}`">
+          <span
+            :class="`community-detail__visibility--${detail.visibility.toLowerCase()}`"
+          >
+            <svg
+              v-if="detail.visibility === 'PUBLIC'"
+              class="community-detail__icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="9"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+            </svg>
+            <svg
+              v-else
+              class="community-detail__icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <rect
+                x="5"
+                y="11"
+                width="14"
+                height="9"
+                rx="2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M8 11V8a4 4 0 0 1 8 0v3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
             {{ detail.visibility === 'PUBLIC' ? '공개' : '비공개' }}
           </span>
-          <span>{{ detail.members }} / {{ detail.capacity }}명</span>
+          <span class="community-detail__member-count">
+            <svg
+              class="community-detail__icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                cx="12"
+                cy="8"
+                r="3.4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M5 20c1.2-4 4-6 7-6s5.8 2 7 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+            {{ detail.members }} / {{ detail.capacity }}명
+          </span>
         </div>
         <p class="community-detail__description">{{ detail.description }}</p>
         <p class="community-detail__leader">
+          <svg
+            class="community-detail__icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+              fill="var(--color-gold)"
+            />
+          </svg>
           리더 <b>{{ detail.leader }}</b>
         </p>
-        <p v-if="detail.isJoined && detail.joinCode" class="community-detail__code">
+        <p
+          v-if="detail.isJoined && detail.joinCode"
+          class="community-detail__code"
+        >
+          <svg
+            class="community-detail__icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle
+              cx="7.5"
+              cy="15.5"
+              r="3"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <path
+              d="M9.6 13.4 18 5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+            <path
+              d="M14.5 9.5l2 2M16.5 7.5l2 2"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+          </svg>
           참여 코드 <b>{{ detail.joinCode }}</b>
         </p>
 
@@ -200,9 +398,24 @@ watch(
         <h2>참여자 {{ detail.memberList.length }}명</h2>
         <ul>
           <li v-for="member in detail.memberList" :key="member.userId">
-            <span class="community-detail__member-name">{{ member.nickname }}</span>
+            <span class="community-detail__member-name">{{
+              member.nickname
+            }}</span>
             <span class="community-detail__member-meta">
-              <span class="community-detail__member-role">{{ roleLabel(member.role) }}</span>
+              <span class="community-detail__member-role">
+                <svg
+                  v-if="member.role === 'OWNER'"
+                  class="community-detail__icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+                    fill="var(--color-gold)"
+                  />
+                </svg>
+                {{ roleLabel(member.role) }}
+              </span>
               <button
                 v-if="detail.isOwner && member.role !== 'OWNER'"
                 type="button"
@@ -216,6 +429,155 @@ watch(
           </li>
         </ul>
       </section>
+
+      <section class="community-detail__board" aria-label="게임 후기 게시판">
+        <div class="community-detail__board-heading">
+          <h2>게임 후기 게시판</h2>
+          <button
+            v-if="detail.isJoined || detail.isOwner"
+            type="button"
+            class="community-detail__primary community-detail__board-write"
+            @click="toggleComposer"
+          >
+            글쓰기
+          </button>
+        </div>
+
+        <p
+          v-if="!(detail.isJoined || detail.isOwner)"
+          class="community-detail__hint"
+        >
+          소모임에 가입하면 후기를 남길 수 있어요.
+        </p>
+
+        <form
+          v-if="isComposerOpen"
+          class="community-detail__composer"
+          @submit.prevent="submitPost"
+        >
+          <textarea
+            v-model="composerContent"
+            class="community-detail__composer-textarea"
+            placeholder="게임 후기를 남겨보세요"
+            rows="3"
+          />
+          <div class="community-detail__composer-actions">
+            <button
+              type="button"
+              class="community-detail__ghost"
+              @click="toggleComposer"
+            >
+              취소
+            </button>
+            <button type="submit" class="community-detail__primary">
+              등록
+            </button>
+          </div>
+        </form>
+
+        <p v-if="posts.length === 0" class="community-detail__board-empty">
+          아직 후기가 없어요. 첫 후기를 남겨보세요!
+        </p>
+
+        <ul v-else class="community-detail__board-list">
+          <li
+            v-for="post in posts"
+            :key="post.id"
+            class="community-detail__post"
+          >
+            <div class="community-detail__post-header">
+              <span class="community-detail__post-author">
+                <svg
+                  v-if="post.isLeader"
+                  class="community-detail__icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+                    fill="var(--color-gold)"
+                  />
+                </svg>
+                <svg
+                  v-else
+                  class="community-detail__icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="12"
+                    cy="8"
+                    r="3.4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M5 20c1.2-4 4-6 7-6s5.8 2 7 6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                {{ post.author }}
+              </span>
+              <span class="community-detail__post-time">{{
+                post.timeLabel
+              }}</span>
+            </div>
+            <p class="community-detail__post-content">{{ post.content }}</p>
+            <button
+              type="button"
+              class="community-detail__comment-toggle"
+              @click="toggleComments(post.id)"
+            >
+              댓글 {{ post.comments.length }}
+            </button>
+
+            <div v-if="openPostIds[post.id]" class="community-detail__comments">
+              <ul
+                v-if="post.comments.length"
+                class="community-detail__comment-list"
+              >
+                <li v-for="comment in post.comments" :key="comment.id">
+                  <span class="community-detail__comment-author">{{
+                    comment.author
+                  }}</span>
+                  <span class="community-detail__comment-content">{{
+                    comment.content
+                  }}</span>
+                  <span class="community-detail__comment-time">{{
+                    comment.timeLabel
+                  }}</span>
+                </li>
+              </ul>
+              <p v-else class="community-detail__comment-empty">
+                아직 댓글이 없어요.
+              </p>
+
+              <div
+                v-if="detail.isJoined || detail.isOwner"
+                class="community-detail__comment-form"
+              >
+                <input
+                  v-model="commentDrafts[post.id]"
+                  type="text"
+                  placeholder="댓글을 남겨보세요"
+                  @keyup.enter="submitComment(post)"
+                />
+                <button
+                  type="button"
+                  :disabled="!(commentDrafts[post.id] ?? '').trim()"
+                  @click="submitComment(post)"
+                >
+                  등록
+                </button>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </section>
     </template>
   </section>
 </template>
@@ -225,14 +587,35 @@ watch(
   padding: 32px 0 54px;
 }
 .community-detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 16px;
-  padding: 6px 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-  background: #fff;
+  padding: 0;
+  border: 0;
+  background: none;
   font: inherit;
-  color: var(--color-ink);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--color-muted);
   cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+.community-detail__back svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.community-detail__back:hover {
+  color: var(--color-accent-blue);
+}
+.community-detail__icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 .community-detail__status {
   display: flex;
@@ -261,6 +644,9 @@ watch(
 }
 .community-detail__visibility--public,
 .community-detail__visibility--private {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 9px;
   border-radius: var(--radius-button);
   font-size: 11px;
@@ -274,6 +660,11 @@ watch(
   color: #67509d;
   background: var(--color-purple-soft);
 }
+.community-detail__member-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .community-detail__description {
   margin: 14px 0;
   color: var(--color-ink);
@@ -282,6 +673,9 @@ watch(
 }
 .community-detail__leader,
 .community-detail__code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 4px 0;
   color: var(--color-muted);
   font-size: 13px;
@@ -353,6 +747,9 @@ watch(
   gap: 10px;
 }
 .community-detail__member-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   color: var(--color-accent-blue);
   font-size: 12px;
   font-weight: 800;
@@ -370,6 +767,176 @@ watch(
 }
 .community-detail__kick:disabled {
   color: var(--color-muted);
+  cursor: not-allowed;
+}
+.community-detail__board {
+  margin-top: 24px;
+}
+.community-detail__board-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.community-detail__board-heading h2 {
+  font-size: 18px;
+}
+.community-detail__board-write {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.community-detail__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+.community-detail__composer-textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-ink);
+  resize: vertical;
+}
+.community-detail__composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.community-detail__composer-actions .community-detail__primary,
+.community-detail__composer-actions .community-detail__ghost {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.community-detail__board-empty {
+  padding: 24px 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.community-detail__board-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.community-detail__post {
+  padding: 16px 18px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+.community-detail__post-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.community-detail__post-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+.community-detail__post-time {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.community-detail__post-content {
+  margin: 10px 0 12px;
+  color: var(--color-ink);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+.community-detail__comment-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent-blue);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.community-detail__comments {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+.community-detail__comment-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.community-detail__comment-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  font-size: 13px;
+}
+.community-detail__comment-author {
+  color: var(--color-ink);
+  font-weight: 800;
+}
+.community-detail__comment-content {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-ink);
+}
+.community-detail__comment-time {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.community-detail__comment-empty {
+  margin: 0 0 10px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.community-detail__comment-form {
+  display: flex;
+  gap: 8px;
+}
+.community-detail__comment-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+.community-detail__comment-form button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--color-accent-blue);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.community-detail__comment-form button:disabled {
+  background: var(--color-muted);
   cursor: not-allowed;
 }
 </style>

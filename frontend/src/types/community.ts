@@ -27,3 +27,21 @@ export type CommunityGroupDraft = {
   capacity: number
   visibility: CommunityGroupVisibility
 }
+
+export type CommunityComment = {
+  id: string
+  author: string
+  content: string
+  timeLabel: string
+}
+
+export type CommunityPost = {
+  id: string
+  groupId: string
+  author: string
+  /** 작성자가 방장이면 true — 목록에서 왕관 표시 */
+  isLeader?: boolean
+  content: string
+  timeLabel: string
+  comments: CommunityComment[]
+}

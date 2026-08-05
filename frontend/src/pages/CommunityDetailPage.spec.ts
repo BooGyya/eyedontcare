@@ -36,8 +36,18 @@ function detail(
     joinCode: 'ABC123',
     createdAt: '2026-08-01T00:00:00Z',
     memberList: [
-      { userId: 1, nickname: '리더', role: 'OWNER', joinedAt: '2026-08-01T00:00:00Z' },
-      { userId: 2, nickname: '나', role: 'MEMBER', joinedAt: '2026-08-02T00:00:00Z' },
+      {
+        userId: 1,
+        nickname: '리더',
+        role: 'OWNER',
+        joinedAt: '2026-08-01T00:00:00Z',
+      },
+      {
+        userId: 2,
+        nickname: '나',
+        role: 'MEMBER',
+        joinedAt: '2026-08-02T00:00:00Z',
+      },
     ],
     ...overrides,
   }
@@ -63,8 +73,16 @@ async function mountDetail({ authed = true } = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/community', name: 'community', component: { template: '<div />' } },
-      { path: '/community/:groupId', name: 'community-detail', component: CommunityDetailPage },
+      {
+        path: '/community',
+        name: 'community',
+        component: { template: '<div />' },
+      },
+      {
+        path: '/community/:groupId',
+        name: 'community-detail',
+        component: CommunityDetailPage,
+      },
     ],
   })
   await router.push('/community/5')
@@ -113,5 +131,39 @@ describe('CommunityDetailPage', () => {
     await flushPromises()
 
     expect(leaveGroup).toHaveBeenCalled()
+  })
+
+  it('뒤로가기 컨트롤에 소모임 목록으로가 노출된다', async () => {
+    const { wrapper } = await mountDetail()
+
+    expect(wrapper.find('.community-detail__back').text()).toContain(
+      '소모임 목록으로',
+    )
+  })
+
+  it('게시판 섹션에 목 후기가 노출된다', async () => {
+    const { wrapper } = await mountDetail()
+
+    expect(wrapper.text()).toContain('게임 후기 게시판')
+    expect(wrapper.find('.community-detail__post').exists()).toBe(true)
+  })
+
+  it('가입한 사용자는 댓글을 남길 수 있다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    expect(toggleButton).toBeDefined()
+    await toggleButton!.trigger('click')
+
+    const input = wrapper.find('.community-detail__comment-form input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('축하해요~')
+
+    const submitButton = wrapper.find('.community-detail__comment-form button')
+    await submitButton.trigger('click')
+
+    expect(wrapper.text()).toContain('축하해요~')
   })
 })
