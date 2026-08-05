@@ -158,13 +158,22 @@ public class RankingService {
 					.addWin(endedAt);
 			} else {
 				Long score = participant.getScore();
-				if (score == null) {
+				// 0 이하(점수 미계산·미달)는 랭킹에서 제외한다.
+				if (score == null || score <= 0) {
 					continue;
 				}
 				byUser.computeIfAbsent(userId, key -> new Aggregate())
 					.addScore(score, endedAt);
 			}
 		}
+
+		// 탈퇴한 회원(deletedAt != null)은 랭킹에서 제외한다(닉네임이 withdrawn-*로 남아 노출되던 문제).
+		Map<Long, User> usersById = userRepository.findAllById(byUser.keySet()).stream()
+			.collect(Collectors.toMap(User::getId, user -> user));
+		byUser.keySet().removeIf(userId -> {
+			User user = usersById.get(userId);
+			return user != null && user.getDeletedAt() != null;
+		});
 
 		List<RankedUser> sorted = byUser.entrySet().stream()
 			.map(entry -> new RankedUser(
