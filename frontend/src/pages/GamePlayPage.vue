@@ -665,7 +665,7 @@ function stopRhythmGame() {
 // 수 있다(네트워크 지연 때문에 상대 패들 위치를 몇십 ms 늦게 반영하니까). 카지노급 판정 공정성이
 // 필요한 게임이 아니라서 이 정도 오차는 허용한다 — 완벽한 서버 권위 동기화는 더 큰 작업이라 이후
 // 과제로 남긴다.
-const AIR_MALLET_SMOOTHING = 0.15
+const AIR_MALLET_SMOOTHING = 0.11
 const AIR_MOVE_SEND_INTERVAL_MS = 50
 
 const airTracking = useEyeTracking()
