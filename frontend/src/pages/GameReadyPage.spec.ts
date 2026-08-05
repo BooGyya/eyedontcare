@@ -3,6 +3,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GameReadyPage from './GameReadyPage.vue'
+import { useToast } from '../composables/useToast'
 
 class MockWebSocket {
   static readonly CONNECTING = 0
@@ -60,6 +61,15 @@ function successResponse(data: unknown = null): Response {
   } as Response
 }
 
+function errorResponse(code: string, message: string, status = 400): Response {
+  return {
+    ok: false,
+    status,
+    statusText: 'Error',
+    json: async () => ({ code, message, data: null }),
+  } as Response
+}
+
 function randomRoomState(
   roomId: string,
   roomStatus: 'WAITING' | 'COUNTDOWN' | 'CLOSED' = 'WAITING',
@@ -95,6 +105,42 @@ function randomRoomState(
   }
 }
 
+function inviteRoomState(
+  roomId = 'invite-room',
+  roomStatus: 'WAITING' | 'COUNTDOWN' | 'CLOSED' = 'WAITING',
+  participants = [
+    {
+      participantKey: 'GUEST:guest-1',
+      displayName: '나',
+      roomRole: 'HOST' as const,
+      slotNo: 1,
+      isReady: false,
+      calibrationStatus: 'PENDING' as const,
+      joinedAt: '2026-08-05T00:00:00Z',
+    },
+    {
+      participantKey: 'GUEST:guest-2',
+      displayName: '상대',
+      roomRole: 'PLAYER' as const,
+      slotNo: 2,
+      isReady: false,
+      calibrationStatus: 'PENDING' as const,
+      joinedAt: '2026-08-05T00:00:00Z',
+    },
+  ],
+) {
+  return {
+    roomId,
+    roomType: 'INVITE' as const,
+    gameName: 'EYEFIGHT' as const,
+    roomCode: '4827',
+    roomStatus,
+    countdownEndsAt: roomStatus === 'COUNTDOWN' ? '2026-08-05T00:00:03Z' : null,
+    participants,
+    createdAt: '2026-08-05T00:00:00Z',
+  }
+}
+
 function createReadyRouter() {
   return createRouter({
     history: createMemoryHistory(),
@@ -124,6 +170,53 @@ async function mountRandomReadyPage(roomId = 'room-1') {
   return { wrapper, router }
 }
 
+function inviteRestResponse(
+  roomRole: 'HOST' | 'PLAYER',
+  roomId = 'invite-room',
+) {
+  const state = inviteRoomState(roomId)
+  const ownParticipant = {
+    ...state.participants[0],
+    roomRole,
+  }
+  return {
+    roomId,
+    roomType: 'INVITE',
+    gameName: 'EYEFIGHT',
+    roomCode: '4827',
+    roomStatus: 'WAITING',
+    participant: ownParticipant,
+    participants: [ownParticipant, state.participants[1]],
+    createdAt: state.createdAt,
+    guestSessionId: 'guest-1',
+  }
+}
+
+async function mountInviteReadyPage(path: string) {
+  const router = createReadyRouter()
+  await router.push(path)
+  await router.isReady()
+  const wrapper = mount(GameReadyPage, {
+    global: { plugins: [router, createPinia()] },
+  })
+  await flushPromises()
+  return { wrapper, router }
+}
+
+interface InviteReadyPageTestVm {
+  permissionStatus: 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable'
+  isCalibrationOpen: boolean
+  isCalibrated: boolean
+  notifyCalibrationStarted: () => void
+  finishCalibration: () => void
+  markPlayerReady: () => void
+  handleCalibrationBack: () => void
+}
+
+function inviteReadyPageVm(wrapper: VueWrapper): InviteReadyPageTestVm {
+  return wrapper.vm as unknown as InviteReadyPageTestVm
+}
+
 describe('GameReadyPage', () => {
   it('opens the webcam guide before requesting a camera for a solo room', async () => {
     const router = createReadyRouter()
@@ -140,22 +233,6 @@ describe('GameReadyPage', () => {
     expect(wrapper.text()).toContain('혼자하기 준비방')
     expect(wrapper.findAll('.participant-card')).toHaveLength(1)
     expect(wrapper.find('.room-code').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('uses the player role for a friend room entered with a room code', async () => {
-    const router = createReadyRouter()
-    await router.push('/games/hold/ready?mode=friends&room=4827&role=player')
-    await router.isReady()
-
-    const wrapper = mount(GameReadyPage, {
-      global: { plugins: [router, createPinia()] },
-    })
-
-    // 입장이 확정되기 전에는 입력한 방 코드를 그대로 노출하지 않는다(유령 방 방지).
-    expect(wrapper.find('.room-code').text()).not.toContain('4827')
-    expect(wrapper.find('.participant-card--me').text()).toContain('PLAYER')
-    expect(wrapper.text()).toContain('친구와 대결 준비방')
     wrapper.unmount()
   })
 
@@ -186,6 +263,538 @@ describe('GameReadyPage', () => {
     expect(wrapper.text()).toContain('AI 대결 준비방')
     expect(wrapper.text()).not.toContain('눈싸움 AI 준비')
     wrapper.unmount()
+  })
+})
+
+describe('GameReadyPage INVITE lifecycle', () => {
+  let wrapper: VueWrapper | undefined
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    globalThis.localStorage.clear()
+    globalThis.sessionStorage.clear()
+    useToast().hideToast()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+    globalThis.localStorage.clear()
+    globalThis.sessionStorage.clear()
+    useToast().hideToast()
+    vi.unstubAllGlobals()
+  })
+
+  it('joins by room code, removes role query, and gates preparation until a validated server PLAYER snapshot', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('PLAYER'))),
+    )
+    const mounted = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends&room=4827&role=host',
+    )
+    wrapper = mounted.wrapper
+
+    const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]
+    expect(String(fetchCall?.[0])).toContain('/waiting-rooms/join')
+    expect(JSON.parse(String(fetchCall?.[1]?.body))).toEqual({
+      roomCode: '4827',
+    })
+    expect(mounted.router.currentRoute.value.query.role).toBeUndefined()
+    expect(wrapper.find('.invite-entry-status').text()).toContain(
+      '대기방 연결을 확인하고 있어요.',
+    )
+    expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    expect(wrapper.find('.room-code').exists()).toBe(false)
+    expect(globalThis.document.body.textContent).not.toContain(
+      '게임 준비를 위해 웹캠을 켜주세요',
+    )
+
+    const socket = MockWebSocket.instances[0]
+    const state = inviteRoomState('invite-room', 'WAITING', [
+      {
+        ...inviteRoomState().participants[1],
+        roomRole: 'HOST',
+      },
+      {
+        ...inviteRoomState().participants[0],
+        roomRole: 'PLAYER',
+      },
+    ])
+    socket.simulateMessage({ type: 'ROOM_STATE', data: state })
+    await flushPromises()
+
+    expect(wrapper.findAll('.participant-card')).toHaveLength(2)
+    expect(wrapper.find('.participant-card--me').text()).toContain('PLAYER')
+    expect(wrapper.find('.participant-card--opponent').text()).toContain('HOST')
+    expect(wrapper.find('.room-code__copy').exists()).toBe(false)
+    expect(globalThis.document.body.textContent).toContain(
+      '게임 준비를 위해 웹캠을 켜주세요',
+    )
+  })
+
+  it('creates without a fake code and exposes HOST UI only after the server assigns HOST', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    const mounted = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends&role=player',
+    )
+    wrapper = mounted.wrapper
+
+    const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]
+    expect(String(fetchCall?.[0])).toMatch(/\/waiting-rooms$/)
+    expect(JSON.parse(String(fetchCall?.[1]?.body))).toEqual({
+      gameName: 'EYEFIGHT',
+    })
+    expect(mounted.router.currentRoute.value.query).toEqual({
+      mode: 'friends',
+      room: '4827',
+    })
+    expect(wrapper.find('.room-code__copy').exists()).toBe(false)
+
+    MockWebSocket.instances[0].simulateMessage({
+      type: 'ROOM_STATE',
+      data: inviteRoomState(),
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.participant-card--me').text()).toContain('HOST')
+    expect(wrapper.find('.room-code__copy').exists()).toBe(true)
+  })
+
+  it('sends only IN_PROGRESS then COMPLETED for HOST calibration and keeps the JOINED room open', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateOpen()
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    const readyPage = inviteReadyPageVm(wrapper)
+
+    readyPage.notifyCalibrationStarted()
+    readyPage.finishCalibration()
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    await flushPromises()
+
+    const commands = socket.sent.slice(1).map((raw) => JSON.parse(raw))
+    expect(commands).toEqual([
+      { type: 'CALIBRATION_STATUS', calibrationStatus: 'IN_PROGRESS' },
+      { type: 'CALIBRATION_STATUS', calibrationStatus: 'COMPLETED' },
+    ])
+    expect(commands).not.toContainEqual({
+      type: 'READY_STATUS',
+      isReady: true,
+    })
+    expect(readyPage.isCalibrated).toBe(true)
+    expect(socket.readyState).toBe(MockWebSocket.OPEN)
+    expect(socket.closeCalls).toBe(0)
+    expect(wrapper.find('.participant-grid').exists()).toBe(true)
+    expect(wrapper.find('.room-join-error').exists()).toBe(false)
+  })
+
+  it('does not auto-ready PLAYER after calibration and sends READY only from the ready action', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('PLAYER'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends&room=4827',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateOpen()
+    const playerState = inviteRoomState('invite-room', 'WAITING', [
+      { ...inviteRoomState().participants[1], roomRole: 'HOST' },
+      { ...inviteRoomState().participants[0], roomRole: 'PLAYER' },
+    ])
+    socket.simulateMessage({ type: 'ROOM_STATE', data: playerState })
+    const readyPage = inviteReadyPageVm(wrapper)
+
+    readyPage.notifyCalibrationStarted()
+    readyPage.finishCalibration()
+    expect(socket.sent.slice(1).map((raw) => JSON.parse(raw))).toEqual([
+      { type: 'CALIBRATION_STATUS', calibrationStatus: 'IN_PROGRESS' },
+      { type: 'CALIBRATION_STATUS', calibrationStatus: 'COMPLETED' },
+    ])
+
+    readyPage.markPlayerReady()
+    expect(socket.sent.slice(1).map((raw) => JSON.parse(raw))).toEqual([
+      { type: 'CALIBRATION_STATUS', calibrationStatus: 'IN_PROGRESS' },
+      { type: 'CALIBRATION_STATUS', calibrationStatus: 'COMPLETED' },
+      { type: 'READY_STATUS', isReady: true },
+    ])
+  })
+
+  it('keeps JOINED, camera permission, and membership when calibration is cancelled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateOpen()
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    const readyPage = inviteReadyPageVm(wrapper)
+    readyPage.permissionStatus = 'granted'
+    readyPage.isCalibrationOpen = true
+    readyPage.notifyCalibrationStarted()
+
+    readyPage.handleCalibrationBack()
+    await flushPromises()
+
+    expect(readyPage.isCalibrationOpen).toBe(false)
+    expect(readyPage.permissionStatus).toBe('granted')
+    expect(readyPage.isCalibrated).toBe(false)
+    expect(socket.readyState).toBe(MockWebSocket.OPEN)
+    expect(socket.closeCalls).toBe(0)
+    expect(wrapper.find('.participant-grid').exists()).toBe(true)
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
+
+    readyPage.isCalibrationOpen = true
+    expect(readyPage.isCalibrationOpen).toBe(true)
+  })
+
+  it('keeps JOINED command errors non-terminal and accepts later ROOM_STATE updates', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateOpen()
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+
+    socket.simulateMessage({
+      type: 'ERROR',
+      data: {
+        code: 'WAITING-014',
+        message: '현재 상태에서는 요청한 상태로 변경할 수 없습니다.',
+      },
+    })
+    await flushPromises()
+
+    expect(useToast().message.value).toBe(
+      '현재 상태에서는 요청한 상태로 변경할 수 없습니다.',
+    )
+    expect(socket.readyState).toBe(MockWebSocket.OPEN)
+    expect(socket.closeCalls).toBe(0)
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.participant-grid').exists()).toBe(true)
+    expect(wrapper.find('.room-join-error__retry').exists()).toBe(false)
+
+    const updated = inviteRoomState()
+    updated.participants[1].isReady = true
+    socket.simulateMessage({ type: 'ROOM_STATE', data: updated })
+    await flushPromises()
+    expect(
+      wrapper
+        .find('.participant-card--opponent')
+        .find('.complete-badge')
+        .exists(),
+    ).toBe(true)
+  })
+
+  it('moves a CONNECTING authentication error to FAILED and keeps preparation hidden', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateOpen()
+    socket.simulateMessage({
+      type: 'ERROR',
+      data: {
+        code: 'WAITING-012',
+        message: 'WebSocket 인증 시간이 초과되었습니다.',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('WebSocket 인증 시간이 초과되었습니다.')
+    expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    expect(wrapper.find('.room-join-error__retry').exists()).toBe(true)
+    expect(socket.closeCalls).toBe(1)
+  })
+
+  it('does not offer an existing-room reconnect for CONNECTING NOT_FOUND', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateOpen()
+    socket.simulateMessage({
+      type: 'ERROR',
+      data: {
+        code: 'WAITING-008',
+        message: '대기방을 찾을 수 없습니다.',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('종료되었거나 존재하지 않는 방이에요.')
+    expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    expect(wrapper.find('.room-join-error__retry').exists()).toBe(false)
+    expect(socket.closeCalls).toBe(1)
+  })
+
+  it('fails the current connection when its first snapshot has mismatched metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+
+    socket.simulateMessage({
+      type: 'ROOM_STATE',
+      data: { ...inviteRoomState(), roomType: 'RANDOM' },
+    })
+    await flushPromises()
+    expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    expect(wrapper.text()).toContain('초대방 정보를 불러오지 못했어요.')
+    expect(socket.closeCalls).toBe(1)
+  })
+
+  it('fails the current room when my participant is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+
+    socket.simulateMessage({
+      type: 'ROOM_STATE',
+      data: inviteRoomState('invite-room', 'WAITING', []),
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('대기방 참가 정보를 확인할 수 없어요.')
+    expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    expect(socket.closeCalls).toBe(1)
+  })
+
+  it('resynchronizes role on every valid snapshot instead of preserving a guessed role', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    await flushPromises()
+    expect(wrapper.find('.participant-card--me').text()).toContain('HOST')
+    expect(wrapper.find('.room-code__copy').exists()).toBe(true)
+
+    const changed = inviteRoomState('invite-room', 'WAITING', [
+      { ...inviteRoomState().participants[0], roomRole: 'PLAYER' },
+      { ...inviteRoomState().participants[1], roomRole: 'HOST' },
+    ])
+    socket.simulateMessage({ type: 'ROOM_STATE', data: changed })
+    await flushPromises()
+
+    expect(wrapper.find('.participant-card--me').text()).toContain('PLAYER')
+    expect(wrapper.find('.participant-card--opponent').text()).toContain('HOST')
+    expect(wrapper.find('.room-code__copy').exists()).toBe(false)
+  })
+
+  it('keeps current CLOSED as a terminal state when the server closes the socket and ignores late events', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const socket = MockWebSocket.instances[0]
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    socket.simulateMessage({
+      type: 'ROOM_STATE',
+      data: inviteRoomState('invite-room', 'CLOSED'),
+    })
+    socket.simulateUnexpectedClose()
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    socket.simulateMessage({
+      type: 'GAME_START',
+      data: {
+        roomId: 'invite-room',
+        gameName: 'EYEFIGHT',
+        startedAt: '2026-08-05T00:00:03Z',
+        openviduUrl: null,
+        token: null,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('초대방이 종료되었어요.')
+    expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('재매칭')
+  })
+
+  it('retries an unexpected socket close against the existing room without another REST join', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    ;({ wrapper } = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends',
+    ))
+    const firstSocket = MockWebSocket.instances[0]
+    firstSocket.simulateMessage({
+      type: 'ROOM_STATE',
+      data: inviteRoomState(),
+    })
+    firstSocket.simulateUnexpectedClose()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('대기방 연결이 예기치 않게 종료됐어요.')
+    await wrapper.find('.room-join-error__retry').trigger('click')
+
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    MockWebSocket.instances[1].simulateMessage({
+      type: 'ROOM_STATE',
+      data: inviteRoomState(),
+    })
+    await flushPromises()
+    expect(wrapper.find('.participant-grid').exists()).toBe(true)
+  })
+
+  it.each([
+    ['WAITING-003', '초대방 정보를 불러오지 못했어요.', true],
+    ['WAITING-004', '존재하지 않거나 만료된 초대 코드예요.', false],
+  ])(
+    'renders %s with its retry policy and no preparation UI',
+    async (code, message, retryable) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => errorResponse(code, '서버 원문')),
+      )
+      ;({ wrapper } = await mountInviteReadyPage(
+        '/games/hold/ready?mode=friends&room=4827',
+      ))
+
+      expect(wrapper.text()).toContain(message)
+      expect(wrapper.find('.room-join-error__retry').exists()).toBe(retryable)
+      expect(wrapper.find('.participant-grid').exists()).toBe(false)
+    },
+  )
+
+  it('calls REST leave before intentionally closing a JOINED socket', async () => {
+    let resolveLeave: ((response: Response) => void) | undefined
+    const leaveResponse = new Promise<Response>((resolve) => {
+      resolveLeave = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(successResponse(inviteRestResponse('HOST')))
+        .mockReturnValueOnce(leaveResponse),
+    )
+    const mounted = await mountInviteReadyPage('/games/hold/ready?mode=friends')
+    wrapper = mounted.wrapper
+    const socket = MockWebSocket.instances[0]
+    socket.simulateMessage({ type: 'ROOM_STATE', data: inviteRoomState() })
+    await flushPromises()
+
+    ;(
+      wrapper.find('.room-header__actions > button')
+        .element as globalThis.HTMLButtonElement
+    ).click()
+    await Promise.resolve()
+
+    const calls = vi.mocked(globalThis.fetch).mock.calls
+    expect(String(calls[1]?.[0])).toContain('/waiting-rooms/invite-room/leave')
+    expect(socket.closeCalls).toBe(0)
+
+    resolveLeave?.(successResponse())
+    await flushPromises()
+    expect(socket.closeCalls).toBe(1)
+  })
+
+  it('invalidates an ENTERING request and best-effort leaves a stale successful response without opening a socket', async () => {
+    let resolveCreate: ((response: Response) => void) | undefined
+    const createResponse = new Promise<Response>((resolve) => {
+      resolveCreate = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockReturnValueOnce(createResponse)
+        .mockResolvedValueOnce(successResponse()),
+    )
+    const router = createReadyRouter()
+    await router.push('/games/hold/ready?mode=friends')
+    await router.isReady()
+    wrapper = mount(GameReadyPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+
+    await wrapper.find('.back--button').trigger('click')
+    resolveCreate?.(successResponse(inviteRestResponse('HOST')))
+    await flushPromises()
+
+    const calls = vi.mocked(globalThis.fetch).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(String(calls[1]?.[0])).toContain('/waiting-rooms/invite-room/leave')
+    expect(MockWebSocket.instances).toHaveLength(0)
+    expect(router.currentRoute.value.name).toBe('game-detail')
+  })
+
+  it('does not call leave again from FAILED or CLOSED', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => errorResponse('WAITING-004', 'not found')),
+    )
+    let mounted = await mountInviteReadyPage(
+      '/games/hold/ready?mode=friends&room=4827',
+    )
+    wrapper = mounted.wrapper
+    await wrapper.find('.room-join-error__back').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+    wrapper = undefined
+    MockWebSocket.instances = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(inviteRestResponse('HOST'))),
+    )
+    mounted = await mountInviteReadyPage('/games/hold/ready?mode=friends')
+    wrapper = mounted.wrapper
+    MockWebSocket.instances[0].simulateMessage({
+      type: 'ROOM_STATE',
+      data: inviteRoomState('invite-room', 'CLOSED'),
+    })
+    await flushPromises()
+    await wrapper.find('.room-join-error__back').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -244,7 +853,7 @@ describe('GameReadyPage RANDOM rematch lifecycle', () => {
       }),
     )
     const router = createReadyRouter()
-    await router.push('/games/hold/ready?mode=friends&role=host')
+    await router.push('/games/hold/ready?mode=friends')
     await router.isReady()
     wrapper = mount(GameReadyPage, {
       global: { plugins: [router, createPinia()] },
