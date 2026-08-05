@@ -923,6 +923,9 @@ watch(
 .community-detail__comment-list {
   display: grid;
   gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0 0 10px;
   padding: 0;
   list-style: none;
@@ -945,6 +948,7 @@ watch(
   flex: 1;
   min-width: 0;
   color: var(--color-ink);
+  word-break: normal;
   overflow-wrap: anywhere;
 }
 .community-detail__comment-time {

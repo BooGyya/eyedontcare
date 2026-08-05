@@ -105,6 +105,29 @@ describe('CommunityDetailPage', () => {
     leaveGroup.mockResolvedValue()
   })
 
+  it('comment input is limited to 200 characters', async () => {
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper.find('.community-detail__comment-toggle')
+    expect(toggleButton).toBeDefined()
+    await toggleButton!.trigger('click')
+
+    const input = wrapper.find('.community-detail__comment-form input')
+    expect(input.attributes('maxlength')).toBe('200')
+
+    const initialCommentCount = wrapper.findAll(
+      '.community-detail__comment-list li',
+    ).length
+    await input.setValue('a'.repeat(201))
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
+
+    expect(wrapper.findAll('.community-detail__comment-list li')).toHaveLength(
+      initialCommentCount,
+    )
+  })
+
   it('게스트에게는 API를 부르지 않고 로그인 유도를 보여준다', async () => {
     const { wrapper } = await mountDetail({ authed: false })
 

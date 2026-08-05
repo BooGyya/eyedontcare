@@ -115,6 +115,31 @@ describe('CommunityPage', () => {
     getMyGroups.mockResolvedValue({ groups: [] })
   })
 
+  it('shows live character counters for group name and description', async () => {
+    const wrapper = await mountCommunityPage()
+
+    await wrapper.get('[data-testid="open-create-dialog"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="create-group-name-count"]').text()).toBe(
+      '0/30',
+    )
+    expect(
+      wrapper.get('[data-testid="create-group-description-count"]').text(),
+    ).toBe('0/120')
+
+    await wrapper.get('[data-testid="create-group-name"]').setValue('abcd')
+    await wrapper
+      .get('[data-testid="create-group-description"]')
+      .setValue('hello')
+
+    expect(wrapper.get('[data-testid="create-group-name-count"]').text()).toBe(
+      '4/30',
+    )
+    expect(
+      wrapper.get('[data-testid="create-group-description-count"]').text(),
+    ).toBe('5/120')
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
