@@ -156,6 +156,12 @@ public class GroupService {
 			.map(GroupMember::getRole)
 			.orElse(null);
 
+		// 비공개 소모임은 로그인만으로 상세에 접근할 수 없다. 멤버(방장 포함)만 볼 수 있고,
+		// 비회원은 403으로 막는다(공개 소모임은 비회원도 조회 가능).
+		if (group.getVisibility() != GroupVisibility.PUBLIC && myRole == null) {
+			throw new BusinessException(GroupErrorCode.PRIVATE_GROUP_MEMBER_ONLY);
+		}
+
 		List<GroupMember> members = groupMemberRepository
 			.findByGroupIdOrderByJoinedAtAsc(groupId);
 

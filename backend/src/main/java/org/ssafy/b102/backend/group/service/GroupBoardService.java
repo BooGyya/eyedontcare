@@ -16,6 +16,7 @@ import org.ssafy.b102.backend.group.dto.response.GroupPostResponse;
 import org.ssafy.b102.backend.group.entity.Group;
 import org.ssafy.b102.backend.group.entity.GroupComment;
 import org.ssafy.b102.backend.group.entity.GroupPost;
+import org.ssafy.b102.backend.group.entity.GroupVisibility;
 import org.ssafy.b102.backend.group.exception.GroupErrorCode;
 import org.ssafy.b102.backend.group.repository.GroupCommentRepository;
 import org.ssafy.b102.backend.group.repository.GroupMemberRepository;
@@ -57,6 +58,7 @@ public class GroupBoardService {
 	@Transactional(readOnly = true)
 	public GroupPostListResponse getPosts(Long userId, Long groupId) {
 		Group group = findGroupOrThrow(groupId);
+		requireViewable(group, userId);
 
 		List<GroupPost> posts =
 			groupPostRepository.findByGroupIdOrderByCreatedAtDesc(groupId);
@@ -153,6 +155,15 @@ public class GroupBoardService {
 	private void requireMember(Long groupId, Long userId) {
 		if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, userId)) {
 			throw new BusinessException(GroupErrorCode.NOT_A_MEMBER);
+		}
+	}
+
+	/** 비공개 소모임 게시판은 멤버만 조회할 수 있다(공개는 비회원도 조회 가능). */
+	private void requireViewable(Group group, Long userId) {
+		if (group.getVisibility() != GroupVisibility.PUBLIC
+			&& !groupMemberRepository.existsByGroupIdAndUserId(
+				group.getId(), userId)) {
+			throw new BusinessException(GroupErrorCode.PRIVATE_GROUP_MEMBER_ONLY);
 		}
 	}
 
