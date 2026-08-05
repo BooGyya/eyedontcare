@@ -445,6 +445,7 @@ function navigateToReplay() {
   if (!game.value) return
   const playQuery = { ...route.query }
   delete playQuery.result
+  playQuery.replay = '1'
   router.push({
     name: 'game-play',
     params: { gameId: game.value.id },

@@ -266,6 +266,38 @@ describe('gameplay routes', () => {
     },
   )
 
+  it('shows a countdown before starting a replay', async () => {
+    vi.useFakeTimers()
+
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=solo&replay=1')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await nextTick()
+
+    const getCountdown = () =>
+      document.body.querySelector('[aria-label="게임 다시 시작 카운트다운"]')
+
+    expect(getCountdown()).not.toBeNull()
+    expect(getCountdown()?.textContent).toContain('3')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(getCountdown()?.textContent).toContain('2')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(getCountdown()?.textContent).toContain('1')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    await nextTick()
+
+    expect(getCountdown()).toBeNull()
+    expect(router.currentRoute.value.query.replay).toBeUndefined()
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
   it('shows the round score dialog and advances to the next round after AI judging succeeds', async () => {
     vi.mocked(recognizeDrawing).mockResolvedValue({
       label: '하트',
@@ -515,6 +547,29 @@ describe('gameplay routes', () => {
       wrapper.unmount()
     },
   )
+
+  it('passes a replay flag when starting again from the result screen', async () => {
+    const router = createGameRouter()
+    await router.push('/games/blink/result?mode=solo&result=completed')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: { plugins: [router, createResultPinia('blink')] },
+    })
+
+    const replayButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === '다시 플레이')
+    expect(replayButton).toBeTruthy()
+
+    await replayButton?.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(router.currentRoute.value.name).toBe('game-play')
+    expect(router.currentRoute.value.query.replay).toBe('1')
+    expect(router.currentRoute.value.query.result).toBeUndefined()
+    wrapper.unmount()
+  })
 
   it.each(['WIN', 'LOSE', 'DRAW'] as const)(
     'renders the blink %s competitive result with the shared duel UI',
