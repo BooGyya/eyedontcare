@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CommunityDetailPage from './CommunityDetailPage.vue'
 import { useAuthStore } from '../stores/auth'
 import type { GroupDetailResponse } from '../api/group'
+import { COMMENT_MAX_LENGTH } from '../types/community'
 
 const getGroup = vi.fn<() => Promise<GroupDetailResponse>>()
 const leaveGroup = vi.fn<() => Promise<void>>()
@@ -165,5 +166,24 @@ describe('CommunityDetailPage', () => {
     await submitButton.trigger('click')
 
     expect(wrapper.text()).toContain('축하해요~')
+  })
+
+  it('댓글 입력에 최대 글자 수 제한이 걸려 있고 초과 댓글은 등록되지 않는다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    await toggleButton!.trigger('click')
+
+    const input = wrapper.find('.community-detail__comment-form input')
+    expect(input.attributes('maxlength')).toBe(String(COMMENT_MAX_LENGTH))
+
+    // setValue는 maxlength를 우회하므로, 제출 가드가 초과분을 막는지 검증한다.
+    const tooLong = '가'.repeat(COMMENT_MAX_LENGTH + 1)
+    await input.setValue(tooLong)
+    await wrapper.find('.community-detail__comment-form button').trigger('click')
+
+    expect(wrapper.text()).not.toContain(tooLong)
   })
 })
