@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CommunityDetailPage from './CommunityDetailPage.vue'
 import { useAuthStore } from '../stores/auth'
 import type { GroupDetailResponse } from '../api/group'
-import { COMMENT_MAX_LENGTH, POST_MAX_LENGTH } from '../types/community'
+import {
+  COMMENT_COOLDOWN_MS,
+  COMMENT_MAX_LENGTH,
+  POST_MAX_LENGTH,
+} from '../types/community'
 
 const getGroup = vi.fn<() => Promise<GroupDetailResponse>>()
 const leaveGroup = vi.fn<() => Promise<void>>()
@@ -185,6 +189,51 @@ describe('CommunityDetailPage', () => {
     await wrapper.find('.community-detail__comment-form button').trigger('click')
 
     expect(wrapper.text()).not.toContain(tooLong)
+  })
+
+  it('짧은 간격으로 연속 작성하면 쿨다운으로 등록되지 않는다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    await toggleButton!.trigger('click')
+
+    const input = wrapper.find('.community-detail__comment-form input')
+    await input.setValue('첫 번째 댓글')
+    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    expect(wrapper.text()).toContain('첫 번째 댓글')
+
+    // 곧바로(쿨다운 이내) 다른 내용을 작성해도 막혀야 한다.
+    await input.setValue('난사 댓글')
+    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    expect(wrapper.text()).not.toContain('난사 댓글')
+  })
+
+  it('쿨다운이 지나도 직전과 같은 내용은 중복으로 막힌다', async () => {
+    const nowSpy = vi.spyOn(Date, 'now')
+    let clock = 1_000_000
+    nowSpy.mockImplementation(() => clock)
+
+    const { wrapper } = await mountDetail()
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    await toggleButton!.trigger('click')
+
+    const input = wrapper.find('.community-detail__comment-form input')
+    await input.setValue('중복 방지 댓글')
+    await wrapper.find('.community-detail__comment-form button').trigger('click')
+
+    clock += COMMENT_COOLDOWN_MS + 1 // 쿨다운은 지났지만 내용이 동일
+    await input.setValue('중복 방지 댓글')
+    await wrapper.find('.community-detail__comment-form button').trigger('click')
+
+    const occurrences = (
+      wrapper.text().match(/중복 방지 댓글/g) ?? []
+    ).length
+    expect(occurrences).toBe(1)
+    nowSpy.mockRestore()
   })
 
   it('후기 작성에 최대 글자 수 제한이 걸려 있고 초과 후기는 등록되지 않는다', async () => {
