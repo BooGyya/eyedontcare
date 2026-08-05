@@ -274,8 +274,8 @@ class WaitingRoomWebSocketServiceTest {
 		WaitingRoomSnapshot closed = fullSnapshot(RoomStatus.CLOSED);
 		when(waitingRoomService.findSnapshot(ROOM_ID))
 			.thenReturn(waiting, waiting, waiting, waiting, closed);
-		when(waitingRoomService.leaveByParticipantKey(ROOM_ID, "USER:1"))
-			.thenReturn(LeaveWaitingRoomResult.ROOM_CLOSED);
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1"))
+			.thenReturn(inviteOutcome("USER:1", LeaveWaitingRoomResult.ROOM_CLOSED));
 		StubWebSocketSession host = new StubWebSocketSession("host-session");
 		StubWebSocketSession player =
 			new StubWebSocketSession("player-session");
@@ -291,6 +291,232 @@ class WaitingRoomWebSocketServiceTest {
 		assertThat(registry.findByRoomId(ROOM_ID)).isEmpty();
 		verify(waitingRoomService, never())
 			.leaveByParticipantKey(ROOM_ID, "USER:2");
+		verify(waitingRoomService)
+			.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1");
+	}
+
+	@Test
+	void hostRestLeaveBroadcastsClosedAndClosesAllSessionsOnce() {
+		StubWebSocketSession host = registerSession(
+			"host-session",
+			"USER:1",
+			RoomRole.HOST
+		);
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			"USER:2",
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(inviteOutcome("USER:1", LeaveWaitingRoomResult.ROOM_CLOSED));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(fullSnapshot(RoomStatus.CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+		service.connectionClosed(host);
+		service.connectionClosed(player);
+
+		assertThat(host.lastSentPayload()).contains("\"roomStatus\":\"CLOSED\"");
+		assertThat(player.lastSentPayload())
+			.contains("\"roomStatus\":\"CLOSED\"")
+			.contains("\"participantKey\":\"USER:2\"")
+			.contains("\"roomRole\":\"PLAYER\"");
+		assertThat(player.sentPayloads().stream()
+			.filter(payload -> payload.contains("\"roomStatus\":\"CLOSED\""))
+			.count()).isEqualTo(1);
+		assertThat(host.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(player.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(registry.findByRoomId(ROOM_ID)).isEmpty();
+		verify(waitingRoomService, never())
+			.leaveWithOutcomeByParticipantKey(any(), any());
+	}
+
+	@Test
+	void waitingGuestPlayerRestLeaveBroadcastsHostAndClosesOnlyPlayer() {
+		UUID guestSessionId =
+			UUID.fromString("e93c76b2-7f78-4275-b8af-7cdd921bbb4f");
+		String guestParticipantKey = "GUEST:" + guestSessionId;
+		StubWebSocketSession host = registerSession(
+			"host-session",
+			"USER:1",
+			RoomRole.HOST
+		);
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			guestParticipantKey,
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leave(ROOM_ID, null, guestSessionId))
+			.thenReturn(inviteOutcome(guestParticipantKey, LeaveWaitingRoomResult.LEFT));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(snapshot(RoomStatus.WAITING));
+
+		service.leaveFromRest(ROOM_ID, null, guestSessionId);
+		service.connectionClosed(player);
+
+		assertThat(host.lastSentPayload())
+			.contains("\"roomStatus\":\"WAITING\"")
+			.contains("\"participantKey\":\"USER:1\"")
+			.contains("\"roomRole\":\"HOST\"")
+			.doesNotContain(guestParticipantKey);
+		assertThat(host.closeStatus()).isNull();
+		assertThat(player.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(registry.findBySessionId("host-session")).isPresent();
+		assertThat(registry.findBySessionId("player-session")).isEmpty();
+		verify(waitingRoomService, never())
+			.leaveWithOutcomeByParticipantKey(any(), any());
+	}
+
+	@Test
+	void inviteCountdownRestLeaveCancelsTaskBroadcastsClosedAndClosesSessions() {
+		@SuppressWarnings("rawtypes")
+		ScheduledFuture future = mock(ScheduledFuture.class);
+		when(taskScheduler.schedule(any(Runnable.class), any(Instant.class))).thenReturn(future);
+		countdownCoordinator.scheduleIfAbsent(ROOM_ID, NOW.plusSeconds(3), () -> {});
+		StubWebSocketSession host = registerSession(
+			"host-session",
+			"USER:1",
+			RoomRole.HOST
+		);
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			"USER:2",
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(inviteOutcome("USER:2", LeaveWaitingRoomResult.ROOM_CLOSED));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(fullSnapshot(RoomStatus.CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(2L),
+			null
+		);
+
+		verify(future).cancel(false);
+		assertThat(host.lastSentPayload()).contains("\"roomStatus\":\"CLOSED\"");
+		assertThat(player.lastSentPayload()).contains("\"roomStatus\":\"CLOSED\"");
+		assertThat(host.sentPayloads()).noneMatch(payload -> payload.contains("GAME_START"));
+		assertThat(player.sentPayloads()).noneMatch(payload -> payload.contains("GAME_START"));
+		assertThat(host.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(player.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+	}
+
+	@Test
+	void alreadyClosedInviteRestLeaveDoesNotRepeatPostProcessing() {
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			"USER:2",
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(inviteOutcome("USER:2", LeaveWaitingRoomResult.ALREADY_CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(2L),
+			null
+		);
+
+		verify(waitingRoomService, never()).findSnapshot(ROOM_ID);
+		assertThat(player.sentPayloads()).isEmpty();
+		assertThat(player.closeStatus()).isNull();
+		assertThat(registry.findBySessionId("player-session")).isPresent();
+	}
+
+	@Test
+	void restLeaveAndDisconnectRaceBroadcastsClosedOnlyOnce() {
+		StubWebSocketSession host = registerSession(
+			"host-session",
+			"USER:1",
+			RoomRole.HOST
+		);
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			"USER:2",
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1"))
+			.thenReturn(inviteOutcome("USER:1", LeaveWaitingRoomResult.ALREADY_CLOSED));
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenAnswer(invocation -> {
+				service.connectionClosed(host);
+				return inviteOutcome("USER:1", LeaveWaitingRoomResult.ROOM_CLOSED);
+			});
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(fullSnapshot(RoomStatus.CLOSED));
+
+		service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		);
+
+		assertThat(player.sentPayloads().stream()
+			.filter(payload -> payload.contains("\"roomStatus\":\"CLOSED\""))
+			.count()).isEqualTo(1);
+		assertThat(player.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		verify(waitingRoomService)
+			.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1");
+	}
+
+	@Test
+	void inviteClosedBroadcastFailureStillClosesOtherSessions() {
+		StubWebSocketSession failing = new FailingWebSocketSession("failing-session");
+		registerSession(failing, "USER:1", RoomRole.HOST);
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			"USER:2",
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(inviteOutcome("USER:1", LeaveWaitingRoomResult.ROOM_CLOSED));
+		when(waitingRoomService.leaveWithOutcomeByParticipantKey(ROOM_ID, "USER:1"))
+			.thenReturn(inviteOutcome("USER:1", LeaveWaitingRoomResult.ALREADY_CLOSED));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(fullSnapshot(RoomStatus.CLOSED));
+
+		assertThatCode(() -> service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		)).doesNotThrowAnyException();
+
+		assertThat(player.lastSentPayload()).contains("\"roomStatus\":\"CLOSED\"");
+		assertThat(player.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(registry.findByRoomId(ROOM_ID)).isEmpty();
+	}
+
+	@Test
+	void oneInviteSessionCloseFailureDoesNotBlockOtherSessionClose() {
+		registerSession(
+			new FailingCloseWebSocketSession("failing-session"),
+			"USER:1",
+			RoomRole.HOST
+		);
+		StubWebSocketSession player = registerSession(
+			"player-session",
+			"USER:2",
+			RoomRole.PLAYER
+		);
+		when(waitingRoomService.leave(any(), any(), any()))
+			.thenReturn(inviteOutcome("USER:1", LeaveWaitingRoomResult.ROOM_CLOSED));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(fullSnapshot(RoomStatus.CLOSED));
+
+		assertThatCode(() -> service.leaveFromRest(
+			ROOM_ID,
+			new org.ssafy.b102.backend.global.security.AuthenticatedUser(1L),
+			null
+		)).doesNotThrowAnyException();
+
+		assertThat(player.closeStatus()).isEqualTo(CloseStatus.NORMAL);
+		assertThat(registry.findByRoomId(ROOM_ID)).isEmpty();
 	}
 
 	@Test
@@ -1056,6 +1282,40 @@ class WaitingRoomWebSocketServiceTest {
 		);
 	}
 
+	private WaitingRoomLeaveOutcome inviteOutcome(
+		String participantKey,
+		LeaveWaitingRoomResult result
+	) {
+		return WaitingRoomLeaveOutcome.invite(ROOM_ID, participantKey, result);
+	}
+
+	private StubWebSocketSession registerSession(
+		String sessionId,
+		String participantKey,
+		RoomRole roomRole
+	) {
+		StubWebSocketSession session = new StubWebSocketSession(sessionId);
+		registerSession(session, participantKey, roomRole);
+		return session;
+	}
+
+	private void registerSession(
+		StubWebSocketSession session,
+		String participantKey,
+		RoomRole roomRole
+	) {
+		assertThat(registry.registerIfAbsent(
+			new WaitingRoomConnectionContext(
+				session.getId(),
+				ROOM_ID,
+				participantKey,
+				roomRole,
+				NOW,
+				session
+			)
+		)).isTrue();
+	}
+
 	private WaitingRoomSnapshot snapshot(RoomStatus status) {
 		UUID countdownId = status == RoomStatus.COUNTDOWN
 			? UUID.fromString("d93c76b2-7f78-4275-b8af-7cdd921bbb4f")
@@ -1159,6 +1419,19 @@ class WaitingRoomWebSocketServiceTest {
 		@Override
 		public void sendMessage(WebSocketMessage<?> message) {
 			throw new IllegalStateException("send failed");
+		}
+	}
+
+	private static final class FailingCloseWebSocketSession
+		extends StubWebSocketSession {
+
+		private FailingCloseWebSocketSession(String id) {
+			super(id);
+		}
+
+		@Override
+		public void close(CloseStatus status) {
+			throw new IllegalStateException("close failed");
 		}
 	}
 }
