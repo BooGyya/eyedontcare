@@ -29,7 +29,8 @@ import org.ssafy.b102.backend.user.repository.UserRepository;
  * 소모임 후기 게시판(글·댓글) 서비스.
  *
  * <p>조회는 인증된 회원이면 가능하고, 작성(글·댓글)은 해당 소모임 가입자만 가능하다.
- * 작성자 닉네임은 users에서 조회해 채우며, 방장이 쓴 글은 {@code isLeader}로 표시한다.
+ * 댓글 수정·삭제는 그중에서도 작성자 본인만 할 수 있다. 작성자 닉네임은 users에서 조회해
+ * 채우며, 방장이 쓴 글은 {@code isLeader}로, 요청자 본인이 쓴 댓글은 {@code mine}으로 표시한다.
  * 글자 수 상한은 요청 DTO의 {@code @Size}로 검증해 프론트 우회 요청까지 막는다.
  */
 @Service
@@ -87,7 +88,8 @@ public class GroupBoardService {
 						comment.getId(),
 						nicknames.get(comment.getAuthorUserId()),
 						comment.getContent(),
-						comment.getCreatedAt()
+						comment.getCreatedAt(),
+						comment.getAuthorUserId().equals(userId)
 					))
 					.toList()
 			))
@@ -127,13 +129,7 @@ public class GroupBoardService {
 	) {
 		findGroupOrThrow(groupId);
 		requireMember(groupId, userId);
-
-		GroupPost post = groupPostRepository.findById(postId)
-			.orElseThrow(() ->
-				new BusinessException(GroupErrorCode.POST_NOT_FOUND));
-		if (!post.getGroupId().equals(groupId)) {
-			throw new BusinessException(GroupErrorCode.POST_NOT_FOUND);
-		}
+		findPostOrThrow(postId, groupId);
 
 		GroupComment saved = groupCommentRepository.save(
 			GroupComment.create(postId, userId, content));
@@ -142,14 +138,88 @@ public class GroupBoardService {
 			saved.getId(),
 			nickname(userId),
 			saved.getContent(),
-			saved.getCreatedAt()
+			saved.getCreatedAt(),
+			true
 		);
+	}
+
+	/**
+	 * 댓글을 수정한다. 소모임 멤버이면서 댓글 작성자 본인만 가능하다.
+	 */
+	@Transactional
+	public GroupCommentResponse updateComment(
+		Long userId,
+		Long groupId,
+		Long postId,
+		Long commentId,
+		String content
+	) {
+		findGroupOrThrow(groupId);
+		requireMember(groupId, userId);
+		GroupPost post = findPostOrThrow(postId, groupId);
+		GroupComment comment = findCommentOrThrow(commentId, post.getId());
+		requireCommentAuthor(comment, userId);
+
+		comment.updateContent(content);
+
+		return new GroupCommentResponse(
+			comment.getId(),
+			nickname(userId),
+			comment.getContent(),
+			comment.getCreatedAt(),
+			true
+		);
+	}
+
+	/**
+	 * 댓글을 삭제한다. 소모임 멤버이면서 댓글 작성자 본인만 가능하다.
+	 */
+	@Transactional
+	public void deleteComment(
+		Long userId,
+		Long groupId,
+		Long postId,
+		Long commentId
+	) {
+		findGroupOrThrow(groupId);
+		requireMember(groupId, userId);
+		GroupPost post = findPostOrThrow(postId, groupId);
+		GroupComment comment = findCommentOrThrow(commentId, post.getId());
+		requireCommentAuthor(comment, userId);
+
+		groupCommentRepository.delete(comment);
 	}
 
 	private Group findGroupOrThrow(Long groupId) {
 		return groupRepository.findById(groupId)
 			.orElseThrow(() ->
 				new BusinessException(GroupErrorCode.GROUP_NOT_FOUND));
+	}
+
+	private GroupPost findPostOrThrow(Long postId, Long groupId) {
+		GroupPost post = groupPostRepository.findById(postId)
+			.orElseThrow(() ->
+				new BusinessException(GroupErrorCode.POST_NOT_FOUND));
+		if (!post.getGroupId().equals(groupId)) {
+			throw new BusinessException(GroupErrorCode.POST_NOT_FOUND);
+		}
+		return post;
+	}
+
+	private GroupComment findCommentOrThrow(Long commentId, Long postId) {
+		GroupComment comment = groupCommentRepository.findById(commentId)
+			.orElseThrow(() ->
+				new BusinessException(GroupErrorCode.COMMENT_NOT_FOUND));
+		if (!comment.getPostId().equals(postId)) {
+			throw new BusinessException(GroupErrorCode.COMMENT_NOT_FOUND);
+		}
+		return comment;
+	}
+
+	private void requireCommentAuthor(GroupComment comment, Long userId) {
+		if (!comment.getAuthorUserId().equals(userId)) {
+			throw new BusinessException(GroupErrorCode.COMMENT_FORBIDDEN);
+		}
 	}
 
 	private void requireMember(Long groupId, Long userId) {

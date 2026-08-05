@@ -63,4 +63,8 @@ public class GroupComment extends BaseTimeEntity {
 	public String getContent() {
 		return content;
 	}
+
+	public void updateContent(String content) {
+		this.content = content;
+	}
 }
