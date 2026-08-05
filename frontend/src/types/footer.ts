@@ -12,5 +12,3 @@ export type PolicyDocument = {
   title: string
   sections: PolicySection[]
 }
-
-export type FeedbackCategory = '버그 문의' | '불편했던 점' | '개선 제안'
