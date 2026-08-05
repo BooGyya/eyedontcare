@@ -30,8 +30,19 @@ const createGroupComment =
       content: string,
     ) => Promise<GroupCommentResponse>
   >()
+const updateGroupComment =
+  vi.fn<
+    (
+      groupId: string,
+      postId: string,
+      commentId: string,
+      content: string,
+    ) => Promise<GroupCommentResponse>
+  >()
+const deleteGroupComment =
+  vi.fn<(groupId: string, postId: string, commentId: string) => Promise<void>>()
 
-// getGroupPosts/createGroupPost/createGroupComment만 가짜로 바꾸고, 변환기(toCommunityPost 등
+// getGroupPosts/createGroupPost/createGroupComment 등만 가짜로 바꾸고, 변환기(toCommunityPost 등
 // 순수 함수)는 실제 구현을 그대로 쓴다.
 vi.mock('../api/group', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/group')>()
@@ -45,6 +56,14 @@ vi.mock('../api/group', async (importOriginal) => {
       createGroupPost(groupId, content),
     createGroupComment: (groupId: string, postId: string, content: string) =>
       createGroupComment(groupId, postId, content),
+    updateGroupComment: (
+      groupId: string,
+      postId: string,
+      commentId: string,
+      content: string,
+    ) => updateGroupComment(groupId, postId, commentId, content),
+    deleteGroupComment: (groupId: string, postId: string, commentId: string) =>
+      deleteGroupComment(groupId, postId, commentId),
   }
 })
 
@@ -90,7 +109,22 @@ function postList(): GroupPostListResponse {
         isLeader: true,
         content: '기존 후기',
         createdAt: '2026-08-01T00:00:00Z',
-        comments: [],
+        comments: [
+          {
+            commentId: 1,
+            author: '나',
+            content: '내 댓글',
+            createdAt: '2026-08-01T00:00:00Z',
+            mine: true,
+          },
+          {
+            commentId: 2,
+            author: '리더',
+            content: '리더 댓글',
+            createdAt: '2026-08-01T00:00:00Z',
+            mine: false,
+          },
+        ],
       },
     ],
   }
@@ -146,10 +180,13 @@ describe('CommunityDetailPage', () => {
     getGroupPosts.mockReset()
     createGroupPost.mockReset()
     createGroupComment.mockReset()
+    updateGroupComment.mockReset()
+    deleteGroupComment.mockReset()
 
     getGroup.mockResolvedValue(detail())
     leaveGroup.mockResolvedValue()
     getGroupPosts.mockResolvedValue(postList())
+    deleteGroupComment.mockResolvedValue()
 
     let commentSeq = 0
     createGroupComment.mockImplementation((_groupId, _postId, content) =>
@@ -158,7 +195,18 @@ describe('CommunityDetailPage', () => {
         author: '나',
         content,
         createdAt: '2026-08-05T00:00:00Z',
+        mine: true,
       }),
+    )
+    updateGroupComment.mockImplementation(
+      (_groupId, _postId, commentId, content) =>
+        Promise.resolve({
+          commentId: Number(commentId),
+          author: '나',
+          content,
+          createdAt: '2026-08-05T00:00:00Z',
+          mine: true,
+        }),
     )
     createGroupPost.mockImplementation((_groupId, content) =>
       Promise.resolve({
@@ -193,6 +241,7 @@ describe('CommunityDetailPage', () => {
     const { wrapper } = await mountDetail()
 
     const leaveButton = wrapper
+      .find('.community-detail__top-actions')
       .findAll('button')
       .find((button) => button.text().includes('소모임 나가기'))
     expect(leaveButton).toBeDefined()
@@ -200,6 +249,24 @@ describe('CommunityDetailPage', () => {
     await flushPromises()
 
     expect(leaveGroup).toHaveBeenCalled()
+  })
+
+  it('공개 소모임 미가입자에게는 우측 상단에 가입하기만 노출된다', async () => {
+    getGroup.mockResolvedValue(
+      detail({ isJoined: false, isOwner: false, joinCode: null }),
+    )
+    const { wrapper } = await mountDetail()
+
+    const topActions = wrapper.find('.community-detail__top-actions')
+    expect(topActions.text()).toContain('가입하기')
+    expect(topActions.findAll('button')).toHaveLength(1)
+  })
+
+  it('참여자 명단에는 방장 대신 리더 라벨이 노출된다', async () => {
+    const { wrapper } = await mountDetail()
+
+    expect(wrapper.text()).toContain('리더')
+    expect(wrapper.text()).not.toContain('방장')
   })
 
   it('뒤로가기 컨트롤에 소모임 목록으로가 노출된다', async () => {
@@ -214,7 +281,7 @@ describe('CommunityDetailPage', () => {
     const { wrapper } = await mountDetail()
 
     expect(getGroupPosts).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('게임 후기 게시판')
+    expect(wrapper.text()).toContain('Talk')
     expect(wrapper.find('.community-detail__post').exists()).toBe(true)
     expect(wrapper.text()).toContain('기존 후기')
   })
@@ -249,7 +316,9 @@ describe('CommunityDetailPage', () => {
     const input = wrapper.find('.community-detail__comment-form input')
     expect(input.exists()).toBe(true)
     await input.setValue('축하해요~')
-    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
     await flushPromises()
 
     expect(createGroupComment).toHaveBeenCalledWith('5', '100', '축하해요~')
@@ -269,7 +338,9 @@ describe('CommunityDetailPage', () => {
 
     // setValue는 maxlength를 우회하므로, 제출 가드가 초과분을 막는지 검증한다.
     await input.setValue('가'.repeat(COMMENT_MAX_LENGTH + 1))
-    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
     await flushPromises()
 
     expect(createGroupComment).not.toHaveBeenCalled()
@@ -285,13 +356,17 @@ describe('CommunityDetailPage', () => {
 
     const input = wrapper.find('.community-detail__comment-form input')
     await input.setValue('첫 번째 댓글')
-    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('첫 번째 댓글')
 
     // 곧바로(쿨다운 이내) 다른 내용을 작성해도 막혀야 한다.
     await input.setValue('난사 댓글')
-    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
     await flushPromises()
     expect(wrapper.text()).not.toContain('난사 댓글')
     expect(createGroupComment).toHaveBeenCalledTimes(1)
@@ -310,12 +385,16 @@ describe('CommunityDetailPage', () => {
 
     const input = wrapper.find('.community-detail__comment-form input')
     await input.setValue('중복 방지 댓글')
-    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
     await flushPromises()
 
     clock += COMMENT_COOLDOWN_MS + 1 // 쿨다운은 지났지만 내용이 동일
     await input.setValue('중복 방지 댓글')
-    await wrapper.find('.community-detail__comment-form button').trigger('click')
+    await wrapper
+      .find('.community-detail__comment-form button')
+      .trigger('click')
     await flushPromises()
 
     expect(createGroupComment).toHaveBeenCalledTimes(1)
@@ -340,5 +419,53 @@ describe('CommunityDetailPage', () => {
     await flushPromises()
 
     expect(createGroupPost).not.toHaveBeenCalled()
+  })
+
+  it('본인 댓글은 수정 버튼으로 인라인 수정해 저장할 수 있다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    await toggleButton!.trigger('click')
+
+    const editButton = wrapper.find('.community-detail__comment-edit')
+    expect(editButton.exists()).toBe(true)
+    await editButton.trigger('click')
+
+    const editInput = wrapper.find('.community-detail__comment-edit-input')
+    expect(editInput.exists()).toBe(true)
+    await editInput.setValue('수정된 댓글')
+    await wrapper.find('.community-detail__comment-save').trigger('click')
+    await flushPromises()
+
+    expect(updateGroupComment).toHaveBeenCalledWith(
+      '5',
+      '100',
+      '1',
+      '수정된 댓글',
+    )
+    expect(wrapper.text()).toContain('수정된 댓글')
+    expect(wrapper.find('.community-detail__comment-edit-input').exists()).toBe(
+      false,
+    )
+  })
+
+  it('본인 댓글은 삭제 확인 후 목록에서 제거된다', async () => {
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    await toggleButton!.trigger('click')
+    expect(wrapper.text()).toContain('내 댓글')
+
+    await wrapper.find('.community-detail__comment-delete').trigger('click')
+    await flushPromises()
+
+    expect(deleteGroupComment).toHaveBeenCalledWith('5', '100', '1')
+    expect(wrapper.text()).not.toContain('내 댓글')
+    confirmSpy.mockRestore()
   })
 })

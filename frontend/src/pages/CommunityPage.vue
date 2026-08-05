@@ -13,7 +13,6 @@ import {
   getGroups,
   getMyGroups,
   joinGroupByCode,
-  joinGroupById,
   toCommunityGroup,
 } from '../api/group'
 import type {
@@ -73,7 +72,10 @@ function loadGroups(): Promise<void> {
     isLoading.value = true
     errorMessage.value = ''
     try {
-      const [groupList, myList] = await Promise.all([getGroups(), getMyGroups()])
+      const [groupList, myList] = await Promise.all([
+        getGroups(),
+        getMyGroups(),
+      ])
       if (!auth.isAuthenticated) return
 
       const byId = new Map<string, CommunityGroup>()
@@ -85,7 +87,9 @@ function loadGroups(): Promise<void> {
     } catch (error) {
       if (!auth.isAuthenticated) return
       errorMessage.value =
-        error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
+        error instanceof ApiError
+          ? error.message
+          : '소모임을 불러오지 못했어요.'
     } finally {
       isLoading.value = false
     }
@@ -176,28 +180,20 @@ function upsertGroup(group: CommunityGroup) {
   }
 }
 
-async function handleGroupAction(group: CommunityGroup) {
-  if (group.isJoined) {
-    void router.push({ name: 'community-detail', params: { groupId: group.id } })
-    return
-  }
-  if (group.members >= group.capacity) {
-    showToast('정원이 마감된 소모임이에요.')
-    return
-  }
-  if (group.visibility === 'private') {
-    joinCode.value = ''
-    joinCodeError.value = ''
-    isJoinDialogOpen.value = true
+// 공개 소모임은 가입 여부와 무관하게 상세로 들어가 그 화면 우측 상단에서 가입한다.
+// 비공개 소모임은 가입 전까지만 코드 입력 다이얼로그로 보낸다.
+function handleGroupAction(group: CommunityGroup) {
+  if (group.isJoined || group.visibility === 'public') {
+    void router.push({
+      name: 'community-detail',
+      params: { groupId: group.id },
+    })
     return
   }
 
-  try {
-    upsertGroup(toCommunityGroup(await joinGroupById(group.id)))
-    showToast(`${group.name}에 가입했어요!`)
-  } catch (error) {
-    showToast(error instanceof ApiError ? error.message : '가입에 실패했어요.')
-  }
+  joinCode.value = ''
+  joinCodeError.value = ''
+  isJoinDialogOpen.value = true
 }
 
 async function handleJoinByCode() {
@@ -347,115 +343,115 @@ onMounted(() => {
       </div>
       <template v-else>
         <div class="community-page__toolbar">
-      <SegmentedTabs
-        label="소모임 필터"
-        :items="groupFilterItems"
-        :model-value="filterLabels[selectedFilter]"
-        @update:model-value="selectFilter"
-      />
-      <div class="community-page__toolbar-controls">
-        <label class="community-page__search-label">
-          <span class="sr-only">소모임 검색</span>
-          <svg
-            class="community-page__search-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            <circle
-              cx="10.5"
-              cy="10.5"
-              r="6.5"
-              stroke="currentColor"
-              stroke-width="1.8"
-            />
-            <path
-              d="M20 20l-4.35-4.35"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-            />
-          </svg>
-          <input
-            v-model="searchQuery"
-            data-testid="community-search"
-            type="search"
-            maxlength="50"
-            placeholder="소모임 검색"
+          <SegmentedTabs
+            label="소모임 필터"
+            :items="groupFilterItems"
+            :model-value="filterLabels[selectedFilter]"
+            @update:model-value="selectFilter"
           />
-          <button
-            v-if="searchQuery"
-            type="button"
-            class="community-page__search-clear"
-            aria-label="검색어 지우기"
-            @click="clearSearch"
-          >
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M6 6l12 12M18 6 6 18"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
+          <div class="community-page__toolbar-controls">
+            <label class="community-page__search-label">
+              <span class="sr-only">소모임 검색</span>
+              <svg
+                class="community-page__search-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="10.5"
+                  cy="10.5"
+                  r="6.5"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M20 20l-4.35-4.35"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <input
+                v-model="searchQuery"
+                data-testid="community-search"
+                type="search"
+                maxlength="50"
+                placeholder="소모임 검색"
               />
-            </svg>
-          </button>
-        </label>
-        <label class="community-page__sort-label">
-          <span class="sr-only">소모임 정렬</span>
-          <select v-model="selectedSort" aria-label="소모임 정렬">
-            <option value="latest">최신순</option>
-            <option value="members">참여 인원순</option>
-            <option value="name">이름순</option>
-          </select>
-        </label>
-      </div>
-    </div>
+              <button
+                v-if="searchQuery"
+                type="button"
+                class="community-page__search-clear"
+                aria-label="검색어 지우기"
+                @click="clearSearch"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M6 6l12 12M18 6 6 18"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </label>
+            <label class="community-page__sort-label">
+              <span class="sr-only">소모임 정렬</span>
+              <select v-model="selectedSort" aria-label="소모임 정렬">
+                <option value="latest">최신순</option>
+                <option value="members">참여 인원순</option>
+                <option value="name">이름순</option>
+              </select>
+            </label>
+          </div>
+        </div>
 
-    <p class="community-page__result" aria-live="polite">
-      {{ filteredGroups.length }}개의 소모임
-    </p>
+        <p class="community-page__result" aria-live="polite">
+          {{ filteredGroups.length }}개의 소모임
+        </p>
 
-    <TransitionGroup
-      v-if="filteredGroups.length"
-      tag="div"
-      name="group-list"
-      class="community-page__list"
-    >
-      <CommunityGroupCard
-        v-for="group in filteredGroups"
-        :key="group.id"
-        :group="group"
-        :is-guest="isGuestUser"
-        @join="handleGroupAction"
-        @enter="handleGroupAction"
-      />
-    </TransitionGroup>
-    <section v-else class="community-page__empty" aria-live="polite">
-      <img
-        :src="teamworkImage"
-        alt=""
-        aria-hidden="true"
-        class="community-page__empty-image"
-      />
-      <strong>찾는 소모임이 없어요.</strong>
-      <p>검색어 또는 필터를 바꿔서 다시 찾아보세요.</p>
-      <div class="community-page__empty-actions">
-        <button
-          type="button"
-          class="community-page__primary-button"
-          @click="openCreateDialog"
+        <TransitionGroup
+          v-if="filteredGroups.length"
+          tag="div"
+          name="group-list"
+          class="community-page__list"
         >
-          소모임 만들기
-        </button>
-        <button
-          type="button"
-          class="community-page__empty-reset"
-          @click="resetFilters"
-        >
-          필터 초기화
-        </button>
-      </div>
-    </section>
+          <CommunityGroupCard
+            v-for="group in filteredGroups"
+            :key="group.id"
+            :group="group"
+            :is-guest="isGuestUser"
+            @join="handleGroupAction"
+            @enter="handleGroupAction"
+          />
+        </TransitionGroup>
+        <section v-else class="community-page__empty" aria-live="polite">
+          <img
+            :src="teamworkImage"
+            alt=""
+            aria-hidden="true"
+            class="community-page__empty-image"
+          />
+          <strong>찾는 소모임이 없어요.</strong>
+          <p>검색어 또는 필터를 바꿔서 다시 찾아보세요.</p>
+          <div class="community-page__empty-actions">
+            <button
+              type="button"
+              class="community-page__primary-button"
+              @click="openCreateDialog"
+            >
+              소모임 만들기
+            </button>
+            <button
+              type="button"
+              class="community-page__empty-reset"
+              @click="resetFilters"
+            >
+              필터 초기화
+            </button>
+          </div>
+        </section>
       </template>
     </template>
 
@@ -542,7 +538,10 @@ onMounted(() => {
             비공개</label
           >
         </fieldset>
-        <p v-if="createDraft.visibility === 'private'" class="community-form__hint">
+        <p
+          v-if="createDraft.visibility === 'private'"
+          class="community-form__hint"
+        >
           비공개 소모임의 참여 코드는 생성 후 자동으로 발급돼요.
         </p>
         <button

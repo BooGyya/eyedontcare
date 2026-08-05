@@ -193,12 +193,13 @@ export function toCommunityGroup(response: GroupResponse): CommunityGroup {
 
 // --- 후기 게시판(글·댓글) ---
 
-/** 후기 댓글 응답(백엔드 원본). */
+/** 후기 댓글 응답(백엔드 원본). `mine`은 요청자 본인이 작성한 댓글인지를 나타낸다. */
 export interface GroupCommentResponse {
   commentId: number
   author: string | null
   content: string
   createdAt: string
+  mine: boolean
 }
 
 /** 후기 글 응답(백엔드 원본). 최신 글이 먼저 온다. */
@@ -245,6 +246,31 @@ export async function createGroupComment(
   )
 }
 
+/** 댓글 수정(작성자 본인 전용). 수정된 댓글을 반환한다. */
+export async function updateGroupComment(
+  groupId: string,
+  postId: string,
+  commentId: string,
+  content: string,
+): Promise<GroupCommentResponse> {
+  return apiRequest<GroupCommentResponse>(
+    `/groups/${groupId}/posts/${postId}/comments/${commentId}`,
+    { method: 'PATCH', body: { content } },
+  )
+}
+
+/** 댓글 삭제(작성자 본인 전용). */
+export async function deleteGroupComment(
+  groupId: string,
+  postId: string,
+  commentId: string,
+): Promise<void> {
+  await apiRequest<null>(
+    `/groups/${groupId}/posts/${postId}/comments/${commentId}`,
+    { method: 'DELETE' },
+  )
+}
+
 /** 작성 시각(ISO)을 화면용 상대 시간 라벨로 바꾼다. */
 export function toTimeLabel(createdAt: string): string {
   const created = new Date(createdAt).getTime()
@@ -268,6 +294,7 @@ export function toCommunityComment(
     author: response.author ?? '알 수 없음',
     content: response.content,
     timeLabel: toTimeLabel(response.createdAt),
+    mine: response.mine,
   }
 }
 

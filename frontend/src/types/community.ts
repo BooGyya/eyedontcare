@@ -51,6 +51,8 @@ export type CommunityComment = {
   author: string
   content: string
   timeLabel: string
+  /** 요청자 본인이 작성한 댓글이면 true — 수정/삭제 버튼 노출 기준 */
+  mine?: boolean
 }
 
 export type CommunityPost = {
