@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { CommunityGroup } from '../../types/community'
+import fallbackGroupImage from '../../assets/images/illustrations/illustration-teamwork.png'
 
 const props = defineProps<{
   group: CommunityGroup
   isGuest?: boolean
 }>()
+
+// 대표 이미지 로드가 실패하면(네트워크/에셋 문제 등) 빈 카드가 되지 않도록 기본 이미지로 대체한다.
+// 대체 이미지마저 실패해 무한 반복되는 것을 dataset 플래그로 막는다.
+function handleImageError(event: globalThis.Event) {
+  const image = event.target as globalThis.HTMLImageElement
+  if (image.dataset.fallbackApplied) return
+  image.dataset.fallbackApplied = 'true'
+  image.src = fallbackGroupImage
+}
 
 const emit = defineEmits<{
   join: [group: CommunityGroup]
@@ -38,9 +48,10 @@ function handleAction() {
   >
     <div class="community-group-card__image">
       <img
-        :src="group.image"
+        :src="group.image || fallbackGroupImage"
         :alt="`${group.name} 대표 이미지`"
         loading="lazy"
+        @error="handleImageError"
       />
       <span :class="`community-group-card__visibility--${group.visibility}`">
         {{ group.visibility === 'public' ? '공개' : '비공개' }}

@@ -71,7 +71,10 @@ const IMAGE_POOL = [groupImage1, groupImage2, groupImage3, groupImage4]
 
 /** groupId로 대표 이미지를 결정적으로 고른다(같은 소모임은 항상 같은 이미지). */
 function imageForGroupId(groupId: number): string {
-  return IMAGE_POOL[groupId % IMAGE_POOL.length]
+  // groupId가 숫자가 아니면(undefined/NaN 등) IMAGE_POOL[NaN]이 undefined가 되어 이미지가
+  // 통째로 사라진다. 유효한 정수가 아니면 첫 이미지로 고정해 항상 이미지를 보장한다.
+  if (!Number.isFinite(groupId)) return IMAGE_POOL[0]
+  return IMAGE_POOL[Math.abs(Math.trunc(groupId)) % IMAGE_POOL.length]
 }
 
 function toVisibility(code: GroupVisibilityCode): CommunityGroupVisibility {
