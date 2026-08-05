@@ -28,26 +28,23 @@ describe('AppFooter', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it('opens the feedback dialog, enables submit once text is entered, and closes on submit', async () => {
+  it('does not render a feedback entry in the footer links or support dialog', async () => {
     const wrapper = mount(AppFooter, {
       global: { plugins: [createTestRouter()], stubs: { Teleport: true } },
     })
 
-    const feedbackButton = wrapper
-      .findAll('.app-footer__links button')
-      .find((button) => button.text() === '피드백 보내기')
-    await feedbackButton?.trigger('click')
-
-    expect(wrapper.get('.feedback-dialog__submit').attributes()).toHaveProperty(
-      'disabled',
-    )
-
-    await wrapper.get('.feedback-dialog__textarea').setValue('버튼이 안 눌려요')
     expect(
-      wrapper.get('.feedback-dialog__submit').attributes(),
-    ).not.toHaveProperty('disabled')
+      wrapper
+        .findAll('.app-footer__links button')
+        .some((button) => button.text() === '피드백 보내기'),
+    ).toBe(false)
 
-    await wrapper.get('.feedback-dialog__submit').trigger('click')
-    expect(wrapper.find('.feedback-dialog').exists()).toBe(false)
+    const supportButton = wrapper
+      .findAll('.app-footer__links button')
+      .find((button) => button.text() === '고객센터')
+    await supportButton?.trigger('click')
+
+    expect(wrapper.get('#policy-dialog-title').text()).toBe('고객센터')
+    expect(wrapper.find('.policy-dialog__feedback').exists()).toBe(false)
   })
 })

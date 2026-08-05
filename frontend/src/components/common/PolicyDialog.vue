@@ -8,7 +8,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  'open-feedback': []
 }>()
 
 let previousBodyOverflow = ''
@@ -96,15 +95,6 @@ onBeforeUnmount(() => {
               </ul>
             </section>
           </div>
-
-          <button
-            v-if="document.id === 'support'"
-            class="policy-dialog__feedback"
-            type="button"
-            @click="emit('open-feedback')"
-          >
-            피드백 보내기
-          </button>
 
           <button
             class="policy-dialog__confirm"
@@ -215,29 +205,9 @@ onBeforeUnmount(() => {
   content: '';
 }
 
-.policy-dialog__feedback {
-  width: 100%;
-  margin-top: 22px;
-  padding: 13px;
-  border: 1px solid var(--color-accent-blue);
-  border-radius: 12px;
-  color: var(--color-accent-blue);
-  background: transparent;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
-  transition:
-    background-color var(--duration-fast) ease,
-    color var(--duration-fast) ease;
-}
-.policy-dialog__feedback:hover {
-  color: #fff;
-  background: var(--color-accent-blue);
-}
-
 .policy-dialog__confirm {
   width: 100%;
-  margin-top: 10px;
+  margin-top: 22px;
   padding: 14px;
   border-radius: 12px;
   color: #fff;

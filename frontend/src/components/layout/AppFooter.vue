@@ -1,26 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import footerLogoImage from '../../assets/images/brand/footer-logo.png'
-import { useToast } from '../../composables/useToast'
 import PolicyDialog from '../common/PolicyDialog.vue'
-import FeedbackDialog from '../common/FeedbackDialog.vue'
 import { policyDocuments } from '../../mocks/footer'
 import type { PolicyDocument } from '../../types/footer'
 
-const { showToast } = useToast()
-
 const activeDocument = ref<PolicyDocument | null>(null)
-const isFeedbackOpen = ref(false)
-
-function openFeedbackFromPolicy() {
-  activeDocument.value = null
-  isFeedbackOpen.value = true
-}
-
-function handleFeedbackSubmit() {
-  isFeedbackOpen.value = false
-  showToast('소중한 피드백이 접수됐어요. 감사합니다!')
-}
 </script>
 
 <template>
@@ -43,21 +28,9 @@ function handleFeedbackSubmit() {
       >
         {{ doc.label }}
       </button>
-      <button type="button" @click="isFeedbackOpen = true">
-        피드백 보내기
-      </button>
     </div>
 
-    <PolicyDialog
-      :document="activeDocument"
-      @close="activeDocument = null"
-      @open-feedback="openFeedbackFromPolicy"
-    />
-    <FeedbackDialog
-      :open="isFeedbackOpen"
-      @close="isFeedbackOpen = false"
-      @submit="handleFeedbackSubmit"
-    />
+    <PolicyDialog :document="activeDocument" @close="activeDocument = null" />
   </footer>
 </template>
 
