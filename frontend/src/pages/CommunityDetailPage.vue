@@ -15,7 +15,7 @@ import {
 } from '../api/group'
 import { communityPosts } from '../mocks/community'
 import type { CommunityPost } from '../types/community'
-import { COMMENT_MAX_LENGTH } from '../types/community'
+import { COMMENT_MAX_LENGTH, POST_MAX_LENGTH } from '../types/community'
 
 const route = useRoute()
 const router = useRouter()
@@ -76,10 +76,22 @@ function toggleComposer() {
   if (!isComposerOpen.value) composerContent.value = ''
 }
 
+// 입력 길이에 맞춰 textarea 높이를 늘려 긴 글이 아래쪽으로 확장되게 한다.
+function autoGrowComposer(event: globalThis.Event) {
+  const el = event.target as globalThis.HTMLTextAreaElement
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
 function submitPost() {
   const content = composerContent.value.trim()
   if (!content) {
     showToast('내용을 입력해 주세요.')
+    return
+  }
+  // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
+  if (content.length > POST_MAX_LENGTH) {
+    showToast(`후기는 ${POST_MAX_LENGTH}자까지 입력할 수 있어요.`)
     return
   }
   posts.value.unshift({
@@ -466,8 +478,13 @@ watch(
             class="community-detail__composer-textarea"
             placeholder="게임 후기를 남겨보세요"
             rows="3"
+            :maxlength="POST_MAX_LENGTH"
+            @input="autoGrowComposer"
           />
           <div class="community-detail__composer-actions">
+            <span class="community-detail__composer-count">
+              {{ composerContent.length }}/{{ POST_MAX_LENGTH }}
+            </span>
             <button
               type="button"
               class="community-detail__ghost"
@@ -809,17 +826,31 @@ watch(
   background: #fff;
 }
 .community-detail__composer-textarea {
+  width: 100%;
+  min-height: 72px;
   padding: 10px 12px;
   border: 1px solid var(--color-line);
   border-radius: 10px;
   font: inherit;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--color-ink);
-  resize: vertical;
+  /* 긴 글은 옆으로 늘어나지 않고 줄바꿈되며, 높이는 @input에서 내용에 맞춰 늘린다. */
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.community-detail__composer-count {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 .community-detail__composer-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
 }
 .community-detail__composer-actions .community-detail__primary,
@@ -871,6 +902,8 @@ watch(
   font-size: 14px;
   line-height: 1.6;
   word-break: keep-all;
+  /* 공백 없는 긴 문자열도 옆으로 넘치지 않고 줄바꿈되게 한다(페이지 가로 스크롤 방지). */
+  overflow-wrap: anywhere;
 }
 .community-detail__comment-toggle {
   padding: 0;
@@ -912,6 +945,7 @@ watch(
   flex: 1;
   min-width: 0;
   color: var(--color-ink);
+  overflow-wrap: anywhere;
 }
 .community-detail__comment-time {
   color: var(--color-muted);
