@@ -3,6 +3,7 @@ package org.ssafy.b102.backend.gamesession.websocket;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,8 +17,11 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.global.security.jwt.JwtTokenProvider;
+import org.ssafy.b102.backend.guest.entity.GuestSession;
 import org.ssafy.b102.backend.guest.service.GuestSessionService;
 import org.ssafy.b102.backend.guest.support.GuestParticipantKey;
+import org.ssafy.b102.backend.user.entity.User;
+import org.ssafy.b102.backend.user.repository.UserRepository;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -37,9 +41,13 @@ public class GameSessionWebSocketService {
 	private static final String MEMBER_KEY_PREFIX = "USER:";
 	private static final String ATTR_ROOM_ID = "gamesession.roomId";
 	private static final String ATTR_PARTICIPANT_KEY = "gamesession.participantKey";
+	private static final String ATTR_DISPLAY_NAME = "gamesession.displayName";
+	private static final String ATTR_FINISHED = "gamesession.finished";
+	private static final String EVENT_GAME_OVER = "GAME_OVER";
 
 	private final JwtTokenProvider jwtTokenProvider;
 	private final GuestSessionService guestSessionService;
+	private final UserRepository userRepository;
 	private final JsonMapper jsonMapper;
 
 	/** roomId → 그 방에 연결된 세션들. 두 명이 접속하며, 동시성 대비로 concurrent 컬렉션을 쓴다. */
@@ -48,10 +56,12 @@ public class GameSessionWebSocketService {
 	public GameSessionWebSocketService(
 		JwtTokenProvider jwtTokenProvider,
 		GuestSessionService guestSessionService,
+		UserRepository userRepository,
 		JsonMapper jsonMapper
 	) {
 		this.jwtTokenProvider = jwtTokenProvider;
 		this.guestSessionService = guestSessionService;
+		this.userRepository = userRepository;
 		this.jsonMapper = jsonMapper;
 	}
 
@@ -93,7 +103,11 @@ public class GameSessionWebSocketService {
 			sessions.remove(session);
 			if (sessions.isEmpty()) {
 				rooms.remove(roomId);
-			} else if (participantKey != null) {
+			} else if (participantKey != null && !hasFinished(session)) {
+				// GAME_OVER를 먼저 보낸(정상 종료한) 세션의 소켓 종료는 이탈이 아니다.
+				// 같은 세션의 메시지는 순서대로 처리되므로 GAME_OVER 처리가 종료 콜백보다
+				// 항상 먼저 끝나 이 판정이 결정적이다. 이탈 통지를 억제해 상대가 몰수승으로
+				// 오인(졌는데 이김)하지 않게 한다.
 				broadcastToOthers(sessions, session, new OutboundFrame(
 					"PARTICIPANT_LEFT",
 					Map.of("participantKey", participantKey)
@@ -103,31 +117,63 @@ public class GameSessionWebSocketService {
 	}
 
 	private void authenticate(WebSocketSession session, UUID roomId, String payload) {
-		String participantKey = resolveParticipantKey(payload);
-		if (participantKey == null) {
+		ResolvedParticipant participant = resolveParticipant(payload);
+		if (participant == null) {
 			close(session, CloseStatus.NOT_ACCEPTABLE);
 			return;
 		}
 
-		session.getAttributes().put(ATTR_PARTICIPANT_KEY, participantKey);
+		session.getAttributes().put(ATTR_PARTICIPANT_KEY, participant.participantKey());
+		if (participant.displayName() != null) {
+			session.getAttributes().put(ATTR_DISPLAY_NAME, participant.displayName());
+		}
 		Set<WebSocketSession> sessions = rooms.computeIfAbsent(
 			roomId,
 			key -> Collections.newSetFromMap(new ConcurrentHashMap<>())
 		);
 		sessions.add(session);
 
-		List<String> participantKeys = sessions.stream()
-			.map(other -> (String) other.getAttributes().get(ATTR_PARTICIPANT_KEY))
-			.filter(key -> key != null)
-			.distinct()
+		// 새 참가자가 들어오면 방 안 모든 세션에 최신 참가자 목록(닉네임 포함)을 보낸다.
+		// 기존 참가자도 뒤늦게 들어온 상대의 닉네임을 받도록 개별 전송이 아닌 브로드캐스트로 알린다.
+		broadcastSessionState(roomId, sessions);
+	}
+
+	/** 방의 현재 참가자 목록(participantKey + displayName)을 방 안 모든 열린 세션에 전송한다. */
+	private void broadcastSessionState(UUID roomId, Set<WebSocketSession> sessions) {
+		Map<String, String> displayNameByKey = new LinkedHashMap<>();
+		for (WebSocketSession other : sessions) {
+			String key = (String) other.getAttributes().get(ATTR_PARTICIPANT_KEY);
+			if (key == null) {
+				continue;
+			}
+			displayNameByKey.putIfAbsent(
+				key,
+				(String) other.getAttributes().get(ATTR_DISPLAY_NAME)
+			);
+		}
+
+		List<Map<String, Object>> participants = displayNameByKey.entrySet().stream()
+			.map(entry -> {
+				Map<String, Object> participant = new LinkedHashMap<>();
+				participant.put("participantKey", entry.getKey());
+				participant.put("displayName", entry.getValue());
+				return participant;
+			})
 			.toList();
 
-		send(session, new OutboundFrame("SESSION_STATE", Map.of(
+		OutboundFrame frame = new OutboundFrame("SESSION_STATE", Map.of(
 			"roomId", roomId.toString(),
-			"participants", participantKeys.stream()
-				.map(key -> Map.of("participantKey", key))
-				.toList()
-		)));
+			"participants", participants
+		));
+		for (WebSocketSession other : sessions) {
+			if (other.isOpen()) {
+				send(other, frame);
+			}
+		}
+	}
+
+	private boolean hasFinished(WebSocketSession session) {
+		return Boolean.TRUE.equals(session.getAttributes().get(ATTR_FINISHED));
 	}
 
 	private void relayPlayerEvent(
@@ -144,6 +190,12 @@ public class GameSessionWebSocketService {
 		}
 		if (frame == null || frame.eventType() == null) {
 			return;
+		}
+
+		// 정상 종료를 알리는 GAME_OVER를 보낸 세션은 '완료' 표시한다. 이후 소켓이 닫혀도
+		// 이탈이 아니라 정상 종료로 처리해 상대가 몰수승으로 오인하지 않게 한다.
+		if (EVENT_GAME_OVER.equals(frame.eventType())) {
+			session.getAttributes().put(ATTR_FINISHED, Boolean.TRUE);
 		}
 
 		Set<WebSocketSession> sessions = rooms.get(roomId);
@@ -174,10 +226,11 @@ public class GameSessionWebSocketService {
 	}
 
 	/**
-	 * 인증 프레임에서 참가자 키를 푼다. 회원은 JWT userId → {@code USER:{id}}, 게스트는
-	 * 세션 검증 후 {@code GUEST:{uuid}}. 실패하면 null을 반환해 연결을 닫게 한다.
+	 * 인증 프레임에서 참가자 키와 표시 이름을 푼다. 회원은 JWT userId → {@code USER:{id}}이고
+	 * 닉네임은 회원 조회로, 게스트는 세션 검증 후 {@code GUEST:{uuid}}이고 닉네임은 게스트 세션에서
+	 * 가져온다. 실패하면 null을 반환해 연결을 닫게 한다.
 	 */
-	private String resolveParticipantKey(String payload) {
+	private ResolvedParticipant resolveParticipant(String payload) {
 		AuthFrame frame;
 		try {
 			frame = jsonMapper.readValue(payload, AuthFrame.class);
@@ -189,14 +242,22 @@ public class GameSessionWebSocketService {
 		}
 		if (hasText(frame.accessToken())) {
 			return jwtTokenProvider.parseAccessTokenUserId(frame.accessToken())
-				.map(userId -> MEMBER_KEY_PREFIX + userId)
+				.map(userId -> new ResolvedParticipant(
+					MEMBER_KEY_PREFIX + userId,
+					userRepository.findByIdAndDeletedAtIsNull(userId)
+						.map(User::getNickname)
+						.orElse(null)
+				))
 				.orElse(null);
 		}
 		if (hasText(frame.guestSessionId())) {
 			try {
 				UUID sessionId = UUID.fromString(frame.guestSessionId());
-				guestSessionService.validate(sessionId);
-				return new GuestParticipantKey(sessionId).value();
+				GuestSession guestSession = guestSessionService.validate(sessionId);
+				return new ResolvedParticipant(
+					new GuestParticipantKey(sessionId).value(),
+					guestSession.nickname()
+				);
 			} catch (IllegalArgumentException | BusinessException exception) {
 				return null;
 			}
@@ -223,6 +284,9 @@ public class GameSessionWebSocketService {
 
 	private static boolean hasText(String value) {
 		return value != null && !value.isBlank();
+	}
+
+	private record ResolvedParticipant(String participantKey, String displayName) {
 	}
 
 	private record OutboundFrame(String type, Object data) {
