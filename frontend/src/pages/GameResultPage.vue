@@ -422,6 +422,10 @@ const isMultiplayerBattle = computed(
   () => mode.value === 'friends' || mode.value === 'random',
 )
 const battleRoomId = computed(() => String(route.query.roomId ?? ''))
+const opponentLeft = ref(route.query.result === 'opponent-left')
+const isReplayUnavailable = computed(
+  () => isMultiplayerBattle.value && opponentLeft.value,
+)
 const replayRequested = ref(false)
 const peerReplayRequested = ref(false)
 let replayResendTimer: ReturnType<typeof globalThis.setInterval> | undefined
@@ -435,9 +439,11 @@ const replaySession = useGameSessionSocket({
     startReplayIfBothAgreed()
   },
   onParticipantLeft: () => {
-    if (!replayRequested.value) return
+    if (opponentLeft.value) return
+    opponentLeft.value = true
     stopReplayResend()
     replayRequested.value = false
+    peerReplayRequested.value = false
     showToast('상대가 나가서 다시 시작할 수 없어요.')
   },
 })
@@ -461,13 +467,14 @@ function navigateToReplay() {
 }
 
 function startReplayIfBothAgreed() {
+  if (isReplayUnavailable.value) return
   if (!replayRequested.value || !peerReplayRequested.value) return
   stopReplayResend()
   navigateToReplay()
 }
 
 function replay() {
-  if (!game.value) return
+  if (!game.value || isReplayUnavailable.value) return
   // 솔로/AI는 즉시 재시작한다.
   if (!isMultiplayerBattle.value) {
     navigateToReplay()
@@ -677,7 +684,22 @@ function goToGames() {
                 }}
               </span>
             </p>
-            <button type="button" @click="replay">다시 플레이</button>
+            <div class="replay-action">
+              <button
+                type="button"
+                :disabled="isReplayUnavailable"
+                @click="replay"
+              >
+                다시 플레이
+              </button>
+              <p
+                v-if="isReplayUnavailable"
+                class="replay-unavailable-note"
+                role="status"
+              >
+                상대방이 퇴장하여 다시 플레이할 수 없습니다.
+              </p>
+            </div>
           </footer>
         </section>
       </template>
@@ -698,7 +720,22 @@ function goToGames() {
             <b>VS</b>
             <strong>{{ result.opponentScore ?? '-' }}</strong>
           </div>
-          <button type="button" @click="replay">다시 플레이</button>
+          <div class="replay-action">
+            <button
+              type="button"
+              :disabled="isReplayUnavailable"
+              @click="replay"
+            >
+              다시 플레이
+            </button>
+            <p
+              v-if="isReplayUnavailable"
+              class="replay-unavailable-note"
+              role="status"
+            >
+              상대방이 퇴장하여 다시 플레이할 수 없습니다.
+            </p>
+          </div>
         </section>
       </template>
 
@@ -935,7 +972,22 @@ function goToGames() {
                 <dd>{{ stat.value }}</dd>
               </div>
             </dl>
-            <button type="button" @click="replay">다시 플레이</button>
+            <div class="replay-action">
+              <button
+                type="button"
+                :disabled="isReplayUnavailable"
+                @click="replay"
+              >
+                다시 플레이
+              </button>
+              <p
+                v-if="isReplayUnavailable"
+                class="replay-unavailable-note"
+                role="status"
+              >
+                상대방이 퇴장하여 다시 플레이할 수 없습니다.
+              </p>
+            </div>
           </footer>
           <p class="duel-loss__note">
             {{
@@ -1241,33 +1293,43 @@ function goToGames() {
         </section>
 
         <section class="draw-final-footer">
-          <button
-            type="button"
-            class="draw-final-footer__replay"
-            @click="replay"
-          >
-            <span aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path
-                  d="M20 11A8 8 0 1 0 18 16"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M20 5v6h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </span>
-            다시 플레이
-          </button>
+          <div class="replay-action">
+            <button
+              type="button"
+              class="draw-final-footer__replay"
+              :disabled="isReplayUnavailable"
+              @click="replay"
+            >
+              <span aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M20 11A8 8 0 1 0 18 16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M20 5v6h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              다시 플레이
+            </button>
+            <p
+              v-if="isReplayUnavailable"
+              class="replay-unavailable-note"
+              role="status"
+            >
+              상대방이 퇴장하여 다시 플레이할 수 없습니다.
+            </p>
+          </div>
           <button
             type="button"
             class="draw-final-footer__list"
@@ -1368,27 +1430,41 @@ function goToGames() {
                 <dd>{{ stat.value }}</dd>
               </div>
             </dl>
-            <button type="button" class="primary" @click="replay">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M20 11A8 8 0 1 0 18 16"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M20 5v6h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              다시 플레이
-            </button>
+            <div class="replay-action">
+              <button
+                type="button"
+                class="primary"
+                :disabled="isReplayUnavailable"
+                @click="replay"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M20 11A8 8 0 1 0 18 16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M20 5v6h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                다시 플레이
+              </button>
+              <p
+                v-if="isReplayUnavailable"
+                class="replay-unavailable-note"
+                role="status"
+              >
+                상대방이 퇴장하여 다시 플레이할 수 없습니다.
+              </p>
+            </div>
           </div>
           <dl
             v-if="!isCompetitive"
@@ -1755,6 +1831,26 @@ function goToGames() {
   font-weight: 800;
   cursor: pointer;
 }
+.replay-action {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+.replay-action button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.45);
+  opacity: 0.5;
+}
+.replay-unavailable-note {
+  margin: 0;
+  color: #b75555;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+}
 .competitive-pending-result {
   display: grid;
   justify-items: center;
@@ -1986,6 +2082,16 @@ function goToGames() {
   font-size: 13px;
   line-height: 1.5;
 }
+.duel-loss__summary .replay-unavailable-note,
+.competitive-pending-result .replay-unavailable-note {
+  display: block;
+  gap: 0;
+  color: #b75555;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+}
 .duel-loss__summary dl {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2026,6 +2132,14 @@ function goToGames() {
   justify-self: end;
   font-family: var(--font-display);
   font-size: 20px;
+}
+.duel-loss__summary--draw .replay-action {
+  width: min(100%, 155px);
+  justify-self: end;
+}
+.duel-loss__summary--draw .replay-action button {
+  width: 100%;
+  max-width: none;
 }
 .duel-loss__note {
   margin: 0;
@@ -2655,6 +2769,10 @@ function goToGames() {
 .versus-summary > div {
   display: grid;
   gap: 7px;
+}
+.versus-summary > .replay-action {
+  display: flex;
+  gap: 8px;
 }
 .versus-summary > div b {
   color: #5747df;
