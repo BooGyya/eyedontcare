@@ -7,12 +7,16 @@ import { useAuthStore } from '../stores/auth'
 import type { GameName } from '../types/waitingRoom'
 import type { GameRankingResponse } from '../api/ranking'
 
-const getGameRanking = vi.fn<(gameName: GameName) => Promise<GameRankingResponse>>()
+const getGameRanking =
+  vi.fn<(gameName: GameName) => Promise<GameRankingResponse>>()
 
 // getGameRanking만 가짜로 바꾸고, toGameRanking(순수 변환)은 실제 구현을 그대로 쓴다.
 vi.mock('../api/ranking', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/ranking')>()
-  return { ...actual, getGameRanking: (gameName: GameName) => getGameRanking(gameName) }
+  return {
+    ...actual,
+    getGameRanking: (gameName: GameName) => getGameRanking(gameName),
+  }
 })
 
 function fakeResponse(gameName: GameName): GameRankingResponse {
@@ -78,7 +82,9 @@ describe('RankingPage', () => {
     const { wrapper } = await mountRankingPage('/ranking', { authed: false })
 
     expect(wrapper.text()).toContain('로그인 후 확인')
-    expect(wrapper.find('[data-testid="ranking-game-tabs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="ranking-game-tabs"]').exists()).toBe(
+      false,
+    )
     expect(getGameRanking).not.toHaveBeenCalled()
   })
 
@@ -86,9 +92,12 @@ describe('RankingPage', () => {
     const { wrapper } = await mountRankingPage()
 
     expect(getGameRanking).toHaveBeenCalledWith('BLINK')
+    expect(wrapper.text()).toContain('Eye Show Speed(눈 깜빡이기)')
     expect(wrapper.text()).toContain('눈 깜빡이기')
     expect(wrapper.get('[data-testid="podium-rank-1"]').text()).toContain('1위')
-    expect(wrapper.get('[data-testid="ranking-row-4"]').text()).toContain('눈사람')
+    expect(wrapper.get('[data-testid="ranking-row-4"]').text()).toContain(
+      '눈사람',
+    )
   })
 
   it('탭을 바꾸면 해당 게임 랭킹을 다시 불러오고 쿼리에 반영한다', async () => {

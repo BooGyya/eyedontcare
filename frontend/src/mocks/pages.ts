@@ -63,7 +63,7 @@ export const gameCatalog: GameCatalogItem[] = [
 export const gameRankings: GameRanking[] = [
   {
     gameId: 'blink',
-    gameName: 'Eye Show Speed (눈 깜빡이기)',
+    gameName: 'Eye Show Speed(눈 깜빡이기)',
     unit: '회',
     sortOrder: 'desc',
     myRank: 7,
@@ -145,7 +145,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'draw',
-    gameName: 'Eye Draw (눈으로 그리기)',
+    gameName: 'Eye Draw(눈으로 그리기)',
     unit: '점',
     sortOrder: 'desc',
     myRank: 5,
@@ -227,7 +227,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'hold',
-    gameName: 'Eye See (눈싸움)',
+    gameName: 'Eye See(눈싸움)',
     unit: '초',
     sortOrder: 'desc',
     myRank: 12,
@@ -316,7 +316,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'rhythm',
-    gameName: 'Blink the Beat (리듬 게임)',
+    gameName: 'Blink the Beat(리듬 게임)',
     unit: '점',
     sortOrder: 'desc',
     myRank: 12,
@@ -405,7 +405,7 @@ export const gameRankings: GameRanking[] = [
   },
   {
     gameId: 'air',
-    gameName: 'Eye Hockey (에어 하키)',
+    gameName: 'Eye Hockey(에어하키)',
     unit: '점',
     sortOrder: 'desc',
     myRank: 8,
