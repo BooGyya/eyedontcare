@@ -108,7 +108,9 @@ function getPodiumHeight(rank: number, record: RankingRecord | null) {
         </div>
       </div>
       <p v-if="!game.records.length" class="weekly-ranking-card__empty-overlay">
-        아직 이번주 랭커가 없어요.<br />참여해서 랭커가 되어보세요!
+        <span class="weekly-ranking-card__empty-card">
+          아직 이번주 랭커가 없어요.<br />참여해서 랭커가 되어보세요!
+        </span>
       </p>
     </div>
   </article>
@@ -226,13 +228,21 @@ function getPodiumHeight(rank: number, record: RankingRecord | null) {
   display: grid;
   margin: 0;
   padding: 0 16px;
-  background: rgba(255, 255, 255, 0.55);
+  place-items: center;
+}
+
+.weekly-ranking-card__empty-card {
+  display: block;
+  padding: 14px 18px;
+  border: 1px solid var(--card-line, #dadbf9);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow-card);
   color: var(--color-ink);
   font-size: 14px;
   font-weight: 700;
   line-height: 1.6;
   text-align: center;
-  place-items: center;
   word-break: keep-all;
 }
 
