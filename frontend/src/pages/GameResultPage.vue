@@ -111,7 +111,7 @@ function formatPersistedValue(key: string, value: unknown): string {
     return `${(value / 1000).toFixed(1)}초`
   }
   if (key === 'blinkCount' && typeof value === 'number') {
-    return `${value}회`
+    return `${value}`
   }
   if (typeof value === 'number') {
     return value.toLocaleString('ko-KR')
@@ -206,6 +206,7 @@ async function loadPersistedResult(): Promise<void> {
 const visibleResultStats = computed(() =>
   (result.value?.stats ?? []).filter(
     (stat) =>
+      (game.value?.id !== 'blink' || stat.label !== '깜빡임 횟수') &&
       (game.value?.id !== 'blink' || stat.label !== '플레이 시간') &&
       (game.value?.id !== 'rhythm' || stat.label !== '정확도'),
   ),
@@ -263,9 +264,12 @@ const hasKnownOutcome = computed(() =>
 )
 const isShowcaseCompetitiveResult = computed(
   () =>
-    ['air', 'hold'].includes(game.value?.id ?? '') &&
+    ['air', 'hold', 'blink'].includes(game.value?.id ?? '') &&
     isCompetitive.value &&
     hasKnownOutcome.value,
+)
+const isPendingCompetitiveResult = computed(
+  () => isCompetitive.value && !hasKnownOutcome.value,
 )
 const isDrawResult = computed(() => game.value?.id === 'draw')
 const isFailedResult = computed(() => route.query.result === 'failed')
@@ -275,17 +279,8 @@ const isHoldRecordMissed = computed(
     mode.value === 'solo' &&
     result.value?.isNewRecord === false,
 )
-const isAirAiRecordedResult = computed(
-  () => game.value?.id === 'air' && mode.value === 'ai' && hasRealResult.value,
-)
 const isCompetitiveLoss = computed(
-  () =>
-    (isAirAiRecordedResult.value && outcome.value === 'LOSE') ||
-    (((game.value?.id === 'rhythm' &&
-      ['friends', 'random'].includes(mode.value)) ||
-      (['air', 'hold'].includes(game.value?.id ?? '') &&
-        isCompetitive.value)) &&
-      outcome.value === 'LOSE'),
+  () => isCompetitive.value && outcome.value === 'LOSE',
 )
 const isDrawOutcome = computed(
   () => isCompetitive.value && outcome.value === 'DRAW',
@@ -549,8 +544,12 @@ function goToGames() {
                   isDrawOutcome
                     ? '마지막까지 팽팽한 승부였어요!'
                     : isCompetitiveLoss
-                      ? '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
-                      : '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
+                      ? game.id === 'blink'
+                        ? '다음엔 더 빠르게 눈을 깜빡여 승리를 가져와 보세요!'
+                        : '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
+                      : game.id === 'blink'
+                        ? '상대보다 더 많이 깜빡이며 이번 대결을 이겼어요!'
+                        : '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
                 }}
               </strong>
             </div>
@@ -601,6 +600,7 @@ function goToGames() {
                 draggable="false"
               />
               <b v-if="game.id === 'air'">{{ airMyScore }}</b>
+              <b v-else-if="game.id === 'blink'">{{ result.score }}</b>
             </article>
             <div
               class="air-duel-scoreboard__outcome"
@@ -643,6 +643,9 @@ function goToGames() {
                 draggable="false"
               />
               <b v-if="game.id === 'air'">{{ airOpponentScore }}</b>
+              <b v-else-if="game.id === 'blink'">{{
+                result.opponentScore ?? '-'
+              }}</b>
             </article>
           </section>
           <footer
@@ -668,6 +671,26 @@ function goToGames() {
             </p>
             <button type="button" @click="replay">다시 플레이</button>
           </footer>
+        </section>
+      </template>
+
+      <template v-else-if="isPendingCompetitiveResult">
+        <section
+          class="competitive-pending-result"
+          aria-labelledby="pending-result-title"
+        >
+          <img :src="game.image" :alt="title + ' 결과'" draggable="false" />
+          <p>{{ title }} 대결 결과</p>
+          <h2 id="pending-result-title">결과 확인 중</h2>
+          <span
+            >상대 결과를 아직 받지 못했어요. 잠시 후 다시 확인해 주세요.</span
+          >
+          <div class="competitive-pending-result__score">
+            <strong>{{ result.score }}</strong>
+            <b>VS</b>
+            <strong>{{ result.opponentScore ?? '-' }}</strong>
+          </div>
+          <button type="button" @click="replay">다시 플레이</button>
         </section>
       </template>
 
@@ -1699,6 +1722,56 @@ function goToGames() {
   min-height: 62px;
   font-family: var(--font-display);
   font-size: 20px;
+}
+.competitive-pending-result button {
+  min-height: 48px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  background: #7056e8;
+  font-weight: 800;
+  cursor: pointer;
+}
+.competitive-pending-result {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 42px 24px;
+  border: 1px solid #e2e4f4;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #f8f7ff, #fff);
+  text-align: center;
+}
+.competitive-pending-result > img {
+  width: 130px;
+  height: 130px;
+  object-fit: contain;
+}
+.competitive-pending-result p,
+.competitive-pending-result > span {
+  margin: 0;
+  color: var(--color-muted);
+}
+.competitive-pending-result h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 32px;
+}
+.competitive-pending-result__score {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin: 8px 0;
+}
+.competitive-pending-result__score strong {
+  color: var(--color-accent-blue);
+  font-family: var(--font-display);
+  font-size: 32px;
+}
+.competitive-pending-result__score b {
+  color: var(--color-muted);
 }
 .duel-loss__scoreboard {
   display: grid;

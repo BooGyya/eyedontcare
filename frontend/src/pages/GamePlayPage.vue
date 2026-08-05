@@ -1189,6 +1189,9 @@ async function toResult() {
           ? {
               maxCombo: rhythmGameState.value.maxCombo,
               remainingHearts: rhythmGameState.value.health,
+              opponentScore: rhythmOpponentSynced.value
+                ? rhythmOpponent.value.score
+                : undefined,
             }
           : game.value.id === 'air' && mode.value === 'ai'
             ? { opponentScore: airGameState.value.top.score }
@@ -1244,11 +1247,11 @@ function recordBlinkResult() {
     mode: mode.value,
     opponentNickname: opponentNickname.value,
     outcome,
-    scoreLabel: '깜빡임',
-    score: `${myCount}회`,
+    scoreLabel: '점수',
+    score: `${myCount}`,
     opponentScore:
       opponentBlinkCount.value !== null
-        ? `${opponentBlinkCount.value}회`
+        ? `${opponentBlinkCount.value}`
         : undefined,
     headline:
       outcome === 'WIN'
@@ -1266,7 +1269,7 @@ function recordBlinkResult() {
           : outcome === 'DRAW'
             ? '정말 팽팽한 대결이었어요!'
             : '20초 동안 정확하게 눈을 깜빡였어요.',
-    stats: [{ label: '깜빡임 횟수', value: `${myCount}회` }],
+    stats: [],
   })
 }
 
