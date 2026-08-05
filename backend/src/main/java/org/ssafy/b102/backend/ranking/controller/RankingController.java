@@ -24,13 +24,15 @@ public class RankingController {
 		this.rankingService = rankingService;
 	}
 
+	// 홈 요약 랭킹은 게스트도 조회할 수 있다. 비로그인(member == null)이면 내 순위는 생략한다.
 	@GetMapping
 	public ResponseEntity<ApiResponse<RankingListResponse>> getRankings(
 		@AuthenticationPrincipal AuthenticatedUser member,
 		@RequestParam(defaultValue = "3") int limit
 	) {
+		Long userId = member != null ? member.userId() : null;
 		RankingListResponse response =
-			rankingService.getRankings(member.userId(), limit);
+			rankingService.getRankings(userId, limit);
 
 		return ResponseEntity.ok(ApiResponse.success(
 			RankingSuccessCode.RANKING_LIST_FOUND,

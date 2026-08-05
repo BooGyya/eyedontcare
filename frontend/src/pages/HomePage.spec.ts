@@ -1,9 +1,89 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import WeeklyRankingCard from '../components/home/WeeklyRankingCard.vue'
-import { weeklyRankingGames } from '../mocks/home'
+import { weeklyRankingGamePresets } from '../mocks/home'
 import HomePage from './HomePage.vue'
+
+/** `GET /api/v1/rankings` 요약 응답의 게임 5개 전부를 채운 기본 스텁 데이터. */
+const RANKING_SUMMARY_FIXTURE = {
+  period: 'weekly',
+  weekStart: '2026-08-03',
+  games: [
+    {
+      gameName: 'BLINK',
+      rankType: 'BEST_SCORE',
+      unit: 'count',
+      top: [
+        { rank: 1, userId: 1, nickname: '눈빛왕', value: 128 },
+        { rank: 2, userId: 2, nickname: '초롱이', value: 116 },
+        { rank: 3, userId: 3, nickname: '반짝콩', value: 103 },
+      ],
+      myRank: null,
+    },
+    {
+      gameName: 'DRAWING',
+      rankType: 'BEST_SCORE',
+      unit: 'point',
+      top: [
+        { rank: 1, userId: 4, nickname: '선긋기달인', value: 2450 },
+        { rank: 2, userId: 5, nickname: '몽글이', value: 2230 },
+        { rank: 3, userId: 6, nickname: '보라콩', value: 1980 },
+      ],
+      myRank: null,
+    },
+    {
+      gameName: 'EYEFIGHT',
+      rankType: 'BEST_SCORE',
+      unit: 'second',
+      top: [
+        { rank: 1, userId: 7, nickname: '집중마스터', value: 87.5 },
+        { rank: 2, userId: 8, nickname: '눈동자', value: 79.3 },
+        { rank: 3, userId: 9, nickname: '별빛', value: 72.1 },
+      ],
+      myRank: null,
+    },
+    {
+      gameName: 'RHYTHM',
+      rankType: 'BEST_SCORE',
+      unit: 'point',
+      top: [
+        { rank: 1, userId: 10, nickname: '리듬의 별', value: 532 },
+        { rank: 2, userId: 11, nickname: '콤보 장인', value: 487 },
+        { rank: 3, userId: 12, nickname: '눈빛 비트', value: 421 },
+      ],
+      myRank: null,
+    },
+    {
+      gameName: 'HOCKEY',
+      rankType: 'WIN_COUNT',
+      unit: 'win',
+      top: [
+        { rank: 1, userId: 13, nickname: '바람의 지배자', value: 5260 },
+        { rank: 2, userId: 14, nickname: '시선 골키퍼', value: 4980 },
+        {
+          rank: 3,
+          userId: 15,
+          nickname: '눈을 건강하게 지키는 플레이어',
+          value: 4640,
+        },
+      ],
+      myRank: null,
+    },
+  ],
+}
+
+/** 홈 요약 랭킹 fetch 스텁. 인자를 생략하면 5개 게임이 모두 채워진 기본 데이터를 돌려준다. */
+function stubRankingSummaryFetch(data: unknown = RANKING_SUMMARY_FIXTURE) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 'OK', message: '', data }),
+    })),
+  )
+}
 
 function createTestRouter() {
   return createRouter({
@@ -39,14 +119,20 @@ describe('HomePage weekly ranking carousel', () => {
       configurable: true,
       value: 1200,
     })
+    stubRankingSummaryFetch()
   })
 
-  it('keeps five games and shows a three-card desktop viewport', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps five games and shows a three-card desktop viewport', async () => {
     const wrapper = mount(HomePage, {
       global: { plugins: [createTestRouter()] },
     })
+    await flushPromises()
 
-    expect(weeklyRankingGames).toHaveLength(5)
+    expect(weeklyRankingGamePresets).toHaveLength(5)
     expect(wrapper.findAllComponents(WeeklyRankingCard)).toHaveLength(5)
     expect(wrapper.find('.weekly-ranking-card__header span').exists()).toBe(
       false,
