@@ -174,6 +174,15 @@ export function applyStrike(
     return true
   }
 
+  // 패들이 퍽에 닿을 만큼 가까울 때만 친다. 이 검사가 없으면 눈 깜빡임(=타격)만으로
+  // 멀리 떨어진 퍽이 상대편으로 날아가는(안 닿았는데 튕기는) 문제가 생긴다.
+  const reach = mallet.r + state.puck.r + 30
+  const dx = state.puck.x - mallet.x
+  const dy = state.puck.y - mallet.y
+  if (dx * dx + dy * dy > reach * reach) {
+    return true
+  }
+
   const direction = side === 'bottom' ? -1 : 1
   state.puck.vx += clamp((state.puck.x - mallet.x) * 2.2, -180, 180)
   state.puck.vy = direction * Math.max(Math.abs(state.puck.vy), 560)
