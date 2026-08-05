@@ -13,7 +13,14 @@ import { apiRequest } from './http'
 import groupTeamworkImage from '../assets/images/illustrations/illustration-teamwork.png'
 import groupJoinImage from '../assets/images/illustrations/illustration-group-join.png'
 import mascotImage from '../assets/images/brand/mascot.png'
-import mascotEyeImage from '../assets/images/brand/mascot-eye.png'
+import gameBasicImage from '../assets/images/games/game-basic.png'
+import gameBlinkImage from '../assets/images/games/game-blink.png'
+import gameDrawImage from '../assets/images/games/game-draw.png'
+import gameEyeImage from '../assets/images/games/game-eye.png'
+import gameHoldImage from '../assets/images/games/game-hold.png'
+import gamePlusFixedImage from '../assets/images/games/game-plus-fixed.png'
+import gamePlusTransparentImage from '../assets/images/games/game-plus-transparent.png'
+import gameWaveImage from '../assets/images/games/game-wave.png'
 import profileAthleteImage from '../assets/images/profiles/profile-athlete.png'
 import profileCalmImage from '../assets/images/profiles/profile-calm.png'
 import profileCrownImage from '../assets/images/profiles/profile-crown.png'
@@ -77,13 +84,21 @@ export interface CreateGroupBody {
   capacity: number
 }
 
-// 대표 이미지 풀: 게임용 png(games/*)와 로고류(logo/footer-logo/discord-logo/kakao-talk),
-// 결과 연출용 이미지는 제외하고 캐릭터·일러스트만 쓴다.
+// 대표 이미지 풀: 게임 메인 배너류(game-air/-main 시리즈, game-plus, game-snow-main)와
+// 로고류(logo/footer-logo/discord-logo/kakao-talk), 결과 연출용 이미지는 제외하고
+// 캐릭터·일러스트·게임 아이콘을 골고루 쓴다.
 const IMAGE_POOL = [
   groupTeamworkImage,
   groupJoinImage,
   mascotImage,
-  mascotEyeImage,
+  gameBasicImage,
+  gameBlinkImage,
+  gameDrawImage,
+  gameEyeImage,
+  gameHoldImage,
+  gamePlusFixedImage,
+  gamePlusTransparentImage,
+  gameWaveImage,
   profileAthleteImage,
   profileCalmImage,
   profileCrownImage,
