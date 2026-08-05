@@ -314,25 +314,23 @@ function openGameStartDialog() {
   }, 1000)
 }
 
-// 실시간 세션(초대/랜덤): 서버가 방을 COUNTDOWN으로 바꾸고 종료 시각을 주면 그에 맞춰 3-2-1을
-// 그린다. 화면 전환은 서버의 GAME_START 수신 시에만 일어난다(handleGameStart).
+// 실시간 세션(초대/랜덤): 서버가 방을 COUNTDOWN으로 바꾸면 3-2-1을 그린다.
+// 서버 절대 종료시각으로 남은 초를 계산하면 네트워크 지연·클라 시계 오차로 한쪽이 1·1·1로
+// 보이므로, 표시는 수신 시점부터 로컬로 3→2→1을 센다(서버 countdown은 3초). 실제 화면 전환은
+// 서버의 GAME_START 수신 시에만 일어난다(handleGameStart)므로 표시가 조금 어긋나도 무방하다.
 function openServerCountdown(endsAtIso: string) {
+  void endsAtIso
   clearGameStartCountdown()
-  const endsAt = new Date(endsAtIso).getTime()
-  const sync = () => {
-    const remaining = Math.ceil((endsAt - Date.now()) / 1000)
-    countdown.value = Math.min(3, Math.max(1, remaining))
-  }
-  sync()
+  countdown.value = 3
   isGamePlaybackPending.value = false
   isGameStartDialogOpen.value = true
   countdownTimer = globalThis.setInterval(() => {
-    if (Date.now() >= endsAt) {
+    if (countdown.value <= 1) {
       clearGameStartCountdown()
       return
     }
-    sync()
-  }, 250)
+    countdown.value -= 1
+  }, 1000)
 }
 
 function closeGameStartDialog() {
