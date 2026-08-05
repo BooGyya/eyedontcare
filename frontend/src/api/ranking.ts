@@ -15,7 +15,11 @@
  */
 import { apiRequest } from './http'
 import { PROFILE_OPTIONS } from './user'
-import { GAME_DISPLAY_NAME, type GameName } from '../types/waitingRoom'
+import {
+  GAME_DISPLAY_NAME,
+  GAME_ENGLISH_NAME,
+  type GameName,
+} from '../types/waitingRoom'
 import type { GameId, GameRanking, RankingPlayer } from '../types/pages'
 import type {
   RankingRecord,
@@ -186,7 +190,7 @@ export function toGameRanking(
 
   return {
     gameId: GAME_ID_BY_NAME[response.gameName],
-    gameName: GAME_DISPLAY_NAME[response.gameName],
+    gameName: `${GAME_ENGLISH_NAME[response.gameName]}(${GAME_DISPLAY_NAME[response.gameName]})`,
     unit: unitLabel,
     sortOrder: 'desc',
     players,
