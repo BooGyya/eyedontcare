@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
+import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository.EntryDeleteResult;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomLifecyclePort;
 
 /**
@@ -45,5 +46,16 @@ public class MatchmakingRandomRoomLifecycleAdapter implements RandomRoomLifecycl
 	@Override
 	public void completeRandomRoom(UUID roomId, List<String> participantKeys) {
 		participantKeys.forEach(key -> matchmakingEntryRepository.completeAndDelete(key, roomId));
+	}
+
+	@Override
+	public void cleanupFailedParticipant(UUID roomId, String participantKey) {
+		EntryDeleteResult result = matchmakingEntryRepository.deleteEnteringRoomIfMatches(
+			participantKey,
+			roomId
+		);
+		if (result == EntryDeleteResult.ROOM_MISMATCH) {
+			log.debug("입장 실패 cleanup 대상 아님(stale 또는 roomId 불일치). roomId={}", roomId);
+		}
 	}
 }

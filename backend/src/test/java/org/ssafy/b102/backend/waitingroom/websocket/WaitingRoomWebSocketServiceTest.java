@@ -221,6 +221,8 @@ class WaitingRoomWebSocketServiceTest {
 			.thenReturn(snapshot(RoomStatus.WAITING));
 		when(waitingRoomService.leaveByParticipantKey(ROOM_ID, "USER:1"))
 			.thenReturn(LeaveWaitingRoomResult.LEFT);
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
 		StubWebSocketSession session = new FailingWebSocketSession("s1");
 
 		authenticate(session);
@@ -228,6 +230,7 @@ class WaitingRoomWebSocketServiceTest {
 		assertThat(registry.findBySessionId("s1")).isEmpty();
 		assertThat(session.closeStatus()).isEqualTo(CloseStatus.SERVER_ERROR);
 		verify(waitingRoomService).leaveByParticipantKey(ROOM_ID, "USER:1");
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
 	}
 
 	@Test
@@ -396,6 +399,134 @@ class WaitingRoomWebSocketServiceTest {
 	}
 
 	@Test
+	void randomAuthenticationFailureCleansMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.CLOSED));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:1");
+		assertThat(session.lastSentPayload()).contains("WAITING-007");
+	}
+
+	@Test
+	void missingWaitingRoomCleansMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:1");
+		assertThat(session.lastSentPayload()).contains("WAITING-008");
+	}
+
+	@Test
+	void missingParticipantCleansMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:3", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.WAITING));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:3");
+		assertThat(session.lastSentPayload()).contains("WAITING-009");
+	}
+
+	@Test
+	void waitingRoomStoreFailureDoesNotCleanupMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new BusinessException(WaitingRoomErrorCode.WAITING_ROOM_STORE_UNAVAILABLE));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		assertThat(session.lastSentPayload()).contains("WAITING-003");
+	}
+
+	@Test
+	void unexpectedAuthenticationRuntimeDoesNotCleanupMatchingEntry() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenThrow(new IllegalStateException("redis timeout"));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		assertThat(session.lastSentPayload()).contains("WAITING-003");
+	}
+
+	@Test
+	void inviteAuthenticationFailureDoesNotCallMatchmakingCleanup() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "HOST"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(snapshot(RoomStatus.CLOSED));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		verify(lifecycle, never()).cleanupFailedParticipant(any(), any());
+		assertThat(session.lastSentPayload()).contains("WAITING-007");
+	}
+
+	@Test
+	void cleanupFailureDoesNotReplaceOriginalAuthenticationError() {
+		when(jwtTokenProvider.parseAccessTokenUserId("token"))
+			.thenReturn(Optional.of(1L));
+		when(participantResolver.resolveExisting(any(), eq(null)))
+			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "PLAYER"));
+		when(waitingRoomService.findSnapshot(ROOM_ID))
+			.thenReturn(randomSnapshot(RoomStatus.CLOSED));
+		RandomRoomLifecyclePort lifecycle = mock(RandomRoomLifecyclePort.class);
+		doThrow(new IllegalStateException("cleanup failed"))
+			.when(lifecycle).cleanupFailedParticipant(ROOM_ID, "USER:1");
+		useLifecycle(lifecycle);
+		StubWebSocketSession session = new StubWebSocketSession("s1");
+
+		authenticate(session);
+
+		assertThat(session.lastSentPayload()).contains("WAITING-007");
+		assertThat(session.closeStatus()).isEqualTo(CloseStatus.POLICY_VIOLATION);
+	}
+
+	@Test
 	void malformedCommandAfterAuthenticationClosesWithPolicyViolation() {
 		when(jwtTokenProvider.parseAccessTokenUserId("token"))
 			.thenReturn(Optional.of(1L));
@@ -474,6 +605,36 @@ class WaitingRoomWebSocketServiceTest {
 		service.handleMessage(
 			session,
 			"{\"type\":\"AUTH\",\"accessToken\":\"" + token + "\"}"
+		);
+	}
+
+	private void useLifecycle(RandomRoomLifecyclePort lifecycle) {
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRoomLifecyclePort> lifecycleProvider =
+			mock(ObjectProvider.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<RandomRematchRequester> rematchProvider =
+			mock(ObjectProvider.class);
+		when(lifecycleProvider.getIfAvailable()).thenReturn(lifecycle);
+		when(rematchProvider.getIfAvailable()).thenReturn(null);
+		service = new WaitingRoomWebSocketService(
+			waitingRoomService,
+			commandService,
+			participantResolver,
+			registry,
+			countdownCoordinator,
+			jwtTokenProvider,
+			null,
+			JsonMapper.builder().findAndAddModules().build(),
+			new WaitingRoomWebSocketProperties(
+				Duration.ofSeconds(5),
+				Duration.ofSeconds(5),
+				65536
+			),
+			taskScheduler,
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			lifecycleProvider,
+			rematchProvider
 		);
 	}
 

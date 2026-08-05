@@ -94,6 +94,26 @@ class MatchmakingRandomRoomLifecycleAdapterTest {
 		assertThat(repository.find(KEY)).isPresent();
 	}
 
+	@Test
+	void failedEntryCleanupDeletesOnlyEnteringRoomEntry() {
+		UUID roomId = UUID.randomUUID();
+		repository.save(entry(MatchStatus.ENTERING_ROOM, roomId));
+
+		adapter.cleanupFailedParticipant(roomId, KEY);
+
+		assertThat(repository.find(KEY)).isEmpty();
+	}
+
+	@Test
+	void failedEntryCleanupProtectsDifferentRoomEntry() {
+		UUID currentRoomId = UUID.randomUUID();
+		repository.save(entry(MatchStatus.ENTERING_ROOM, currentRoomId));
+
+		adapter.cleanupFailedParticipant(UUID.randomUUID(), KEY);
+
+		assertThat(repository.find(KEY)).isPresent();
+	}
+
 	private static MatchmakingEntry entry(MatchStatus status, UUID roomId) {
 		return new MatchmakingEntry(KEY, GAME, status, roomId, NOW, NOW, UUID.randomUUID());
 	}

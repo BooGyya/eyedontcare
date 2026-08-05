@@ -3,6 +3,7 @@ package org.ssafy.b102.backend.matchmaking.repository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,9 +31,9 @@ import org.ssafy.b102.backend.matchmaking.entity.MatchmakingEntry;
  *   <li>참가자 상태: Hash. ERD의 {@code matchmaking_entries} 필드와 1:1로 대응</li>
  * </ul>
  *
- * <p>Lua 스크립트나 분산 락을 쓰지 않는다. 명령 순서만으로 경쟁 조건이 해소된다.
- * {@code ZADD NX}는 기존 score를 갱신하지 않고, {@code HSETNX}는 원자적 생성 판정을 제공하며,
- * {@code ZPOPMIN key 2}는 단일 원자 명령이다.
+ * <p>Hash와 Sorted Set을 함께 변경해야 하는 연산은 Redis Lua 스크립트로 원자 처리한다.
+ * 후보 선점은 {@code ZPOPMIN}으로 원자 처리하고, 상태 전이는 기존 값 비교를 통해 stale
+ * callback이 새 매칭을 건드리지 않도록 한다.
  */
 @Repository
 public class MatchmakingEntryRepository {
@@ -43,6 +44,12 @@ public class MatchmakingEntryRepository {
 	private static final String REMATCH_RESOURCE = "rematch";
 	private static final DefaultRedisScript<Long> REQUEUE_REMAINING_SCRIPT =
 		longScript("redis/matchmaking/requeue-remaining.lua");
+	private static final DefaultRedisScript<Long> ENQUEUE_SCRIPT =
+		longScript("redis/matchmaking/enqueue.lua");
+	private static final DefaultRedisScript<Long> DELETE_BY_ROOM_SCRIPT =
+		longScript("redis/matchmaking/delete-by-room.lua");
+	private static final DefaultRedisScript<Long> CLEANUP_STALE_SEARCHING_SCRIPT =
+		longScript("redis/matchmaking/cleanup-stale-searching.lua");
 
 	private static final String FIELD_PARTICIPANT_KEY = "participantKey";
 	private static final String FIELD_GAME_TYPE = "gameType";
@@ -87,27 +94,33 @@ public class MatchmakingEntryRepository {
 	/**
 	 * 큐에 등록하고 상태를 기록한다.
 	 *
-	 * <p>{@code ZADD NX}를 먼저 실행하는 이유는 재신청이 최초 신청 시각을 덮어쓰지 못하게 하기 위해서다.
-	 * 뒤이은 {@code HSETNX}가 실패하면 이미 신청한 참가자이고, 이때 앞의 {@code ZADD NX}도
-	 * 아무것도 바꾸지 않았으므로 되돌릴 것이 없다.
+	 * <p>기존 entry가 있으면 아무것도 추가하지 않는다. entry가 없고 ZSET member만 남아 있으면
+	 * 해당 ghost member를 먼저 제거한 뒤 새 entry와 member를 함께 생성한다. 두 작업은 하나의
+	 * Redis script 안에서 실행되므로 명령 사이에 다른 요청이 끼어들 수 없다.
 	 *
-	 * @return 새로 등록되면 {@code true}, 이미 신청한 참가자면 {@code false}
+	 * @return 새로 등록되면 {@code true}, 이미 entry가 있으면 {@code false}
 	 */
 	public boolean enqueue(MatchmakingEntry entry) {
-		String entryKey = entryKey(entry.participantKey());
-
-		redisTemplate.opsForZSet()
-			.addIfAbsent(queueKey(entry.gameType()), entry.participantKey(), entry.queueScore());
-
-		Boolean created = redisTemplate.<String, String>opsForHash()
-			.putIfAbsent(entryKey, FIELD_PARTICIPANT_KEY, entry.participantKey());
-		if (!Boolean.TRUE.equals(created)) {
-			return false;
-		}
-
-		save(entry);
-
-		return true;
+		List<String> keys = new ArrayList<>();
+		keys.add(entryKey(entry.participantKey()));
+		keys.add(queueKey(entry.gameType()));
+		Arrays.stream(GameName.values())
+			.filter(game -> game != entry.gameType())
+			.map(this::queueKey)
+			.forEach(keys::add);
+		Long result = redisTemplate.execute(
+			ENQUEUE_SCRIPT,
+			keys,
+			entry.participantKey(),
+			entry.gameType().name(),
+			entry.matchStatus().name(),
+			toStoredValue(entry.waitingRoomId()),
+			String.valueOf(entry.queuedAt().toEpochMilli()),
+			String.valueOf(entry.statusChangedAt().toEpochMilli()),
+			toStoredValue(entry.matchAttemptId()),
+			String.valueOf(entryTtl.toMillis())
+		);
+		return Long.valueOf(1L).equals(result);
 	}
 
 	public void save(MatchmakingEntry entry) {
@@ -143,10 +156,8 @@ public class MatchmakingEntryRepository {
 	 *
 	 * <ul>
 	 *   <li>entry가 없는 member: TTL로 entry가 사라져도 Sorted Set member는 만료되지 않아 남는다.</li>
-	 *   <li>{@code SEARCHING}이 아닌 member: 이미 성사된 참가자가 재신청하면
-	 *       {@code ZADD NX}가 큐에 다시 넣는다(큐에서는 이미 빠진 상태이므로).
-	 *       뒤이은 {@code HSETNX}가 실패해 요청 자체는 거절되지만 큐에는 남는다.
-	 *       이 잔여 member로 두 번째 방이 만들어지면 안 된다.</li>
+	 *   <li>{@code SEARCHING}이 아닌 member: 상태가 이미 성사된 참가자는 큐에서 제거되어야 하며,
+	 *       남아 있더라도 후보 선점 시 버려서 두 번째 방이 만들어지지 않게 한다.</li>
 	 * </ul>
 	 *
 	 * @return 요청한 수보다 적게 반환될 수 있다. 매칭이 불가능하면 호출자가 되돌려야 한다.
@@ -329,17 +340,65 @@ public class MatchmakingEntryRepository {
 	 * @return 삭제했거나 이미 없으면 {@code true}, 다른 {@code roomId}라 보호했으면 {@code false}
 	 */
 	public boolean completeAndDelete(String participantKey, UUID roomId) {
-		Optional<MatchmakingEntry> found = find(participantKey);
-		if (found.isEmpty()) {
-			return true;
-		}
-		if (!roomId.equals(found.get().waitingRoomId())) {
-			return false;
-		}
+		return deleteIfRoomMatches(participantKey, roomId) != EntryDeleteResult.ROOM_MISMATCH;
+	}
 
-		delete(participantKey);
+	/**
+	 * participantKey와 roomId가 모두 현재 entry와 일치할 때만 entry와 모든 게임 큐 member를
+	 * 함께 삭제한다.
+	 */
+	public EntryDeleteResult deleteIfRoomMatches(String participantKey, UUID roomId) {
+		return deleteIfRoomMatches(participantKey, roomId, false);
+	}
 
-		return true;
+	/**
+	 * WebSocket 인증 실패 보상용 compare-delete. 방 입장 단계의 상태만 대상으로 하여 stale
+	 * callback이 SEARCHING entry를 삭제하지 않도록 한다.
+	 */
+	public EntryDeleteResult deleteEnteringRoomIfMatches(String participantKey, UUID roomId) {
+		return deleteIfRoomMatches(participantKey, roomId, true);
+	}
+
+	/**
+	 * SEARCHING Hash는 남았지만 해당 게임 ZSET member가 없는 경우에만 entry를 정리한다.
+	 * 상태 확인과 삭제를 하나의 script에서 수행해, 정리 중 새 정상 entry가 만들어지면 보호한다.
+	 */
+	public boolean deleteStaleSearchingIfQueueMissing(String participantKey, GameName gameType) {
+		Long result = redisTemplate.execute(
+			CLEANUP_STALE_SEARCHING_SCRIPT,
+			List.of(entryKey(participantKey), queueKey(gameType)),
+			participantKey,
+			gameType.name()
+		);
+		return Long.valueOf(1L).equals(result);
+	}
+
+	private EntryDeleteResult deleteIfRoomMatches(
+		String participantKey,
+		UUID roomId,
+		boolean enteringRoomOnly
+	) {
+		List<String> keys = new ArrayList<>();
+		keys.add(entryKey(participantKey));
+		keys.addAll(allQueueKeys());
+		Long result = redisTemplate.execute(
+			DELETE_BY_ROOM_SCRIPT,
+			keys,
+			roomId.toString(),
+			participantKey,
+			Boolean.toString(enteringRoomOnly)
+		);
+		if (Long.valueOf(1L).equals(result)) {
+			return EntryDeleteResult.DELETED;
+		}
+		if (Long.valueOf(0L).equals(result)) {
+			return EntryDeleteResult.NOT_FOUND;
+		}
+		return EntryDeleteResult.ROOM_MISMATCH;
+	}
+
+	private List<String> allQueueKeys() {
+		return Arrays.stream(GameName.values()).map(this::queueKey).toList();
 	}
 
 	private Map<String, String> toFields(MatchmakingEntry entry) {
@@ -401,5 +460,11 @@ public class MatchmakingEntryRepository {
 		script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
 		script.setResultType(Long.class);
 		return script;
+	}
+
+	public enum EntryDeleteResult {
+		DELETED,
+		NOT_FOUND,
+		ROOM_MISMATCH
 	}
 }

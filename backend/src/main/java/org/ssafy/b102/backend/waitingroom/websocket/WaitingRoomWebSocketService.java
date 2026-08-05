@@ -249,18 +249,19 @@ public class WaitingRoomWebSocketService {
 	) {
 		WaitingRoomAuthFrame frame = parseAuthFrame(payload);
 		ResolvedWaitingRoomParticipant identity = resolveIdentity(frame);
-		WaitingRoomSnapshot snapshot =
-			waitingRoomService.findSnapshot(authentication.roomId());
-		WaitingRoomParticipant participant =
-			validateParticipant(snapshot, identity.participantKey());
+		WaitingRoomSnapshot knownSnapshot = null;
+		WaitingRoomConnectionContext context = null;
+		try {
+			knownSnapshot = waitingRoomService.findSnapshot(authentication.roomId());
+			WaitingRoomParticipant participant =
+				validateParticipant(knownSnapshot, identity.participantKey());
 
-		WebSocketSession safeSession = new ConcurrentWebSocketSessionDecorator(
-			authentication.session(),
-			Math.toIntExact(properties.sendTimeLimit().toMillis()),
-			properties.bufferSizeLimit()
-		);
-		WaitingRoomConnectionContext context =
-			new WaitingRoomConnectionContext(
+			WebSocketSession safeSession = new ConcurrentWebSocketSessionDecorator(
+				authentication.session(),
+				Math.toIntExact(properties.sendTimeLimit().toMillis()),
+				properties.bufferSizeLimit()
+			);
+			context = new WaitingRoomConnectionContext(
 				authentication.session().getId(),
 				authentication.roomId(),
 				identity.participantKey(),
@@ -268,15 +269,15 @@ public class WaitingRoomWebSocketService {
 				clock.instant(),
 				safeSession
 			);
-		if (!registry.registerIfAbsent(context)) {
-			throw new BusinessException(
-				WaitingRoomErrorCode.WEBSOCKET_ALREADY_CONNECTED
-			);
-		}
+			if (!registry.registerIfAbsent(context)) {
+				throw new BusinessException(
+					WaitingRoomErrorCode.WEBSOCKET_ALREADY_CONNECTED
+				);
+			}
 
-		try {
 			WaitingRoomSnapshot verified =
 				waitingRoomService.findSnapshot(authentication.roomId());
+			knownSnapshot = verified;
 			validateParticipant(verified, identity.participantKey());
 			sendRoomState(context.session(), verified);
 			if (verified.room().roomType() == RoomType.RANDOM) {
@@ -286,12 +287,50 @@ public class WaitingRoomWebSocketService {
 				);
 			}
 		} catch (BusinessException exception) {
-			registry.unregister(context.sessionId());
+			if (context != null) {
+				registry.unregister(context.sessionId());
+			}
+			if (shouldCleanupFailedParticipant(exception.getErrorCode(), knownSnapshot)) {
+				cleanupFailedParticipant(
+					authentication.roomId(),
+					identity.participantKey()
+				);
+			}
 			throw exception;
 		} catch (RuntimeException exception) {
+			if (context == null) {
+				throw exception;
+			}
 			registry.unregister(context.sessionId());
 			close(context.session(), CloseStatus.SERVER_ERROR);
 			leaveAndBroadcast(context);
+		}
+	}
+
+	private boolean shouldCleanupFailedParticipant(
+		ErrorCode errorCode,
+		WaitingRoomSnapshot snapshot
+	) {
+		if (snapshot != null && snapshot.room().roomType() != RoomType.RANDOM) {
+			return false;
+		}
+		return errorCode == WaitingRoomErrorCode.WAITING_ROOM_NOT_FOUND
+			|| errorCode == WaitingRoomErrorCode.WAITING_ROOM_NOT_JOINABLE
+			|| errorCode == WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND;
+	}
+
+	private void cleanupFailedParticipant(UUID roomId, String participantKey) {
+		RandomRoomLifecyclePort port = lifecyclePort();
+		if (port == null) {
+			return;
+		}
+		try {
+			port.cleanupFailedParticipant(roomId, participantKey);
+		} catch (RuntimeException exception) {
+			log.warn(
+				"랜덤 대기방 입장 실패 cleanup에 실패했습니다. roomId={}",
+				roomId
+			);
 		}
 	}
 
