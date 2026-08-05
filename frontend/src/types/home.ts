@@ -29,7 +29,7 @@ export type QuickAction = {
   description: string
   image: string
   tone: 'blue' | 'yellow' | 'purple'
-  destination?: '/ranking'
+  destination?: '/ranking' | '/community?join=code'
   externalUrl?: string
   notice?: string
 }

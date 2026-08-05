@@ -64,7 +64,7 @@ function authenticate() {
   })
 }
 
-async function mountCommunityPage({ authed = true } = {}) {
+async function mountCommunityPage({ authed = true, path = '/community' } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   if (authed) authenticate()
@@ -80,7 +80,7 @@ async function mountCommunityPage({ authed = true } = {}) {
       },
     ],
   })
-  await router.push('/community')
+  await router.push(path)
   await router.isReady()
 
   const wrapper = mount(CommunityPage, {
@@ -220,6 +220,12 @@ describe('CommunityPage', () => {
     await flushPromises()
 
     expect(joinGroupByCode).toHaveBeenCalledWith('FOCUS7')
+  })
+
+  it('메인 화면에서 join=code로 진입하면 코드 입장 다이얼로그가 열린다', async () => {
+    const wrapper = await mountCommunityPage({ path: '/community?join=code' })
+
+    expect(wrapper.find('[data-testid="join-code-input"]').exists()).toBe(true)
   })
 
   it('빈 참여 코드는 안내하고 API를 호출하지 않는다', async () => {
