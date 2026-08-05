@@ -8,6 +8,9 @@ import airAiRobotLoseImage from '../assets/images/games/game-air-ai-robot-lose.p
 import duelLoserImage from '../assets/images/profiles/profile-duel-loser.png'
 import duelWinnerImage from '../assets/images/profiles/profile-duel-winner.png'
 import duelWinnerBannerImage from '../assets/images/profiles/profile-duel-winner-banner.png'
+import drawResultBannerImage from '../assets/images/profiles/profile-draw-result-banner.png'
+import drawResultMainImage from '../assets/images/profiles/profile-main-character-versus-draw.png'
+import drawResultRivalImage from '../assets/images/profiles/profile-rival-character-versus-draw.png'
 import GameResultShell from '../components/games/GameResultShell.vue'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import type { GameDetailId } from '../types/game-detail'
@@ -284,11 +287,17 @@ const isCompetitiveLoss = computed(
         isCompetitive.value)) &&
       outcome.value === 'LOSE'),
 )
-const isAirAiDraw = computed(
-  () => isAirAiRecordedResult.value && outcome.value === 'DRAW',
+const isDrawOutcome = computed(
+  () => isCompetitive.value && outcome.value === 'DRAW',
 )
-const airMyScore = computed(() => result.value?.score ?? '-')
-const airOpponentScore = computed(() => result.value?.opponentScore ?? '-')
+function formatAirScore(value: string | undefined): string {
+  const score = String(value ?? '').replace(/[^\d.-]/g, '')
+  return score || '-'
+}
+const airMyScore = computed(() => formatAirScore(result.value?.score))
+const airOpponentScore = computed(() =>
+  formatAirScore(result.value?.opponentScore),
+)
 const opponentResultImage = computed(() =>
   game.value?.id === 'hold' ? opponentProfileImage : game.value?.image,
 )
@@ -514,12 +523,13 @@ function goToGames() {
         <section class="air-result" :aria-label="`${title} 대결 결과`">
           <header
             class="duel-loss__hero"
+            :class="{ 'duel-loss__hero--draw': isDrawOutcome }"
             aria-labelledby="air-duel-result-title"
           >
             <div>
               <p>{{ title }} 결과</p>
               <span>{{
-                isAirAiDraw
+                isDrawOutcome
                   ? '팽팽했어요!'
                   : isCompetitiveLoss
                     ? '아쉽다!'
@@ -527,7 +537,7 @@ function goToGames() {
               }}</span>
               <h2 id="air-duel-result-title">
                 {{
-                  isAirAiDraw
+                  isDrawOutcome
                     ? 'DRAW'
                     : isCompetitiveLoss
                       ? 'YOU LOSE...'
@@ -536,7 +546,7 @@ function goToGames() {
               </h2>
               <strong>
                 {{
-                  isAirAiDraw
+                  isDrawOutcome
                     ? '마지막까지 팽팽한 승부였어요!'
                     : isCompetitiveLoss
                       ? '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
@@ -545,11 +555,19 @@ function goToGames() {
               </strong>
             </div>
             <img
-              :src="isCompetitiveLoss ? duelLoserImage : duelWinnerBannerImage"
+              :src="
+                isDrawOutcome
+                  ? drawResultBannerImage
+                  : isCompetitiveLoss
+                    ? duelLoserImage
+                    : duelWinnerBannerImage
+              "
               :alt="
-                isCompetitiveLoss
-                  ? '아쉬워하는 내 플레이어 캐릭터'
-                  : '승리한 내 플레이어 캐릭터'
+                isDrawOutcome
+                  ? '무승부 결과 배너 캐릭터'
+                  : isCompetitiveLoss
+                    ? '아쉬워하는 내 플레이어 캐릭터'
+                    : '승리한 내 플레이어 캐릭터'
               "
               draggable="false"
             />
@@ -566,11 +584,19 @@ function goToGames() {
                 <span>나</span>
               </div>
               <img
-                :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
+                :src="
+                  isDrawOutcome
+                    ? drawResultMainImage
+                    : isCompetitiveLoss
+                      ? failedProfileImage
+                      : duelWinnerImage
+                "
                 :alt="
-                  isCompetitiveLoss
-                    ? '아쉬워하는 내 플레이어'
-                    : '승리한 내 플레이어'
+                  isDrawOutcome
+                    ? '무승부 내 플레이어'
+                    : isCompetitiveLoss
+                      ? '아쉬워하는 내 플레이어'
+                      : '승리한 내 플레이어'
                 "
                 draggable="false"
               />
@@ -580,11 +606,12 @@ function goToGames() {
               class="air-duel-scoreboard__outcome"
               :class="{
                 'air-duel-scoreboard__outcome--lose': isCompetitiveLoss,
+                'air-duel-scoreboard__outcome--draw': isDrawOutcome,
               }"
             >
-              <span aria-hidden="true">🏆</span>
+              <span aria-hidden="true">{{ isDrawOutcome ? '🤝' : '🏆' }}</span>
               <strong>{{
-                isAirAiDraw ? '무승부' : isCompetitiveLoss ? '패배' : '승리!'
+                isDrawOutcome ? '무승부' : isCompetitiveLoss ? '패배' : '승리!'
               }}</strong>
             </div>
             <article
@@ -596,18 +623,22 @@ function goToGames() {
               </div>
               <img
                 :src="
-                  mode === 'ai'
-                    ? isCompetitiveLoss
-                      ? airAiRobotImage
-                      : airAiRobotLoseImage
-                    : isCompetitiveLoss
-                      ? duelWinnerImage
-                      : duelLoserImage
+                  isDrawOutcome
+                    ? drawResultRivalImage
+                    : mode === 'ai'
+                      ? isCompetitiveLoss
+                        ? airAiRobotImage
+                        : airAiRobotLoseImage
+                      : isCompetitiveLoss
+                        ? duelWinnerImage
+                        : duelLoserImage
                 "
                 :alt="
-                  isCompetitiveLoss
-                    ? '승리한 상대 플레이어'
-                    : '아쉬워하는 상대 플레이어'
+                  isDrawOutcome
+                    ? '무승부 상대 플레이어'
+                    : isCompetitiveLoss
+                      ? '승리한 상대 플레이어'
+                      : '아쉬워하는 상대 플레이어'
                 "
                 draggable="false"
               />
@@ -619,7 +650,7 @@ function goToGames() {
           >
             <p>
               <b>{{
-                isAirAiDraw
+                isDrawOutcome
                   ? '팽팽한 한 판이었어요!'
                   : isCompetitiveLoss
                     ? '괜찮아요! 다시 도전해요!'
@@ -627,7 +658,7 @@ function goToGames() {
               }}</b>
               <span>
                 {{
-                  isAirAiDraw
+                  isDrawOutcome
                     ? '다음 대결에서 승부를 가려봐요.'
                     : isCompetitiveLoss
                       ? '다음 대결에서는 더 좋은 결과를 만들어 보세요.'
@@ -641,32 +672,61 @@ function goToGames() {
       </template>
 
       <template v-else-if="isCompetitive">
-        <section class="duel-loss" aria-labelledby="duel-loss-title">
-          <header class="duel-loss__hero">
+        <section
+          class="duel-loss"
+          :class="{ 'duel-loss--draw': isDrawOutcome }"
+          aria-labelledby="duel-loss-title"
+        >
+          <header
+            class="duel-loss__hero"
+            :class="{ 'duel-loss__hero--draw': isDrawOutcome }"
+          >
             <div>
               <p>{{ title }} 결과</p>
-              <span>{{ isCompetitiveLoss ? '아쉽다!' : '최고에요!' }}</span>
+              <span>{{
+                isDrawOutcome
+                  ? '팽팽했어요!'
+                  : isCompetitiveLoss
+                    ? '아쉽다!'
+                    : '최고에요!'
+              }}</span>
               <h2 id="duel-loss-title">
-                {{ isCompetitiveLoss ? 'YOU LOSE...' : 'YOU WIN!' }}
+                {{
+                  isDrawOutcome
+                    ? 'DRAW'
+                    : isCompetitiveLoss
+                      ? 'YOU LOSE...'
+                      : 'YOU WIN!'
+                }}
               </h2>
               <strong>
                 {{
-                  isCompetitiveLoss
-                    ? game.id === 'air'
-                      ? '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
-                      : '다음엔 더 정확한 눈 컨트롤로 승리를 가져와 보세요!'
-                    : game.id === 'air'
-                      ? '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
-                      : '멋진 눈 컨트롤로 이번 대결을 이겼어요!'
+                  isDrawOutcome
+                    ? '마지막까지 팽팽한 승부였어요!'
+                    : isCompetitiveLoss
+                      ? game.id === 'air'
+                        ? '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
+                        : '다음엔 더 정확한 눈 컨트롤로 승리를 가져와 보세요!'
+                      : game.id === 'air'
+                        ? '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
+                        : '멋진 눈 컨트롤로 이번 대결을 이겼어요!'
                 }}
               </strong>
             </div>
             <img
-              :src="isCompetitiveLoss ? duelLoserImage : duelWinnerBannerImage"
+              :src="
+                isDrawOutcome
+                  ? drawResultBannerImage
+                  : isCompetitiveLoss
+                    ? duelLoserImage
+                    : duelWinnerBannerImage
+              "
               :alt="
-                isCompetitiveLoss
-                  ? '아쉬워하는 내 플레이어 캐릭터'
-                  : '승리한 내 플레이어 캐릭터'
+                isDrawOutcome
+                  ? '무승부 결과 배너 캐릭터'
+                  : isCompetitiveLoss
+                    ? '아쉬워하는 내 플레이어 캐릭터'
+                    : '승리한 내 플레이어 캐릭터'
               "
               draggable="false"
             />
@@ -682,11 +742,19 @@ function goToGames() {
             >
               <div><strong>나</strong><span>YOU</span></div>
               <img
-                :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
+                :src="
+                  isDrawOutcome
+                    ? drawResultMainImage
+                    : isCompetitiveLoss
+                      ? failedProfileImage
+                      : duelWinnerImage
+                "
                 :alt="
-                  isCompetitiveLoss
-                    ? '아쉬워하는 내 플레이어'
-                    : '승리한 내 플레이어'
+                  isDrawOutcome
+                    ? '무승부 내 플레이어'
+                    : isCompetitiveLoss
+                      ? '아쉬워하는 내 플레이어'
+                      : '승리한 내 플레이어'
                 "
                 draggable="false"
               />
@@ -696,19 +764,32 @@ function goToGames() {
               class="air-duel-scoreboard__outcome"
               :class="{
                 'air-duel-scoreboard__outcome--lose': isCompetitiveLoss,
+                'air-duel-scoreboard__outcome--draw': isDrawOutcome,
               }"
             >
-              <span aria-hidden="true">🏆</span>
-              <strong>{{ isCompetitiveLoss ? '패배' : '승리!' }}</strong>
+              <span aria-hidden="true">{{ isDrawOutcome ? '🤝' : '🏆' }}</span>
+              <strong>{{
+                isDrawOutcome ? '무승부' : isCompetitiveLoss ? '패배' : '승리!'
+              }}</strong>
             </div>
             <article
               class="air-duel-scoreboard__player air-duel-scoreboard__player--ai"
             >
               <div><strong>AI</strong><span>BOT</span></div>
               <img
-                :src="isCompetitiveLoss ? airAiRobotImage : airAiRobotLoseImage"
+                :src="
+                  isDrawOutcome
+                    ? drawResultRivalImage
+                    : isCompetitiveLoss
+                      ? airAiRobotImage
+                      : airAiRobotLoseImage
+                "
                 :alt="
-                  isCompetitiveLoss ? '웃고 있는 AI 로봇' : '아쉬워하는 AI 로봇'
+                  isDrawOutcome
+                    ? '무승부 상대 플레이어'
+                    : isCompetitiveLoss
+                      ? '웃고 있는 AI 로봇'
+                      : '아쉬워하는 AI 로봇'
                 "
                 draggable="false"
               />
@@ -727,11 +808,19 @@ function goToGames() {
                 ><span>나</span>
               </div>
               <img
-                :src="isCompetitiveLoss ? failedProfileImage : duelWinnerImage"
+                :src="
+                  isDrawOutcome
+                    ? drawResultMainImage
+                    : isCompetitiveLoss
+                      ? failedProfileImage
+                      : duelWinnerImage
+                "
                 :alt="
-                  isCompetitiveLoss
-                    ? '아쉬워하는 내 플레이어'
-                    : '승리한 내 플레이어'
+                  isDrawOutcome
+                    ? '무승부 내 플레이어'
+                    : isCompetitiveLoss
+                      ? '아쉬워하는 내 플레이어'
+                      : '승리한 내 플레이어'
                 "
                 draggable="false"
               />
@@ -760,18 +849,22 @@ function goToGames() {
               </div>
               <img
                 :src="
-                  game.id === 'air' && mode === 'ai'
-                    ? airAiRobotImage
-                    : ['friends', 'random'].includes(mode)
-                      ? isCompetitiveLoss
-                        ? duelWinnerImage
-                        : duelLoserImage
-                      : opponentProfileImage
+                  isDrawOutcome
+                    ? drawResultRivalImage
+                    : game.id === 'air' && mode === 'ai'
+                      ? airAiRobotImage
+                      : ['friends', 'random'].includes(mode)
+                        ? isCompetitiveLoss
+                          ? duelWinnerImage
+                          : duelLoserImage
+                        : opponentProfileImage
                 "
                 :alt="
-                  isCompetitiveLoss
-                    ? '승리한 상대 플레이어'
-                    : '아쉬워하는 상대 플레이어'
+                  isDrawOutcome
+                    ? '무승부 상대 플레이어'
+                    : isCompetitiveLoss
+                      ? '승리한 상대 플레이어'
+                      : '아쉬워하는 상대 플레이어'
                 "
                 draggable="false"
               />
@@ -782,25 +875,30 @@ function goToGames() {
             class="duel-loss__summary"
             :class="{
               'duel-loss__summary--air-ai': game.id === 'air' && mode === 'ai',
+              'duel-loss__summary--draw': isDrawOutcome,
             }"
           >
             <p>
               <b>{{
-                isCompetitiveLoss
-                  ? '괜찮아요! 다시 도전해요!'
-                  : '재미있는 한 판이었어요!'
+                isDrawOutcome
+                  ? '팽팽한 한 판이었어요!'
+                  : isCompetitiveLoss
+                    ? '괜찮아요! 다시 도전해요!'
+                    : '재미있는 한 판이었어요!'
               }}</b>
               <span>
                 {{
-                  isCompetitiveLoss
-                    ? game.id === 'air'
-                      ? '패들을 움직이는 시선 타이밍을 조금 더 연습해 보세요!'
-                      : '실수한 타이밍을 분석하고 연습하면 더 높은 점수를 달성할 수 있어요.'
-                    : '친구와 함께해서 더 즐거웠어요. 또 대결해 보세요'
+                  isDrawOutcome
+                    ? '다음 대결에서 승부를 가려봐요.'
+                    : isCompetitiveLoss
+                      ? game.id === 'air'
+                        ? '패들을 움직이는 시선 타이밍을 조금 더 연습해 보세요!'
+                        : '실수한 타이밍을 분석하고 연습하면 더 높은 점수를 달성할 수 있어요.'
+                      : '친구와 함께해서 더 즐거웠어요. 또 대결해 보세요'
                 }}
               </span>
             </p>
-            <dl v-if="visibleResultStats.length">
+            <dl v-if="visibleResultStats.length && !isDrawOutcome">
               <div v-for="stat in visibleResultStats" :key="stat.label">
                 <dt>{{ stat.label }}</dt>
                 <dd>{{ stat.value }}</dd>
@@ -1404,6 +1502,9 @@ function goToGames() {
   font-size: 13px;
   font-weight: 900;
 }
+.duel-loss__hero--draw span {
+  background: #7b81e3;
+}
 .duel-loss__hero h2 {
   margin: 8px 0;
   color: #6744ed;
@@ -1424,6 +1525,17 @@ function goToGames() {
   bottom: -12px;
   width: 240px;
   opacity: 0.34;
+}
+.duel-loss__hero--draw {
+  min-height: 220px;
+}
+.duel-loss__hero--draw img {
+  top: 50%;
+  right: 16px;
+  bottom: auto;
+  width: 390px;
+  opacity: 0.52;
+  transform: translateY(-50%);
 }
 .air-duel-scoreboard {
   position: relative;
@@ -1533,6 +1645,9 @@ function goToGames() {
 .air-duel-scoreboard__outcome--lose strong {
   color: #d45475;
 }
+.air-duel-scoreboard__outcome--draw strong {
+  color: #7b81e3;
+}
 .result-grid--air.result-grid--competitive {
   display: block;
 }
@@ -1549,6 +1664,13 @@ function goToGames() {
 }
 .air-result .duel-loss__hero img {
   width: 240px;
+}
+.air-result .duel-loss__hero--draw img {
+  right: 16px;
+  width: 430px;
+}
+.air-result .duel-loss__hero--draw {
+  min-height: 220px;
 }
 .air-result .air-duel-scoreboard {
   min-height: 290px;
@@ -1587,6 +1709,9 @@ function goToGames() {
   gap: 18px;
   align-items: stretch;
 }
+.duel-loss--draw .duel-loss__scoreboard {
+  min-height: 290px;
+}
 .duel-loss__player,
 .duel-loss__stats,
 .duel-loss__summary {
@@ -1600,6 +1725,9 @@ function goToGames() {
   gap: 9px;
   justify-items: center;
   padding: 15px 14px;
+}
+.duel-loss--draw .duel-loss__player {
+  padding: 22px 15% 20px;
 }
 .duel-loss__player > b {
   padding: 5px 10px;
@@ -1632,6 +1760,10 @@ function goToGames() {
   height: 130px;
   object-fit: contain;
 }
+.duel-loss--draw .duel-loss__player img {
+  max-width: 165px;
+  height: 190px;
+}
 .duel-loss__player > b {
   color: #634fe3;
   background: #f1efff;
@@ -1650,8 +1782,26 @@ function goToGames() {
   color: #db427b;
   background: #fff0f6;
 }
+.duel-loss--draw .duel-loss__player--opponent {
+  border-color: #e2e4f4;
+}
+.duel-loss--draw .duel-loss__player--opponent .duel-loss__identity strong {
+  color: #634fe3;
+}
+.duel-loss--draw .duel-loss__player--opponent .duel-loss__identity span {
+  border-color: #bdb6f8;
+  color: #695ce7;
+}
+.duel-loss--draw .duel-loss__player--opponent > b {
+  color: #634fe3;
+  background: #f1efff;
+}
 .duel-loss__stats {
   overflow: hidden;
+}
+.duel-loss--draw .duel-loss__stats {
+  display: grid;
+  grid-template-rows: 128px minmax(0, 1fr);
 }
 .duel-loss__score-row,
 .duel-loss__stats dl > div {
@@ -1666,6 +1816,9 @@ function goToGames() {
   min-height: 92px;
   border-top: 0;
 }
+.duel-loss--draw .duel-loss__score-row {
+  min-height: 0;
+}
 .duel-loss__score-row strong {
   color: #6147ed;
   font-size: clamp(28px, 3.6vw, 42px);
@@ -1673,6 +1826,10 @@ function goToGames() {
 .duel-loss__score-row strong:last-child,
 .duel-loss__stats dd:last-child {
   color: #e74d87;
+}
+.duel-loss--draw .duel-loss__score-row strong:last-child,
+.duel-loss--draw .duel-loss__stats dd:last-child {
+  color: #6147ed;
 }
 .duel-loss__score-row b,
 .duel-loss__stats dt {
@@ -1682,6 +1839,13 @@ function goToGames() {
 }
 .duel-loss__stats dl {
   margin: 0;
+}
+.duel-loss--draw .duel-loss__stats dl {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+.duel-loss--draw .duel-loss__stats dl > div {
+  min-height: 0;
 }
 .duel-loss__stats dd {
   margin: 0;
@@ -1755,6 +1919,18 @@ function goToGames() {
   font: inherit;
   font-weight: 900;
   cursor: pointer;
+}
+.duel-loss__summary--draw {
+  grid-template-columns: minmax(0, 1fr) 155px;
+}
+.duel-loss__summary--draw button {
+  width: 100%;
+  max-width: 155px;
+  height: 48px;
+  min-height: 48px;
+  justify-self: end;
+  font-family: var(--font-display);
+  font-size: 20px;
 }
 .duel-loss__note {
   margin: 0;
