@@ -540,7 +540,7 @@ function handleQuickAction(action: QuickAction) {
             </svg>
             <span class="visually-hidden">🏆</span>
           </span>
-          이번 주 랭킹 TOP 3
+          이번주 랭킹 TOP3
         </h2>
       </div>
 
