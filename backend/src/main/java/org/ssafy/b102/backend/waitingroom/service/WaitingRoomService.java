@@ -367,6 +367,8 @@ public class WaitingRoomService {
 			);
 		}
 		return WaitingRoomLeaveOutcome.invite(
+			roomId,
+			participantKey,
 			leaveInviteByParticipantKey(roomId, participantKey, metadata)
 		);
 	}

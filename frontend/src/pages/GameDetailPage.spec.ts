@@ -6,6 +6,7 @@ import { gameDetails } from '../mocks/game-details'
 import GameDetailPage from './GameDetailPage.vue'
 import GameReadyPage from './GameReadyPage.vue'
 import GamesPage from './GamesPage.vue'
+import GameRoomDialog from '../components/games/GameRoomDialog.vue'
 
 const routes = [
   { path: '/games', name: 'games', component: GamesPage },
@@ -328,7 +329,7 @@ describe('GameDetailPage', () => {
 
     expect(router.currentRoute.value.fullPath).toBe('/games/draw/ready?mode=ai')
   })
-  
+
   it('opens the room dialog for friends mode without requiring login', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/blink')
@@ -340,5 +341,57 @@ describe('GameDetailPage', () => {
     await wrapper.find('.game-detail-page__mode--friends').trigger('click')
 
     expect(document.querySelector('.game-room-dialog')).toBeTruthy()
+  })
+
+  it('creates an INVITE route without a fake code or role and joins with only the entered code', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/games/blink')
+    await router.isReady()
+    const wrapper = mount(GameDetailPage, {
+      global: { plugins: [createPinia(), router] },
+    })
+    const dialog = wrapper.findComponent(GameRoomDialog)
+
+    dialog.vm.$emit('enterRoom', { mode: 'friends' })
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/games/blink/ready?mode=friends',
+    )
+    expect(router.currentRoute.value.query.room).toBeUndefined()
+    expect(router.currentRoute.value.query.role).toBeUndefined()
+
+    dialog.vm.$emit('enterRoom', { mode: 'friends', roomCode: '4827' })
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/games/blink/ready?mode=friends&room=4827',
+    )
+    expect(router.currentRoute.value.query.role).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('emits server-created INVITE intent without generating a client room code or role', async () => {
+    const wrapper = mount(GameRoomDialog, {
+      props: {
+        open: true,
+        gameId: 'blink',
+        gameTitle: '눈 깜빡이기',
+        flow: 'friends',
+      },
+      global: { stubs: { Teleport: true } },
+    })
+
+    await wrapper
+      .find('.game-room-dialog__options article:first-child button')
+      .trigger('click')
+    expect(wrapper.emitted('enterRoom')?.[0]).toEqual([{ mode: 'friends' }])
+
+    await wrapper.find('#room-code').setValue('4827')
+    await wrapper
+      .find('.game-room-dialog__options article:last-child button')
+      .trigger('click')
+    expect(wrapper.emitted('enterRoom')?.[1]).toEqual([
+      { mode: 'friends', roomCode: '4827' },
+    ])
+    wrapper.unmount()
   })
 })

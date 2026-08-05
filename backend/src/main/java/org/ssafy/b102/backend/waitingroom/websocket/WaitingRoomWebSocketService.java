@@ -456,28 +456,20 @@ public class WaitingRoomWebSocketService {
 				handleLegacyInviteLeave(context);
 				return;
 			}
-			if (outcome.roomType() == RoomType.INVITE) {
-				LeaveWaitingRoomResult result = outcome.inviteResult();
-				if (result == LeaveWaitingRoomResult.ROOM_CLOSED) {
-					countdownCoordinator.cancel(context.roomId());
-				}
-				if (result != LeaveWaitingRoomResult.ALREADY_CLOSED) {
-					broadcastLatestState(context.roomId());
-				}
-			} else {
+			if (outcome.roomType() == RoomType.RANDOM) {
 				RandomRoomLeaveResult result = outcome.randomResult();
 				if (result.status() == RandomRoomLeaveResult.Status.ALREADY_CLOSED) {
 					cleanupRematchAfterPreviousRoomDisconnect(context);
 					return;
 				}
-				handleLeaveOutcome(outcome);
 			}
+			handleLeaveOutcome(outcome);
 		} catch (BusinessException exception) {
 			if (
 				exception.getErrorCode() ==
 				WaitingRoomErrorCode.PARTICIPANT_NOT_FOUND
 			) {
-				broadcastLatestState(context.roomId());
+				// 선행 REST leave가 이미 상태 전송을 담당하므로 후속 처리를 반복하지 않는다.
 				return;
 			}
 			log.warn(
@@ -504,6 +496,9 @@ public class WaitingRoomWebSocketService {
 			);
 		if (result == LeaveWaitingRoomResult.ROOM_CLOSED) {
 			countdownCoordinator.cancel(context.roomId());
+			broadcastLatestState(context.roomId());
+			closeRoomSessions(context.roomId());
+			return;
 		}
 		if (result != LeaveWaitingRoomResult.ALREADY_CLOSED) {
 			broadcastLatestState(context.roomId());
@@ -512,6 +507,7 @@ public class WaitingRoomWebSocketService {
 
 	private void handleLeaveOutcome(WaitingRoomLeaveOutcome outcome) {
 		if (outcome.roomType() == RoomType.INVITE) {
+			handleInviteLeaveOutcome(outcome);
 			return;
 		}
 		RandomRoomLeaveResult result = outcome.randomResult();
@@ -530,6 +526,30 @@ public class WaitingRoomWebSocketService {
 			requestRematchIfRemainingSessionAlive(result, snapshot)
 		);
 		closeRoomSessions(result.roomId());
+	}
+
+	private void handleInviteLeaveOutcome(WaitingRoomLeaveOutcome outcome) {
+		switch (outcome.inviteResult()) {
+			case LEFT -> {
+				broadcastLatestState(outcome.roomId());
+				closeParticipantSession(
+					outcome.roomId(),
+					outcome.participantKey()
+				);
+			}
+			case ROOM_CLOSED -> {
+				countdownCoordinator.cancel(outcome.roomId());
+				broadcastLatestState(outcome.roomId());
+				closeRoomSessions(outcome.roomId());
+			}
+			case ALREADY_CLOSED -> {
+				// 최초 CLOSED 처리에서 이미 상태 전송과 세션 종료를 완료했다.
+			}
+			default -> throw new IllegalStateException(
+				"Unexpected successful invite leave result: "
+					+ outcome.inviteResult()
+			);
+		}
 	}
 
 	private void cleanupParticipantAfterRandomLeave(RandomRoomLeaveResult result) {
@@ -787,9 +807,6 @@ public class WaitingRoomWebSocketService {
 					.ifPresent(this::leaveAndBroadcast);
 				close(context.session(), CloseStatus.SERVER_ERROR);
 			}
-		}
-		if (snapshot.room().roomStatus() == RoomStatus.CLOSED) {
-			closeRoomSessions(roomId);
 		}
 	}
 
@@ -1145,10 +1162,19 @@ public class WaitingRoomWebSocketService {
 
 	private void closeRoomSessions(UUID roomId) {
 		for (WaitingRoomConnectionContext context : registry.findByRoomId(roomId)) {
-			registry.markSuppressLeave(context.sessionId());
-			registry.unregister(context.sessionId());
-			close(context.session(), CloseStatus.NORMAL);
+			closeRegisteredSession(context);
 		}
+	}
+
+	private void closeParticipantSession(UUID roomId, String participantKey) {
+		registry.findByRoomAndParticipant(roomId, participantKey)
+			.ifPresent(this::closeRegisteredSession);
+	}
+
+	private void closeRegisteredSession(WaitingRoomConnectionContext context) {
+		registry.markSuppressLeave(context.sessionId());
+		registry.unregister(context.sessionId())
+			.ifPresent(removed -> close(removed.session(), CloseStatus.NORMAL));
 	}
 
 	private void sendRoomState(
@@ -1195,8 +1221,12 @@ public class WaitingRoomWebSocketService {
 			if (session.isOpen()) {
 				session.close(status);
 			}
-		} catch (IOException exception) {
-			log.debug("대기방 WebSocket 연결 종료에 실패했습니다.", exception);
+		} catch (IOException | RuntimeException exception) {
+			log.warn(
+				"대기방 WebSocket 연결 종료에 실패했습니다. sessionId={}",
+				session.getId(),
+				exception
+			);
 		}
 	}
 
