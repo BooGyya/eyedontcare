@@ -49,6 +49,22 @@ class SignupRequestTest {
     }
 
     @Test
+    void 최상위_도메인이_숫자인_이메일은_검증에_실패한다() {
+        // QA 제보: 321@321.321 처럼 문법상 유효하지만 실사용 불가한 형식이 통과되던 문제.
+        SignupRequest request = new SignupRequest(
+            "321@321.321",
+            "password123"
+        );
+
+        Set<ConstraintViolation<SignupRequest>> violations =
+            validator.validate(request);
+
+        assertThat(violations)
+            .extracting(ConstraintViolation::getMessage)
+            .contains("올바른 이메일 형식이 아닙니다.");
+    }
+
+    @Test
     void 비밀번호에_숫자가_없으면_검증에_실패한다() {
         SignupRequest request = new SignupRequest(
             "user@example.com",
