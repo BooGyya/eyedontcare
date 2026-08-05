@@ -78,7 +78,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/v1/games",
-                    "/api/v1/games/{gameId}"
+                    "/api/v1/games/{gameId}",
+                    "/api/v1/rankings"
                 ).permitAll()
                 .requestMatchers("/api/ping/**").permitAll()
                 // WebSocket handshake만 공개하며, 실제 JWT 인증은 별도 작업에서 구현한다.
