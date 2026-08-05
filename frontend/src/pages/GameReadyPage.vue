@@ -1,23 +1,35 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import { useMediaSessionStore } from '../stores/mediaSession'
-import { useWaitingRoomSocket } from '../composables/useWaitingRoomSocket'
+import {
+  useWaitingRoomSocket,
+  type WaitingRoomSocketContext,
+} from '../composables/useWaitingRoomSocket'
+import { useMatchSocket } from '../composables/useMatchSocket'
+import { useRandomRematchLifecycle } from '../composables/useRandomRematchLifecycle'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
 import { useEyeTracking } from '../composables/useEyeTracking'
 import { useCalibrationStore } from '../stores/calibration'
 import { playCalibrationSound } from '../lib/sound/calibration-sound'
-import { createInviteRoom, joinInviteRoom } from '../api/waitingRoom'
+import { joinMatch, cancelMatch } from '../api/match'
+import { createInviteRoom, joinInviteRoom, leaveRoom } from '../api/waitingRoom'
 import { ApiError } from '../api/http'
-import { currentAccessToken, resolveIdentity } from '../api/identity'
+import {
+  currentAccessToken,
+  currentParticipantKey,
+  resolveIdentity,
+} from '../api/identity'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
 import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import type {
+  GameName,
   WaitingRoomGameStartData,
   WaitingRoomIdentity,
   WaitingRoomParticipant,
+  WaitingRoomStateData,
 } from '../types/waitingRoom'
 import type {
   CalibrationEvaluation,
@@ -138,6 +150,11 @@ const dialogRef = ref<globalThis.HTMLElement | null>(null)
 let previousBodyOverflow = ''
 let isBodyScrollLocked = false
 let countdownTimer: ReturnType<typeof globalThis.setInterval> | undefined
+let calibrationOperationGeneration = 0
+let syncedCalibrationConnection: string | null = null
+let pendingRetryJoin = false
+let allowRandomRouteExit = false
+let randomExitPromise: Promise<void> | null = null
 
 const game = computed(() => {
   const id = String(route.params.gameId ?? '')
@@ -152,6 +169,9 @@ const isMultiplayer = computed(() => ['friends', 'random'].includes(mode.value))
 const isFriendRoom = computed(() => mode.value === 'friends')
 const isRandomRoom = computed(() => mode.value === 'random')
 const isHost = computed(() => isFriendRoom.value && role.value === 'host')
+const currentGameType = computed(() =>
+  game.value ? GAME_NAME_BY_ID[game.value.id] : null,
+)
 
 // --- 친구(invite) 대결 실시간 세션 ---
 // REST로 방을 만들거나 참가하면 실시간 세션이 켜지고, 대기방 WebSocket으로 상대 준비 상태와
@@ -164,18 +184,43 @@ const liveIdentity = ref<WaitingRoomIdentity | null>(null)
 const inviteError = ref<string | null>(null)
 const isLiveSession = computed(() => liveRoomId.value !== null)
 
+const randomLifecycle = useRandomRematchLifecycle()
+const hasRetriedMatchSocket = ref(false)
+const isRetryingMatch = ref(false)
+const hasUsedMatchRetry = ref(false)
+
+const matchSocket = useMatchSocket({
+  onOpen: handleMatchSocketOpen,
+  onMatchSuccess: handleMatchSuccess,
+  onRequeued: handleMatchRequeued,
+  onError: handleMatchError,
+  onUnexpectedClose: handleUnexpectedMatchClose,
+})
+
 const waitingSocket = useWaitingRoomSocket({
+  onRoomState: handleWaitingRoomState,
   onGameStart: handleGameStart,
-  onError: (_code, message) => showToast(message),
+  onError: handleWaitingRoomError,
+  onUnexpectedClose: handleUnexpectedWaitingRoomClose,
 })
 
 const myRoomRole = computed(() => (isHost.value ? 'HOST' : 'PLAYER'))
-const liveOpponent = computed<WaitingRoomParticipant | null>(
-  () =>
-    waitingSocket.roomState.value?.participants.find(
+const liveOpponent = computed<WaitingRoomParticipant | null>(() => {
+  const participants = waitingSocket.roomState.value?.participants ?? []
+  if (isRandomRoom.value) {
+    const participantKey = currentParticipantKey()
+    return (
+      participants.find(
+        (participant) => participant.participantKey !== participantKey,
+      ) ?? null
+    )
+  }
+  return (
+    participants.find(
       (participant) => participant.roomRole !== myRoomRole.value,
-    ) ?? null,
-)
+    ) ?? null
+  )
+})
 const isOpponentReady = computed(() => liveOpponent.value?.isReady ?? false)
 // 실제 입장이 확정된 코드(liveRoomCode)만 노출한다. 참가자가 입력한 코드(roomCode)를 그대로
 // 보여주면 입장 실패 시에도 방이 생긴 것처럼 보이므로 쓰지 않는다.
@@ -244,6 +289,37 @@ const canStartGame = computed(() => isHost.value && areAllPlayersReady.value)
 const opponentName = computed(() =>
   isRandomRoom.value ? '매칭된 상대' : isHost.value ? '참가자' : '방장',
 )
+const randomFlowState = computed(() => randomLifecycle.flowState.value)
+const isRandomStatusVisible = computed(
+  () =>
+    isRandomRoom.value &&
+    ['REMATCHING', 'CONNECTING_NEW_ROOM', 'ERROR'].includes(
+      randomFlowState.value,
+    ),
+)
+const canRetryRandomMatch = computed(
+  () =>
+    randomFlowState.value === 'ERROR' &&
+    randomLifecycle.matchmakingPending.value &&
+    !isRetryingMatch.value &&
+    !hasUsedMatchRetry.value,
+)
+const randomStatusTitle = computed(() => {
+  if (randomFlowState.value === 'CONNECTING_NEW_ROOM')
+    return '새로운 상대를 찾았어요.'
+  if (randomFlowState.value === 'ERROR') return '재매칭을 계속할 수 없어요.'
+  return '상대방이 대기방을 나갔어요.'
+})
+const randomStatusMessage = computed(() => {
+  if (randomFlowState.value === 'CONNECTING_NEW_ROOM')
+    return '새 대기방에 연결하고 있어요.'
+  if (randomFlowState.value === 'ERROR')
+    return (
+      randomLifecycle.errorMessage.value ??
+      '연결 상태를 확인한 뒤 다시 시도해 주세요.'
+    )
+  return '새로운 상대를 찾고 있어요.'
+})
 const actionLabel = computed(() => {
   if (!isCameraConnected.value) return '카메라 연결하기'
   if (!isCalibrated.value) return '캘리브레이션 시작'
@@ -252,6 +328,7 @@ const actionLabel = computed(() => {
   return ''
 })
 const actionDisabled = computed(() => {
+  if (isRandomStatusVisible.value) return true
   if (permissionStatus.value === 'requesting') return true
   if (!isCameraConnected.value) return false
   if (!isCalibrated.value) return !canStartCalibration.value
@@ -336,9 +413,327 @@ function closeGameStartDialog() {
   isGameStartDialogOpen.value = false
 }
 
-function handleLeaveRoom() {
-  stopCameraStream()
-  router.push({ name: 'game-detail', params: { gameId: game.value?.id } })
+function isCurrentWaitingContext(context: WaitingRoomSocketContext): boolean {
+  return (
+    context.roomId === randomLifecycle.activeRoomId.value &&
+    context.generation === waitingSocket.connectionGeneration.value
+  )
+}
+
+function handleWaitingRoomState(
+  state: WaitingRoomStateData,
+  context: WaitingRoomSocketContext,
+): void {
+  if (!isRandomRoom.value || !isCurrentWaitingContext(context)) return
+
+  const transition = randomLifecycle.handleRoomState(state)
+  if (transition === 'IGNORED') return
+  if (transition === 'REMATCHING') {
+    handleCurrentRandomRoomClosed()
+    return
+  }
+
+  liveRoomId.value = state.roomId
+  hasUsedMatchRetry.value = false
+  synchronizeOwnRoomState(state, context)
+
+  if (transition === 'COUNTDOWN' && state.countdownEndsAt) {
+    openServerCountdown(state.countdownEndsAt)
+  } else if (transition === 'WAITING_ROOM') {
+    closeGameStartDialog()
+  }
+}
+
+function synchronizeOwnRoomState(
+  state: WaitingRoomStateData,
+  context: WaitingRoomSocketContext,
+): void {
+  const participantKey = currentParticipantKey()
+  const ownParticipant = state.participants.find(
+    (participant) => participant.participantKey === participantKey,
+  )
+  if (!participantKey || !ownParticipant) {
+    randomLifecycle.fail('대기방에서 내 참가자 정보를 확인하지 못했어요.')
+    waitingSocket.close()
+    return
+  }
+
+  isReady.value = ownParticipant.isReady
+  if (!isCalibrated.value) return
+
+  const connectionKey = `${context.roomId}:${context.generation}`
+  if (
+    syncedCalibrationConnection === connectionKey ||
+    ownParticipant.calibrationStatus === 'COMPLETED'
+  ) {
+    return
+  }
+
+  syncedCalibrationConnection = connectionKey
+  if (ownParticipant.calibrationStatus === 'PENDING') {
+    waitingSocket.sendCalibrationStatus('IN_PROGRESS')
+    waitingSocket.sendCalibrationStatus('COMPLETED')
+  } else if (ownParticipant.calibrationStatus === 'IN_PROGRESS') {
+    waitingSocket.sendCalibrationStatus('COMPLETED')
+  }
+}
+
+function handleCurrentRandomRoomClosed(): void {
+  clearRandomRoomBoundState()
+  waitingSocket.invalidateCurrentConnectionEvents()
+  hasUsedMatchRetry.value = false
+}
+
+function clearRandomRoomBoundState(): void {
+  calibrationOperationGeneration += 1
+  syncedCalibrationConnection = null
+  isSamplingEyeStep.value = false
+  isSamplingGaze.value = false
+  eyeSampleFeedback.value = 'idle'
+  gazeCalibrationTargetIndex.value = 0
+  gazeCalibrationEvaluation.value = null
+  isCalibrationOpen.value = false
+  if (!isCalibrated.value) calibrationStageIndex.value = 0
+  isReady.value = false
+  liveRoomId.value = null
+  clearGameStartCountdown()
+  isGameStartDialogOpen.value = false
+  readyMediaStarted = false
+  void readyMedia.disconnect()
+  mediaSession.clear()
+}
+
+function handleMatchRequeued(gameType: GameName): void {
+  if (!isRandomRoom.value) return
+  randomLifecycle.handleRequeued(gameType)
+}
+
+function handleMatchError(_code: string, message: string): void {
+  if (!isRandomRoom.value || randomLifecycle.isLeaving.value) return
+  pendingRetryJoin = false
+  isRetryingMatch.value = false
+  randomLifecycle.fail(message)
+  showToast(message)
+}
+
+function handleUnexpectedMatchClose(): void {
+  if (!isRandomRoom.value || randomLifecycle.isLeaving.value) return
+
+  if (isRetryingMatch.value) {
+    pendingRetryJoin = false
+    isRetryingMatch.value = false
+    randomLifecycle.fail('매칭 서버 연결이 끊어졌어요. 다시 시도해주세요.')
+    return
+  }
+
+  const flowState = randomLifecycle.flowState.value
+  if (flowState === 'REMATCHING') {
+    randomLifecycle.fail(
+      '재매칭 연결이 끊어졌어요. 다시 찾기를 눌러 재시도해 주세요.',
+    )
+    return
+  }
+
+  if (
+    ['WAITING_ROOM', 'COUNTDOWN', 'CONNECTING_NEW_ROOM'].includes(flowState) &&
+    !hasRetriedMatchSocket.value
+  ) {
+    const identity = resolveIdentity()
+    if (identity) {
+      hasRetriedMatchSocket.value = true
+      try {
+        if (matchSocket.connect(identity)) return
+      } catch {
+        // 아래 공통 오류 상태로 전환한다.
+      }
+    }
+  }
+
+  randomLifecycle.fail('매칭 서버와의 연결이 끊어졌어요.')
+}
+
+function handleMatchSocketOpen(): void {
+  if (pendingRetryJoin) void submitRandomMatchRetry()
+}
+
+function handleMatchSuccess(roomId: string, eventGameType: GameName): void {
+  if (!isRandomRoom.value) return
+  if (randomLifecycle.isLeaving.value) {
+    if (eventGameType === currentGameType.value)
+      void leaveNewRoomDuringExit(roomId)
+    return
+  }
+
+  const roomSwitch = randomLifecycle.handleMatchSuccess(roomId, eventGameType)
+  if (roomSwitch)
+    void switchRandomRoom(roomSwitch.roomId, roomSwitch.generation)
+}
+
+async function switchRandomRoom(
+  roomId: string,
+  generation: number,
+): Promise<void> {
+  clearRandomRoomBoundState()
+  waitingSocket.close()
+  hasRetriedMatchSocket.value = false
+  liveRoomId.value = roomId
+  const identity = resolveIdentity()
+  if (!identity) {
+    randomLifecycle.fail('대기방 연결에 필요한 사용자 정보를 찾지 못했어요.')
+    return
+  }
+  liveIdentity.value = identity
+
+  try {
+    await router.replace({
+      name: 'game-ready',
+      params: { gameId: game.value?.id },
+      query: { ...route.query, roomId },
+    })
+    if (!randomLifecycle.isCurrentGeneration(generation)) return
+    waitingSocket.connect(roomId, identity)
+  } catch {
+    if (randomLifecycle.isCurrentGeneration(generation))
+      randomLifecycle.fail('새 대기방에 연결하지 못했어요.')
+  }
+}
+
+function handleWaitingRoomError(
+  _code: string,
+  message: string,
+  context: WaitingRoomSocketContext,
+): void {
+  showToast(message)
+  if (!isRandomRoom.value || !isCurrentWaitingContext(context)) return
+  clearGameStartCountdown()
+  isGameStartDialogOpen.value = false
+  randomLifecycle.fail(message)
+  waitingSocket.close()
+}
+
+function handleUnexpectedWaitingRoomClose(
+  context: WaitingRoomSocketContext,
+): void {
+  if (
+    !isRandomRoom.value ||
+    context.roomId !== randomLifecycle.activeRoomId.value ||
+    context.generation !== waitingSocket.connectionGeneration.value ||
+    randomLifecycle.isLeaving.value ||
+    randomLifecycle.flowState.value === 'REMATCHING'
+  ) {
+    return
+  }
+
+  clearGameStartCountdown()
+  isGameStartDialogOpen.value = false
+  randomLifecycle.fail('대기방 연결이 예기치 않게 종료됐어요.')
+  waitingSocket.close()
+}
+
+function handleRetryRandomMatch(): void {
+  if (!canRetryRandomMatch.value) return
+
+  const identity = resolveIdentity()
+  if (!identity) {
+    randomLifecycle.fail('재매칭에 필요한 사용자 정보를 찾지 못했어요.')
+    return
+  }
+
+  hasUsedMatchRetry.value = true
+  isRetryingMatch.value = true
+  pendingRetryJoin = true
+  if (matchSocket.isConnected.value) {
+    void submitRandomMatchRetry()
+    return
+  }
+
+  try {
+    const started = matchSocket.connect(identity)
+    if (!started && matchSocket.isConnected.value) void submitRandomMatchRetry()
+  } catch {
+    pendingRetryJoin = false
+    isRetryingMatch.value = false
+    randomLifecycle.fail('매칭 서버에 다시 연결하지 못했어요.')
+  }
+}
+
+async function submitRandomMatchRetry(): Promise<void> {
+  if (!pendingRetryJoin) return
+  pendingRetryJoin = false
+  const gameType = currentGameType.value
+  if (!gameType) {
+    isRetryingMatch.value = false
+    randomLifecycle.fail('게임 정보를 확인하지 못했어요.')
+    return
+  }
+
+  try {
+    const result = await joinMatch(gameType, currentAccessToken())
+    if (randomLifecycle.isLeaving.value) return
+    randomLifecycle.markRetryQueued()
+    if (result.waitingRoomId)
+      handleMatchSuccess(result.waitingRoomId, result.gameType)
+  } catch (error) {
+    randomLifecycle.fail(
+      error instanceof ApiError ? error.message : '재매칭 요청에 실패했어요.',
+    )
+  } finally {
+    isRetryingMatch.value = false
+  }
+}
+
+async function leaveNewRoomDuringExit(roomId: string): Promise<void> {
+  try {
+    await leaveRoom(roomId, currentAccessToken())
+  } catch {
+    // 사용자 이탈은 계속 진행하고 WebSocket/서버 TTL 정리에 맡긴다.
+  }
+}
+
+async function cleanupRandomFlowForExit(): Promise<void> {
+  if (randomExitPromise) return randomExitPromise
+
+  const shouldCancelMatch = randomLifecycle.matchmakingPending.value
+  const roomId = randomLifecycle.activeRoomId.value
+  randomLifecycle.beginLeaving()
+  pendingRetryJoin = false
+  isRetryingMatch.value = false
+
+  randomExitPromise = (async () => {
+    try {
+      if (shouldCancelMatch) await cancelMatch(currentAccessToken())
+      else if (roomId) await leaveRoom(roomId, currentAccessToken())
+    } catch (error) {
+      showToast(
+        error instanceof ApiError
+          ? error.message
+          : '대기방 정리에 실패했지만 화면 이동은 계속할게요.',
+      )
+    } finally {
+      waitingSocket.close()
+      matchSocket.close()
+      stopCameraStream()
+      clearGameStartCountdown()
+      isGameStartDialogOpen.value = false
+      readyMediaStarted = false
+      await readyMedia.disconnect()
+      mediaSession.clear()
+    }
+  })()
+  return randomExitPromise
+}
+
+async function handleLeaveRoom(): Promise<void> {
+  if (isRandomRoom.value) {
+    await cleanupRandomFlowForExit()
+    allowRandomRouteExit = true
+  } else {
+    stopCameraStream()
+  }
+  await router.push({
+    name: 'game-detail',
+    params: { gameId: game.value?.id },
+  })
 }
 
 async function handleRequestCamera() {
@@ -425,9 +820,11 @@ function handleCalibrationNext() {
 }
 
 async function runEyeSampleStep(kind: 'open' | 'closed') {
+  const operationGeneration = calibrationOperationGeneration
   isSamplingEyeStep.value = true
   eyeSampleFeedback.value = 'idle'
   const result = await eyeTracking.recordEyeSample(kind)
+  if (operationGeneration !== calibrationOperationGeneration) return
   isSamplingEyeStep.value = false
 
   if (!result.success) {
@@ -440,7 +837,10 @@ async function runEyeSampleStep(kind: 'open' | 'closed') {
   eyeSampleFeedback.value = 'success'
   playCalibrationSound('step')
   // 성공 표시를 잠깐 보여준 뒤 다음 단계로 넘어간다.
-  globalThis.setTimeout(advanceCalibrationStage, 500)
+  globalThis.setTimeout(() => {
+    if (operationGeneration === calibrationOperationGeneration)
+      advanceCalibrationStage()
+  }, 500)
 }
 
 /**
@@ -463,6 +863,7 @@ function eyeSampleFailureMessage(
 
 async function recordGazeCalibrationPoint() {
   if (isSamplingGaze.value) return
+  const operationGeneration = calibrationOperationGeneration
   const target: Point | undefined =
     eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
   if (!target) return
@@ -482,6 +883,7 @@ async function recordGazeCalibrationPoint() {
   // 점당 표본 품질만 높여 보정 정확도를 올린다.
   isSamplingGaze.value = true
   const captured = await eyeTracking.captureGazeCalibrationSample(target)
+  if (operationGeneration !== calibrationOperationGeneration) return
   isSamplingGaze.value = false
   if (!captured) {
     playCalibrationSound('reject')
@@ -596,7 +998,20 @@ function handleCalibrationBack() {
   }
 }
 
-function handleGameStart(data: WaitingRoomGameStartData) {
+function handleGameStart(
+  data: WaitingRoomGameStartData,
+  context: WaitingRoomSocketContext,
+) {
+  if (isRandomRoom.value) {
+    if (
+      !isCurrentWaitingContext(context) ||
+      !randomLifecycle.canHandleGameStart(data.roomId)
+    ) {
+      return
+    }
+    allowRandomRouteExit = true
+    matchSocket.close()
+  }
   if (data.openviduUrl && data.token) {
     mediaSession.setCredentials({
       openviduUrl: data.openviduUrl,
@@ -671,12 +1086,25 @@ async function initInviteSession() {
 function initRandomSession() {
   if (!isRandomRoom.value || !game.value) return
   const roomId = String(route.query.roomId ?? '')
-  if (!roomId) return
+  const gameType = currentGameType.value
+  if (!roomId || !gameType) {
+    randomLifecycle.fail('랜덤 대기방 정보를 확인하지 못했어요.')
+    return
+  }
   const identity = resolveIdentity()
-  if (!identity) return
+  if (!identity) {
+    randomLifecycle.fail('대기방 연결에 필요한 사용자 정보를 찾지 못했어요.')
+    return
+  }
+  randomLifecycle.initialize(roomId, gameType)
   liveRoomId.value = roomId
   liveIdentity.value = identity
-  waitingSocket.connect(roomId, identity)
+  try {
+    matchSocket.connect(identity)
+    waitingSocket.connect(roomId, identity)
+  } catch {
+    randomLifecycle.fail('대기방 연결을 시작하지 못했어요.')
+  }
 }
 
 function handleDialogBackdrop(event: globalThis.MouseEvent, close: () => void) {
@@ -759,6 +1187,7 @@ watch(isCalibrationOpen, (isOpen) => {
 watch(
   () => waitingSocket.roomState.value?.roomStatus,
   (roomStatus) => {
+    if (isRandomRoom.value) return
     const state = waitingSocket.roomState.value
     if (roomStatus === 'COUNTDOWN' && state?.countdownEndsAt) {
       openServerCountdown(state.countdownEndsAt)
@@ -774,10 +1203,18 @@ onMounted(() => {
   else void initInviteSession()
 })
 
+onBeforeRouteLeave(async () => {
+  if (!isRandomRoom.value || allowRandomRouteExit) return true
+  await cleanupRandomFlowForExit()
+  allowRandomRouteExit = true
+  return true
+})
+
 onBeforeUnmount(() => {
   stopCameraStream()
   clearGameStartCountdown()
   waitingSocket.close()
+  matchSocket.close()
   if (typeof globalThis.document !== 'undefined')
     globalThis.document.body.style.overflow = previousBodyOverflow
   isBodyScrollLocked = false
@@ -788,7 +1225,15 @@ onBeforeUnmount(() => {
 
 <template>
   <section v-if="game" class="game-room-page">
-    <RouterLink class="back" :to="`/games/${game.id}`"
+    <button
+      v-if="isRandomRoom"
+      type="button"
+      class="back back--button"
+      @click="handleLeaveRoom"
+    >
+      ← 게임 목록으로
+    </button>
+    <RouterLink v-else class="back" :to="`/games/${game.id}`"
       >← 게임 목록으로</RouterLink
     >
 
@@ -905,6 +1350,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           :aria-label="isRandomRoom ? '매칭 취소' : '방 나가기'"
+          :disabled="randomLifecycle.isLeaving.value"
           @click="handleLeaveRoom"
         >
           {{ isRandomRoom ? '매칭 취소' : '방 나가기' }}
@@ -938,6 +1384,40 @@ onBeforeUnmount(() => {
     </section>
 
     <section
+      v-if="isRandomStatusVisible"
+      class="room-join-error random-rematch-status"
+      :role="randomFlowState === 'ERROR' ? 'alert' : 'status'"
+      aria-live="polite"
+    >
+      <i
+        v-if="randomFlowState !== 'ERROR' || isRetryingMatch"
+        class="random-rematch-status__spinner"
+        aria-hidden="true"
+      />
+      <strong>{{ randomStatusTitle }}</strong>
+      <p>{{ randomStatusMessage }}</p>
+      <div class="room-join-error__actions">
+        <button
+          v-if="canRetryRandomMatch"
+          type="button"
+          class="room-join-error__retry"
+          @click="handleRetryRandomMatch"
+        >
+          다시 찾기
+        </button>
+        <button
+          type="button"
+          class="room-join-error__back"
+          :disabled="randomLifecycle.isLeaving.value"
+          @click="handleLeaveRoom"
+        >
+          나가기
+        </button>
+      </div>
+    </section>
+
+    <section
+      v-if="!isRandomStatusVisible"
       class="participant-grid"
       :class="{ 'participant-grid--solo': !isMultiplayer }"
       aria-label="참가자 준비 상태"
@@ -1398,6 +1878,13 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 700;
 }
+.back--button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
 .room-header {
   display: flex;
   align-items: center;
@@ -1549,6 +2036,18 @@ onBeforeUnmount(() => {
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+}
+.random-rematch-status {
+  min-height: 220px;
+  justify-content: center;
+}
+.random-rematch-status__spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--color-line);
+  border-top-color: var(--color-accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 .room-join-error__retry {
   border: 0;
