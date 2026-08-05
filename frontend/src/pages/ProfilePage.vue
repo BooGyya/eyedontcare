@@ -200,6 +200,14 @@ onMounted(() => {
   void loadRecords()
 })
 
+// 마이페이지는 로그인 전용 — 페이지에 머무는 중 로그아웃(세션 만료 포함)되면 홈으로 보낸다.
+watch(
+  () => auth.isAuthenticated,
+  (authenticated) => {
+    if (!authenticated) void router.push({ name: 'home' })
+  },
+)
+
 // 로그인/로그아웃으로 회원이 바뀌면 첫 페이지부터 다시 불러온다.
 watch(
   () => auth.user.id,
