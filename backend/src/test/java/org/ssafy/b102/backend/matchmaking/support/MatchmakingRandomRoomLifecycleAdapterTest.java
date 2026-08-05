@@ -114,6 +114,46 @@ class MatchmakingRandomRoomLifecycleAdapterTest {
 		assertThat(repository.find(KEY)).isPresent();
 	}
 
+	@Test
+	void normalLeaveCleanupDeletesOnlyMatchingRoomEntry() {
+		UUID roomId = UUID.randomUUID();
+		repository.save(entry(MatchStatus.IN_WAITING_ROOM, roomId));
+
+		adapter.cleanupParticipantAfterLeave(roomId, KEY);
+
+		assertThat(repository.find(KEY)).isEmpty();
+	}
+
+	@Test
+	void normalLeaveCleanupProtectsDifferentRoomEntry() {
+		UUID currentRoomId = UUID.randomUUID();
+		repository.save(entry(MatchStatus.IN_WAITING_ROOM, currentRoomId));
+
+		adapter.cleanupParticipantAfterLeave(UUID.randomUUID(), KEY);
+
+		assertThat(repository.find(KEY)).isPresent();
+	}
+
+	@Test
+	void normalLeaveCleanupProtectsSearchingEntryWithoutRoomId() {
+		repository.save(MatchmakingEntry.searching(KEY, GAME, NOW));
+
+		adapter.cleanupParticipantAfterLeave(UUID.randomUUID(), KEY);
+
+		assertThat(repository.find(KEY)).isPresent();
+	}
+
+	@Test
+	void previousRoomDisconnectCleanupDeletesIdentifiedRematchEntry() {
+		UUID previousRoomId = UUID.randomUUID();
+		repository.save(entry(MatchStatus.ENTERING_ROOM, previousRoomId));
+		repository.requeueRemaining(previousRoomId, GAME, KEY, NOW.plusSeconds(1));
+
+		adapter.cleanupRematchAfterPreviousRoomDisconnect(previousRoomId, KEY);
+
+		assertThat(repository.find(KEY)).isEmpty();
+	}
+
 	private static MatchmakingEntry entry(MatchStatus status, UUID roomId) {
 		return new MatchmakingEntry(KEY, GAME, status, roomId, NOW, NOW, UUID.randomUUID());
 	}

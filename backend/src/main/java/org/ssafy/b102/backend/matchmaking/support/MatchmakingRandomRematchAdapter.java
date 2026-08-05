@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.matchmaking.exception.MatchmakingErrorCode;
 import org.ssafy.b102.backend.matchmaking.service.MatchNotifier;
+import org.ssafy.b102.backend.matchmaking.service.MatchmakingService;
 import org.ssafy.b102.backend.matchmaking.service.RandomRematchService;
 import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequester;
 import org.ssafy.b102.backend.waitingroom.service.RandomRematchRequestResult;
@@ -18,13 +19,16 @@ public class MatchmakingRandomRematchAdapter implements RandomRematchRequester {
 
 	private final RandomRematchService randomRematchService;
 	private final MatchNotifier matchNotifier;
+	private final MatchmakingService matchmakingService;
 
 	public MatchmakingRandomRematchAdapter(
 		RandomRematchService randomRematchService,
-		MatchNotifier matchNotifier
+		MatchNotifier matchNotifier,
+		MatchmakingService matchmakingService
 	) {
 		this.randomRematchService = randomRematchService;
 		this.matchNotifier = matchNotifier;
+		this.matchmakingService = matchmakingService;
 	}
 
 	@Override
@@ -48,7 +52,10 @@ public class MatchmakingRandomRematchAdapter implements RandomRematchRequester {
 		}
 
 		switch (result) {
-			case REQUEUED -> notifyRequeued(participantKey, gameName);
+			case REQUEUED -> {
+				notifyRequeued(participantKey, gameName);
+				tryMatch(gameName);
+			}
 			case PARTICIPANT_INVALID ->
 				notifyError(participantKey, MatchmakingErrorCode.REMATCH_PARTICIPANT_INVALID);
 			case FAILED -> notifyError(participantKey, MatchmakingErrorCode.REMATCH_FAILED);
@@ -57,6 +64,14 @@ public class MatchmakingRandomRematchAdapter implements RandomRematchRequester {
 			}
 		}
 		return result;
+	}
+
+	private void tryMatch(GameName gameName) {
+		try {
+			matchmakingService.tryMatchAfterRequeue(gameName);
+		} catch (RuntimeException exception) {
+			log.warn("재매칭 즉시 시도에 실패했지만 등록 상태는 유지합니다. gameType={}", gameName, exception);
+		}
 	}
 
 	private void notifyRequeued(String participantKey, GameName gameName) {

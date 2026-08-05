@@ -17,6 +17,13 @@ if ARGV[3] == 'true' then
     if status ~= 'ENTERING_ROOM' and status ~= 'IN_WAITING_ROOM' then
         return 2
     end
+elseif ARGV[3] == 'leave' then
+    local status = redis.call('HGET', KEYS[1], 'matchStatus')
+    if status ~= 'ENTERING_ROOM'
+        and status ~= 'IN_WAITING_ROOM'
+        and status ~= 'SEARCHING' then
+        return 2
+    end
 end
 
 for index = 2, #KEYS do

@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository;
 import org.ssafy.b102.backend.matchmaking.repository.MatchmakingEntryRepository.EntryDeleteResult;
+import org.ssafy.b102.backend.matchmaking.repository.RematchCleanupResult;
 import org.ssafy.b102.backend.waitingroom.service.RandomRoomLifecyclePort;
 
 /**
@@ -56,6 +57,39 @@ public class MatchmakingRandomRoomLifecycleAdapter implements RandomRoomLifecycl
 		);
 		if (result == EntryDeleteResult.ROOM_MISMATCH) {
 			log.debug("입장 실패 cleanup 대상 아님(stale 또는 roomId 불일치). roomId={}", roomId);
+		}
+	}
+
+	@Override
+	public void cleanupParticipantAfterLeave(UUID roomId, String participantKey) {
+		EntryDeleteResult result = matchmakingEntryRepository.deleteAfterRoomLeaveIfMatches(
+			participantKey,
+			roomId
+		);
+		if (result == EntryDeleteResult.ROOM_MISMATCH) {
+			log.debug("정상 leave cleanup 대상이 아닙니다(stale 또는 roomId 불일치). roomId={}", roomId);
+		}
+	}
+
+	@Override
+	public void cleanupRematchAfterPreviousRoomDisconnect(
+		UUID previousRoomId,
+		String participantKey
+	) {
+		RematchCleanupResult result =
+			matchmakingEntryRepository.cleanupRematchAfterPreviousRoomDisconnect(
+				participantKey,
+				previousRoomId
+			);
+		if (
+			result != RematchCleanupResult.CANCELLED &&
+			result != RematchCleanupResult.NOT_FOUND
+		) {
+			log.debug(
+				"자동 재매칭 disconnect cleanup 대상이 아닙니다. roomId={}, result={}",
+				previousRoomId,
+				result
+			);
 		}
 	}
 }

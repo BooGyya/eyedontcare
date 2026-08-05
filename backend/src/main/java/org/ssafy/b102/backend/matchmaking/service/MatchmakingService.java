@@ -271,6 +271,14 @@ public class MatchmakingService {
 	}
 
 	/**
+	 * 재매칭 entry가 SEARCHING으로 등록된 직후 기존 매칭 알고리즘을 한 번 실행한다.
+	 * WaitingRoom은 Matchmaking 구현체에 직접 결합하지 않고 adapter를 통해 호출한다.
+	 */
+	public void tryMatchAfterRequeue(GameName gameType) {
+		tryMatch(gameType);
+	}
+
+	/**
 	 * 방 생성·finalize 실패 보상. 유효한 참가자만 현재 시각 기준으로 다시 큐에 넣고,
 	 * 무효한 참가자(탈퇴 회원·만료 게스트)는 정리한다. 기존 대기 순서는 승계하지 않는다.
 	 *

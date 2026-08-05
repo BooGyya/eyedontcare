@@ -44,6 +44,8 @@ public class MatchmakingEntryRepository {
 	private static final String REMATCH_RESOURCE = "rematch";
 	private static final DefaultRedisScript<Long> REQUEUE_REMAINING_SCRIPT =
 		longScript("redis/matchmaking/requeue-remaining.lua");
+	private static final DefaultRedisScript<Long> CLEANUP_REMATCH_SCRIPT =
+		longScript("redis/matchmaking/cleanup-rematch.lua");
 	private static final DefaultRedisScript<Long> ENQUEUE_SCRIPT =
 		longScript("redis/matchmaking/enqueue.lua");
 	private static final DefaultRedisScript<Long> DELETE_BY_ROOM_SCRIPT =
@@ -279,6 +281,7 @@ public class MatchmakingEntryRepository {
 		Instant now
 	) {
 		long epochMilli = now.toEpochMilli();
+		String rematchToken = UUID.randomUUID().toString();
 		Long result = redisTemplate.execute(
 			REQUEUE_REMAINING_SCRIPT,
 			List.of(
@@ -290,7 +293,8 @@ public class MatchmakingEntryRepository {
 			gameType.name(),
 			String.valueOf(epochMilli),
 			String.valueOf(entryTtl.toMillis()),
-			participantKey
+			participantKey,
+			rematchToken
 		);
 
 		if (Long.valueOf(1L).equals(result)) {
@@ -300,6 +304,39 @@ public class MatchmakingEntryRepository {
 			return RematchRegistrationResult.ALREADY_REQUEUED;
 		}
 		return RematchRegistrationResult.STALE;
+	}
+
+	/**
+	 * 이전 RANDOM 방 연결 종료 시 그 방에서 만들어진 자동 재매칭 entry만 원자적으로 정리한다.
+	 * 현재 entry와 marker의 token이 일치해야 하므로 오래된 callback이 새 직접 검색을 지우지 못한다.
+	 */
+	public RematchCleanupResult cleanupRematchAfterPreviousRoomDisconnect(
+		String participantKey,
+		UUID previousRoomId
+	) {
+		List<String> keys = new ArrayList<>();
+		keys.add(entryKey(participantKey));
+		keys.add(rematchKey(participantKey, previousRoomId));
+		keys.addAll(allQueueKeys());
+		Long result = redisTemplate.execute(
+			CLEANUP_REMATCH_SCRIPT,
+			keys,
+			participantKey
+		);
+
+		if (Long.valueOf(1L).equals(result)) {
+			return RematchCleanupResult.CANCELLED;
+		}
+		if (Long.valueOf(2L).equals(result)) {
+			return RematchCleanupResult.NOT_REMATCH_ENTRY;
+		}
+		if (Long.valueOf(3L).equals(result)) {
+			return RematchCleanupResult.STATE_CHANGED;
+		}
+		if (Long.valueOf(4L).equals(result)) {
+			return RematchCleanupResult.TOKEN_MISMATCH;
+		}
+		return RematchCleanupResult.NOT_FOUND;
 	}
 
 	/**
@@ -360,6 +397,14 @@ public class MatchmakingEntryRepository {
 	}
 
 	/**
+	 * 정상 RANDOM room leave 후 같은 room의 entry만 compare-delete한다.
+	 * 새 SEARCHING entry 또는 다른 room의 entry는 roomId/status 비교로 보호한다.
+	 */
+	public EntryDeleteResult deleteAfterRoomLeaveIfMatches(String participantKey, UUID roomId) {
+		return deleteIfRoomMatches(participantKey, roomId, "leave");
+	}
+
+	/**
 	 * SEARCHING Hash는 남았지만 해당 게임 ZSET member가 없는 경우에만 entry를 정리한다.
 	 * 상태 확인과 삭제를 하나의 script에서 수행해, 정리 중 새 정상 entry가 만들어지면 보호한다.
 	 */
@@ -378,6 +423,14 @@ public class MatchmakingEntryRepository {
 		UUID roomId,
 		boolean enteringRoomOnly
 	) {
+		return deleteIfRoomMatches(participantKey, roomId, Boolean.toString(enteringRoomOnly));
+	}
+
+	private EntryDeleteResult deleteIfRoomMatches(
+		String participantKey,
+		UUID roomId,
+		String statusMode
+	) {
 		List<String> keys = new ArrayList<>();
 		keys.add(entryKey(participantKey));
 		keys.addAll(allQueueKeys());
@@ -386,7 +439,7 @@ public class MatchmakingEntryRepository {
 			keys,
 			roomId.toString(),
 			participantKey,
-			Boolean.toString(enteringRoomOnly)
+			statusMode
 		);
 		if (Long.valueOf(1L).equals(result)) {
 			return EntryDeleteResult.DELETED;
