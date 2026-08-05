@@ -2691,6 +2691,9 @@ onBeforeUnmount(() => {
   height: min(64vh, 620px);
   object-fit: contain;
 }
+.calibration-stage video {
+  transform: scaleX(-1);
+}
 .calibration-controls {
   position: relative;
   display: flex;
