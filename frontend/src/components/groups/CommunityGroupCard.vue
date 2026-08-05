@@ -153,12 +153,17 @@ function handleAction() {
   white-space: nowrap;
 }
 .community-group-card p {
+  display: -webkit-box;
   min-height: 42px;
   margin: 0 0 17px;
+  overflow: hidden;
   color: var(--color-muted);
   font-size: 13px;
   line-height: 1.6;
-  word-break: keep-all;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .community-group-card footer {
   display: flex;
