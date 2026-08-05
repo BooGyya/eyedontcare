@@ -57,6 +57,16 @@ public enum GroupSuccessCode implements SuccessCode {
 	GROUP_COMMENT_CREATE_SUCCESS(
 		"GROUP_COMMENT_CREATE_SUCCESS",
 		"댓글을 작성했습니다."
+	),
+
+	GROUP_COMMENT_UPDATE_SUCCESS(
+		"GROUP_COMMENT_UPDATE_SUCCESS",
+		"댓글을 수정했습니다."
+	),
+
+	GROUP_COMMENT_DELETE_SUCCESS(
+		"GROUP_COMMENT_DELETE_SUCCESS",
+		"댓글을 삭제했습니다."
 	);
 
 	private final String code;

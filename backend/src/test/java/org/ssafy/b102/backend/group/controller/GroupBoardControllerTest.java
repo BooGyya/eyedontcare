@@ -1,7 +1,9 @@
 package org.ssafy.b102.backend.group.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -44,7 +46,7 @@ class GroupBoardControllerTest {
 			new GroupPostResponse(
 				5L, "방장", true, "첫 후기", CREATED_AT,
 				List.of(new GroupCommentResponse(
-					9L, "멤버", "좋아요", CREATED_AT)))
+					9L, "멤버", "좋아요", CREATED_AT, false)))
 		));
 
 		mockMvc(service)
@@ -103,7 +105,7 @@ class GroupBoardControllerTest {
 	void 댓글을_작성하면_201을_반환한다() throws Exception {
 		RecordingBoardService service = new RecordingBoardService();
 		service.commentResponse =
-			new GroupCommentResponse(9L, "나", "좋아요", CREATED_AT);
+			new GroupCommentResponse(9L, "나", "좋아요", CREATED_AT, true);
 
 		mockMvc(service)
 			.perform(post("/api/v1/groups/{groupId}/posts/{postId}/comments",
@@ -130,6 +132,56 @@ class GroupBoardControllerTest {
 				.content("{\"content\":\"좋아요\"}"))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("GROUP-012"));
+	}
+
+	@Test
+	void 본인_댓글을_수정하면_200을_반환한다() throws Exception {
+		RecordingBoardService service = new RecordingBoardService();
+		service.commentResponse =
+			new GroupCommentResponse(9L, "나", "수정한 댓글", CREATED_AT, true);
+
+		mockMvc(service)
+			.perform(patch(
+				"/api/v1/groups/{groupId}/posts/{postId}/comments/{commentId}",
+				10L, 5L, 9L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"content\":\"수정한 댓글\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.code").value("GROUP_COMMENT_UPDATE_SUCCESS"))
+			.andExpect(jsonPath("$.data.content").value("수정한 댓글"))
+			.andExpect(jsonPath("$.data.mine").value(true));
+
+		assertThat(service.capturedCommentId).isEqualTo(9L);
+		assertThat(service.capturedContent).isEqualTo("수정한 댓글");
+	}
+
+	@Test
+	void 다른_사람의_댓글_수정은_403_GROUP_015이다() throws Exception {
+		RecordingBoardService service = new RecordingBoardService();
+		service.toThrow = new BusinessException(GroupErrorCode.COMMENT_FORBIDDEN);
+
+		mockMvc(service)
+			.perform(patch(
+				"/api/v1/groups/{groupId}/posts/{postId}/comments/{commentId}",
+				10L, 5L, 9L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"content\":\"수정 시도\"}"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("GROUP-015"));
+	}
+
+	@Test
+	void 본인_댓글을_삭제하면_200을_반환한다() throws Exception {
+		RecordingBoardService service = new RecordingBoardService();
+
+		mockMvc(service)
+			.perform(delete(
+				"/api/v1/groups/{groupId}/posts/{postId}/comments/{commentId}",
+				10L, 5L, 9L))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.code").value("GROUP_COMMENT_DELETE_SUCCESS"));
+
+		assertThat(service.capturedCommentId).isEqualTo(9L);
 	}
 
 	private MockMvc mockMvc(GroupBoardService service) {
@@ -166,6 +218,7 @@ class GroupBoardControllerTest {
 
 		private Long capturedGroupId;
 		private Long capturedPostId;
+		private Long capturedCommentId;
 		private String capturedContent;
 
 		private RecordingBoardService() {
@@ -204,6 +257,28 @@ class GroupBoardControllerTest {
 			this.capturedPostId = postId;
 			this.capturedContent = content;
 			return commentResponse;
+		}
+
+		@Override
+		public GroupCommentResponse updateComment(
+			Long userId, Long groupId, Long postId, Long commentId, String content
+		) {
+			maybeThrow();
+			this.capturedGroupId = groupId;
+			this.capturedPostId = postId;
+			this.capturedCommentId = commentId;
+			this.capturedContent = content;
+			return commentResponse;
+		}
+
+		@Override
+		public void deleteComment(
+			Long userId, Long groupId, Long postId, Long commentId
+		) {
+			maybeThrow();
+			this.capturedGroupId = groupId;
+			this.capturedPostId = postId;
+			this.capturedCommentId = commentId;
 		}
 	}
 }
