@@ -7,14 +7,14 @@ import RankingList from '../components/ranking/RankingList.vue'
 import { getGameRanking, toGameRanking } from '../api/ranking'
 import { ApiError } from '../api/http'
 import { useAuthStore } from '../stores/auth'
-import { GAME_DISPLAY_NAME, type GameName } from '../types/waitingRoom'
+import { GAME_ENGLISH_NAME, type GameName } from '../types/waitingRoom'
 import type { GameId, GameRanking } from '../types/pages'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-/** 랭킹 탭 = 랭킹 대상 게임 5종. 표시명은 GAME_DISPLAY_NAME으로 통일한다. */
+/** 랭킹 탭 = 랭킹 대상 게임 5종. 표시명은 GAME_ENGLISH_NAME으로 통일한다. */
 const RANKING_GAMES: readonly { gameId: GameId; gameName: GameName }[] = [
   { gameId: 'blink', gameName: 'BLINK' },
   { gameId: 'draw', gameName: 'DRAWING' },
@@ -22,14 +22,18 @@ const RANKING_GAMES: readonly { gameId: GameId; gameName: GameName }[] = [
   { gameId: 'air', gameName: 'HOCKEY' },
   { gameId: 'hold', gameName: 'EYEFIGHT' },
 ]
-const rankingTabs = RANKING_GAMES.map((game) => GAME_DISPLAY_NAME[game.gameName])
+const rankingTabs = RANKING_GAMES.map(
+  (game) => GAME_ENGLISH_NAME[game.gameName],
+)
 
 function tabLabelForGameId(gameId: string): string | undefined {
   const found = RANKING_GAMES.find((game) => game.gameId === gameId)
-  return found ? GAME_DISPLAY_NAME[found.gameName] : undefined
+  return found ? GAME_ENGLISH_NAME[found.gameName] : undefined
 }
 function gameByTabLabel(label: string) {
-  return RANKING_GAMES.find((game) => GAME_DISPLAY_NAME[game.gameName] === label)
+  return RANKING_GAMES.find(
+    (game) => GAME_ENGLISH_NAME[game.gameName] === label,
+  )
 }
 
 const initialGameId =

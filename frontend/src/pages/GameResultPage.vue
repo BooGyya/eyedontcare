@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import opponentProfileImage from '../assets/images/profiles/profile-smile.png'
 import failedProfileImage from '../assets/images/profiles/profile-game-failed.png'
+import blinkRecordMissedImage from '../assets/images/profiles/profile-blink-record-missed.png'
 import airAiRobotImage from '../assets/images/games/game-air-ai-robot.png'
 import airAiRobotLoseImage from '../assets/images/games/game-air-ai-robot-lose.png'
 import duelLoserImage from '../assets/images/profiles/profile-duel-loser.png'
@@ -279,6 +280,12 @@ const isHoldRecordMissed = computed(
     mode.value === 'solo' &&
     result.value?.isNewRecord === false,
 )
+const isBlinkSoloRecordMissed = computed(
+  () =>
+    game.value?.id === 'blink' &&
+    mode.value === 'solo' &&
+    result.value?.isNewRecord === false,
+)
 const isCompetitiveLoss = computed(
   () => isCompetitive.value && outcome.value === 'LOSE',
 )
@@ -445,6 +452,7 @@ function navigateToReplay() {
   if (!game.value) return
   const playQuery = { ...route.query }
   delete playQuery.result
+  playQuery.replay = '1'
   router.push({
     name: 'game-play',
     params: { gameId: game.value.id },
@@ -1271,10 +1279,24 @@ function goToGames() {
       </template>
 
       <template v-else>
-        <article v-if="!isCompetitive" class="result-hero">
+        <article
+          v-if="!isCompetitive"
+          class="result-hero"
+          :class="{
+            'result-hero--blink-record-missed': isBlinkSoloRecordMissed,
+          }"
+        >
           <img
-            :src="game.mascotImage"
-            :alt="`${title} 결과 마스코트`"
+            :src="
+              isBlinkSoloRecordMissed
+                ? blinkRecordMissedImage
+                : game.mascotImage
+            "
+            :alt="
+              isBlinkSoloRecordMissed
+                ? '눈 깜빡이기 신기록 실패 캐릭터'
+                : `${title} 결과 마스코트`
+            "
             draggable="false"
           />
           <div class="score-block">
