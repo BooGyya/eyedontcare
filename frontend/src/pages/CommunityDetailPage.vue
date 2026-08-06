@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/common/PageHeader.vue'
+import { avatarForUserId } from '../api/ranking'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../api/http'
@@ -11,10 +12,17 @@ import {
   leaveGroup,
   deleteGroup,
   kickMember,
+  getGroupPosts,
+  createGroupPost,
+  createGroupComment,
+  updateGroupComment,
+  deleteGroupComment,
+  toCommunityComment,
+  toCommunityPost,
+  toTimeLabel,
   type GroupDetailResponse,
 } from '../api/group'
-import { communityPosts } from '../mocks/community'
-import type { CommunityPost } from '../types/community'
+import type { CommunityComment, CommunityPost } from '../types/community'
 import {
   COMMENT_COOLDOWN_MS,
   COMMENT_MAX_LENGTH,
@@ -41,34 +49,30 @@ async function load() {
     detail.value = await getGroup(groupId.value)
   } catch (error) {
     errorMessage.value =
-      error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
+      error instanceof ApiError ? error.message : '길드를 불러오지 못했어요.'
   } finally {
     isLoading.value = false
   }
 }
 
-function roleLabel(role: string) {
-  return role === 'OWNER' ? '방장' : '멤버'
-}
-
-// --- 게임 후기 게시판 (mock-first: 백엔드 게시판 API 연동 전까지 프론트에서만 관리) ---
+// --- Talk 게시판 (백엔드 저장) ---
 const posts = ref<CommunityPost[]>([])
 const openPostIds = ref<Record<string, boolean>>({})
 const commentDrafts = ref<Record<string, string>>({})
 const isComposerOpen = ref(false)
 const composerContent = ref('')
 
-function seedPosts() {
-  // 실제 소모임은 백엔드가 숫자 id를 내려줘서 mock의 문자열 id와 일치하지 않을 수 있다.
-  // 매칭되는 게시글이 없으면 게시판이 비어 보이지 않도록 기본 후기 세트로 대체한다.
-  const matched = communityPosts.filter(
-    (post) => post.groupId === groupId.value,
-  )
-  const source = matched.length > 0 ? matched : communityPosts.slice(0, 3)
-  posts.value = source.map((post) => ({
-    ...post,
-    comments: post.comments.map((comment) => ({ ...comment })),
-  }))
+async function loadPosts() {
+  if (!auth.isAuthenticated) return
+  try {
+    const response = await getGroupPosts(groupId.value)
+    posts.value = response.posts.map((post) =>
+      toCommunityPost(post, groupId.value),
+    )
+  } catch {
+    // 목록 로드 실패는 화면을 막지 않는다(빈 게시판으로 표시).
+    posts.value = []
+  }
 }
 
 function toggleComments(postId: string) {
@@ -87,7 +91,7 @@ function autoGrowComposer(event: globalThis.Event) {
   el.style.height = `${el.scrollHeight}px`
 }
 
-function submitPost() {
+async function submitPost() {
   const content = composerContent.value.trim()
   if (!content) {
     showToast('내용을 입력해 주세요.')
@@ -95,27 +99,26 @@ function submitPost() {
   }
   // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
   if (content.length > POST_MAX_LENGTH) {
-    showToast(`후기는 ${POST_MAX_LENGTH}자까지 입력할 수 있어요.`)
+    showToast(`글은 ${POST_MAX_LENGTH}자까지 입력할 수 있어요.`)
     return
   }
-  posts.value.unshift({
-    id: `local-post-${Date.now()}`,
-    groupId: groupId.value,
-    author: auth.user.nickname,
-    isLeader: detail.value?.isOwner ?? false,
-    content,
-    timeLabel: '방금',
-    comments: [],
-  })
-  composerContent.value = ''
-  isComposerOpen.value = false
-  showToast('후기를 남겼어요!')
+  try {
+    const saved = await createGroupPost(groupId.value, content)
+    posts.value.unshift(toCommunityPost(saved, groupId.value))
+    composerContent.value = ''
+    isComposerOpen.value = false
+    showToast('글을 남겼어요!')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '글 저장에 실패했어요.',
+    )
+  }
 }
 
 // 마지막으로 댓글을 작성한 시각. 짧은 간격의 연속 작성(난사)을 막는 쿨다운 기준이다.
 let lastCommentAt = 0
 
-function submitComment(post: CommunityPost) {
+async function submitComment(post: CommunityPost) {
   const content = (commentDrafts.value[post.id] ?? '').trim()
   if (!content) return
   // maxlength로 입력은 막히지만, 붙여넣기/우회 입력 대비로 제출 시에도 한 번 더 막는다.
@@ -139,14 +142,75 @@ function submitComment(post: CommunityPost) {
     showToast('같은 내용을 연속으로 작성할 수 없어요.')
     return
   }
-  lastCommentAt = now
-  post.comments.push({
-    id: `local-comment-${Date.now()}`,
-    author: auth.user.nickname,
-    content,
-    timeLabel: '방금',
-  })
-  commentDrafts.value[post.id] = ''
+  try {
+    const saved = await createGroupComment(groupId.value, post.id, content)
+    post.comments.push(toCommunityComment(saved))
+    commentDrafts.value[post.id] = ''
+    lastCommentAt = now
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '댓글 저장에 실패했어요.',
+    )
+  }
+}
+
+// --- 댓글 수정/삭제 (본인 댓글만) ---
+const editingCommentId = ref<string | null>(null)
+const editDrafts = ref<Record<string, string>>({})
+
+function findComment(post: CommunityPost, commentId: string) {
+  return post.comments.find((comment) => comment.id === commentId)
+}
+
+function startCommentEdit(comment: CommunityComment) {
+  editingCommentId.value = comment.id
+  editDrafts.value[comment.id] = comment.content
+}
+
+function cancelCommentEdit() {
+  editingCommentId.value = null
+}
+
+async function saveCommentEdit(post: CommunityPost) {
+  const commentId = editingCommentId.value
+  if (!commentId) return
+  const content = (editDrafts.value[commentId] ?? '').trim()
+  if (!content) {
+    showToast('내용을 입력해 주세요.')
+    return
+  }
+  try {
+    const saved = await updateGroupComment(
+      groupId.value,
+      post.id,
+      commentId,
+      content,
+    )
+    const target = findComment(post, commentId)
+    if (target) {
+      target.content = saved.content
+      target.timeLabel = toTimeLabel(saved.createdAt)
+    }
+    editingCommentId.value = null
+    showToast('댓글을 수정했어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '댓글 수정에 실패했어요.',
+    )
+  }
+}
+
+async function handleDeleteComment(post: CommunityPost, commentId: string) {
+  if (!globalThis.confirm('댓글을 삭제할까요?')) return
+  try {
+    await deleteGroupComment(groupId.value, post.id, commentId)
+    post.comments = post.comments.filter((comment) => comment.id !== commentId)
+    showToast('댓글을 삭제했어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '댓글 삭제에 실패했어요.',
+    )
+  }
 }
 
 async function handleLeave() {
@@ -154,7 +218,7 @@ async function handleLeave() {
   isBusy.value = true
   try {
     await leaveGroup(groupId.value)
-    showToast('소모임에서 나갔어요.')
+    showToast('길드에서 나갔어요.')
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(
@@ -168,12 +232,12 @@ async function handleLeave() {
 async function handleDelete() {
   if (!detail.value || isBusy.value) return
   // 삭제는 되돌릴 수 없으므로 한 번 더 확인한다.
-  if (!globalThis.confirm('소모임을 삭제하면 되돌릴 수 없어요. 삭제할까요?'))
+  if (!globalThis.confirm('길드를 삭제하면 되돌릴 수 없어요. 삭제할까요?'))
     return
   isBusy.value = true
   try {
     await deleteGroup(groupId.value)
-    showToast('소모임을 삭제했어요.')
+    showToast('길드를 삭제했어요.')
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '삭제에 실패했어요.')
@@ -188,7 +252,7 @@ async function handleKick(userId: number, nickname: string) {
   isBusy.value = true
   try {
     await kickMember(groupId.value, userId)
-    showToast('멤버를 강퇴했어요.')
+    showToast('길드원을 강퇴했어요.')
     await load()
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '강퇴에 실패했어요.')
@@ -213,12 +277,15 @@ async function handleJoin() {
 
 onMounted(() => {
   void load()
-  seedPosts()
+  void loadPosts()
 })
 watch(
   () => auth.isAuthenticated,
   (authenticated) => {
-    if (authenticated) void load()
+    if (authenticated) {
+      void load()
+      void loadPosts()
+    }
   },
 )
 </script>
@@ -227,34 +294,66 @@ watch(
   <section class="community-detail">
     <PageHeader
       eyebrow="COMMUNITY"
-      :title="detail?.name ?? '소모임'"
-      description="소모임 정보와 참여자를 확인하세요."
+      :title="detail?.name ?? '길드'"
+      description="길드 정보와 길드원을 확인하세요."
     />
 
-    <button
-      type="button"
-      class="community-detail__back"
-      @click="router.push({ name: 'community' })"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M14 6l-6 6 6 6"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-      소모임 목록으로
-    </button>
+    <div class="community-detail__toolbar">
+      <button
+        type="button"
+        class="community-detail__back"
+        @click="router.push({ name: 'community' })"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M14 6l-6 6 6 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        길드 목록으로
+      </button>
+
+      <div v-if="detail" class="community-detail__top-actions">
+        <button
+          v-if="detail.isOwner"
+          type="button"
+          class="community-detail__top-action-quiet"
+          :disabled="isBusy"
+          @click="handleDelete"
+        >
+          길드 삭제
+        </button>
+        <button
+          v-else-if="detail.isJoined"
+          type="button"
+          class="community-detail__top-action-quiet"
+          :disabled="isBusy"
+          @click="handleLeave"
+        >
+          길드 나가기
+        </button>
+        <button
+          v-else-if="detail.visibility === 'PUBLIC'"
+          type="button"
+          class="community-detail__primary community-detail__top-action"
+          :disabled="isBusy || detail.members >= detail.capacity"
+          @click="handleJoin"
+        >
+          {{ detail.members >= detail.capacity ? '정원 마감' : '가입하기' }}
+        </button>
+      </div>
+    </div>
 
     <div
       v-if="!auth.isAuthenticated"
       class="community-detail__status"
       role="status"
     >
-      <p>소모임 상세는 로그인 후 확인할 수 있어요.</p>
+      <p>길드 상세는 로그인 후 확인할 수 있어요.</p>
       <button
         type="button"
         class="community-detail__primary"
@@ -265,7 +364,7 @@ watch(
     </div>
 
     <p v-else-if="isLoading" class="community-detail__status" role="status">
-      소모임을 불러오는 중이에요…
+      길드를 불러오는 중이에요…
     </p>
 
     <div v-else-if="errorMessage" class="community-detail__status" role="alert">
@@ -402,79 +501,75 @@ watch(
           참여 코드 <b>{{ detail.joinCode }}</b>
         </p>
 
-        <div class="community-detail__actions">
-          <button
-            v-if="detail.isOwner"
-            type="button"
-            class="community-detail__danger"
-            :disabled="isBusy"
-            @click="handleDelete"
-          >
-            소모임 삭제
-          </button>
-          <button
-            v-else-if="detail.isJoined"
-            type="button"
-            class="community-detail__ghost"
-            :disabled="isBusy"
-            @click="handleLeave"
-          >
-            소모임 나가기
-          </button>
-          <button
-            v-else-if="!detail.isJoined && detail.visibility === 'PUBLIC'"
-            type="button"
-            class="community-detail__primary"
-            :disabled="isBusy || detail.members >= detail.capacity"
-            @click="handleJoin"
-          >
-            {{ detail.members >= detail.capacity ? '정원 마감' : '가입하기' }}
-          </button>
-          <p v-else-if="!detail.isJoined" class="community-detail__hint">
-            비공개 소모임은 참여 코드로 입장할 수 있어요.
-          </p>
-        </div>
+        <p
+          v-if="!detail.isJoined && detail.visibility !== 'PUBLIC'"
+          class="community-detail__hint community-detail__hint--card"
+        >
+          비공개 길드는 참여 코드로 입장할 수 있어요.
+        </p>
       </article>
 
-      <section class="community-detail__members" aria-label="참여자 명단">
-        <h2>참여자 {{ detail.memberList.length }}명</h2>
-        <ul>
-          <li v-for="member in detail.memberList" :key="member.userId">
-            <span class="community-detail__member-name">{{
-              member.nickname
-            }}</span>
-            <span class="community-detail__member-meta">
-              <span class="community-detail__member-role">
-                <svg
-                  v-if="member.role === 'OWNER'"
-                  class="community-detail__icon"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
-                    fill="var(--color-gold)"
-                  />
-                </svg>
-                {{ roleLabel(member.role) }}
-              </span>
-              <button
-                v-if="detail.isOwner && member.role !== 'OWNER'"
-                type="button"
-                class="community-detail__kick"
-                :disabled="isBusy"
-                @click="handleKick(member.userId, member.nickname)"
-              >
-                강퇴
-              </button>
+      <section class="community-detail__members" aria-label="길드원 명단">
+        <h2>길드원 {{ detail.memberList.length }}명</h2>
+        <ul class="community-detail__member-grid">
+          <li
+            v-for="member in detail.memberList"
+            :key="member.userId"
+            class="community-detail__member-card"
+          >
+            <button
+              v-if="detail.isOwner && member.role !== 'OWNER'"
+              type="button"
+              class="community-detail__member-kick"
+              aria-label="강퇴"
+              :disabled="isBusy"
+              @click="handleKick(member.userId, member.nickname)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6 6 18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <svg
+              v-if="member.role === 'OWNER'"
+              class="community-detail__member-crown"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+                fill="var(--color-gold)"
+              />
+            </svg>
+            <span class="community-detail__member-avatar">
+              <img
+                :src="avatarForUserId(member.userId)"
+                :alt="`${member.nickname} 프로필`"
+              />
+            </span>
+            <span class="community-detail__member-name">
+              <span class="community-detail__member-name-text">{{
+                member.nickname
+              }}</span>
             </span>
           </li>
         </ul>
       </section>
 
-      <section class="community-detail__board" aria-label="게임 후기 게시판">
+      <section class="community-detail__board" aria-label="Talk">
         <div class="community-detail__board-heading">
-          <h2>게임 후기 게시판</h2>
+          <div class="community-detail__board-heading-text">
+            <h2>Talk</h2>
+            <p class="community-detail__board-sub">
+              길드원들과 자유롭게 이야기해요. 게임 후기도, 같이 할 사람 구하기도
+              좋아요!
+            </p>
+          </div>
           <button
             v-if="detail.isJoined || detail.isOwner"
             type="button"
@@ -483,14 +578,10 @@ watch(
           >
             글쓰기
           </button>
+          <p v-else class="community-detail__board-hint">
+            길드에 가입하면 이야기를 남길 수 있어요.
+          </p>
         </div>
-
-        <p
-          v-if="!(detail.isJoined || detail.isOwner)"
-          class="community-detail__hint"
-        >
-          소모임에 가입하면 후기를 남길 수 있어요.
-        </p>
 
         <form
           v-if="isComposerOpen"
@@ -500,7 +591,7 @@ watch(
           <textarea
             v-model="composerContent"
             class="community-detail__composer-textarea"
-            placeholder="게임 후기를 남겨보세요"
+            placeholder="길드원들에게 하고 싶은 이야기를 남겨보세요"
             rows="3"
             :maxlength="POST_MAX_LENGTH"
             @input="autoGrowComposer"
@@ -523,7 +614,7 @@ watch(
         </form>
 
         <p v-if="posts.length === 0" class="community-detail__board-empty">
-          아직 후기가 없어요. 첫 후기를 남겨보세요!
+          아직 이야기가 없어요. 첫 글을 남겨보세요!
         </p>
 
         <ul v-else class="community-detail__board-list">
@@ -577,9 +668,34 @@ watch(
             <button
               type="button"
               class="community-detail__comment-toggle"
+              :aria-expanded="!!openPostIds[post.id]"
               @click="toggleComments(post.id)"
             >
               댓글 {{ post.comments.length }}
+              <svg
+                class="community-detail__comment-toggle-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  v-if="openPostIds[post.id]"
+                  d="M6 15l6-6 6 6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  v-else
+                  d="M6 9l6 6 6-6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
             </button>
 
             <div v-if="openPostIds[post.id]" class="community-detail__comments">
@@ -588,15 +704,61 @@ watch(
                 class="community-detail__comment-list"
               >
                 <li v-for="comment in post.comments" :key="comment.id">
-                  <span class="community-detail__comment-author">{{
-                    comment.author
-                  }}</span>
-                  <span class="community-detail__comment-content">{{
-                    comment.content
-                  }}</span>
-                  <span class="community-detail__comment-time">{{
-                    comment.timeLabel
-                  }}</span>
+                  <template v-if="editingCommentId === comment.id">
+                    <input
+                      v-model="editDrafts[comment.id]"
+                      type="text"
+                      class="community-detail__comment-edit-input"
+                      :maxlength="COMMENT_MAX_LENGTH"
+                      @keyup.enter="saveCommentEdit(post)"
+                    />
+                    <span class="community-detail__comment-owner-actions">
+                      <button
+                        type="button"
+                        class="community-detail__comment-save"
+                        @click="saveCommentEdit(post)"
+                      >
+                        저장
+                      </button>
+                      <button
+                        type="button"
+                        class="community-detail__comment-cancel"
+                        @click="cancelCommentEdit"
+                      >
+                        취소
+                      </button>
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span class="community-detail__comment-author">{{
+                      comment.author
+                    }}</span>
+                    <span class="community-detail__comment-content">{{
+                      comment.content
+                    }}</span>
+                    <span class="community-detail__comment-time">{{
+                      comment.timeLabel
+                    }}</span>
+                    <span
+                      v-if="comment.mine"
+                      class="community-detail__comment-owner-actions"
+                    >
+                      <button
+                        type="button"
+                        class="community-detail__comment-edit"
+                        @click="startCommentEdit(comment)"
+                      >
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        class="community-detail__comment-delete"
+                        @click="handleDeleteComment(post, comment.id)"
+                      >
+                        삭제
+                      </button>
+                    </span>
+                  </template>
                 </li>
               </ul>
               <p v-else class="community-detail__comment-empty">
@@ -639,11 +801,41 @@ watch(
 .community-detail {
   padding: 32px 0 54px;
 }
+.community-detail__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.community-detail__top-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.community-detail__top-action {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.community-detail__top-action-quiet {
+  padding: 6px 12px;
+  border: 1px solid #e2b4b4;
+  border-radius: 8px;
+  color: #c0392b;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.community-detail__top-action-quiet:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
+}
 .community-detail__back {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 16px;
   padding: 0;
   border: 0;
   background: none;
@@ -733,7 +925,7 @@ watch(
   color: var(--color-muted);
   font-size: 13px;
 }
-.community-detail__actions {
+.community-detail__hint--card {
   margin-top: 18px;
 }
 .community-detail__primary,
@@ -778,47 +970,88 @@ watch(
   margin-bottom: 12px;
   font-size: 18px;
 }
-.community-detail__members ul {
+.community-detail__member-grid {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.community-detail__members li {
+.community-detail__member-card {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
+  gap: 6px;
+  padding: 10px 6px;
   border: 1px solid var(--color-line);
   border-radius: 12px;
   background: #fff;
 }
-.community-detail__member-meta {
+.community-detail__member-avatar {
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+.community-detail__member-avatar img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-surface-soft);
+}
+.community-detail__member-name {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-.community-detail__member-role {
-  display: inline-flex;
-  align-items: center;
   gap: 3px;
-  color: var(--color-accent-blue);
-  font-size: 12px;
-  font-weight: 800;
-}
-.community-detail__kick {
-  padding: 4px 10px;
-  border: 1px solid #e2b4b4;
-  border-radius: 8px;
-  background: #fff;
-  color: #c0392b;
-  font: inherit;
+  max-width: 100%;
+  color: var(--color-ink);
   font-size: 12px;
   font-weight: 700;
-  cursor: pointer;
 }
-.community-detail__kick:disabled {
+.community-detail__member-name-text {
+  overflow: hidden;
+  min-width: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.community-detail__member-crown {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
+}
+.community-detail__member-kick {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-muted);
+  background: var(--color-surface-soft);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+.community-detail__member-kick svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+}
+.community-detail__member-kick:hover {
+  color: #c0392b;
+  background: #fce9e9;
+}
+.community-detail__member-kick:disabled {
   color: var(--color-muted);
   cursor: not-allowed;
 }
@@ -827,17 +1060,42 @@ watch(
 }
 .community-detail__board-heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .community-detail__board-heading h2 {
-  font-size: 18px;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+.community-detail__board-sub {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: keep-all;
 }
 .community-detail__board-write {
   padding: 8px 16px;
   font-size: 13px;
+}
+.community-detail__board-hint {
+  flex-shrink: 0;
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .community-detail__board-heading {
+    flex-wrap: wrap;
+  }
+  .community-detail__board-hint {
+    text-align: left;
+    white-space: normal;
+  }
 }
 .community-detail__composer {
   display: flex;
@@ -896,11 +1154,20 @@ watch(
   list-style: none;
 }
 .community-detail__post {
-  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
+  border-radius: 16px;
   background: #fff;
   box-shadow: var(--shadow-card);
+  transition:
+    transform var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+.community-detail__post:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-float);
 }
 .community-detail__post-header {
   display: flex;
@@ -930,6 +1197,9 @@ watch(
   overflow-wrap: anywhere;
 }
 .community-detail__comment-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 0;
   border: 0;
   background: none;
@@ -938,6 +1208,11 @@ watch(
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+}
+.community-detail__comment-toggle-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 .community-detail__comments {
   margin-top: 12px;
@@ -978,6 +1253,43 @@ watch(
 .community-detail__comment-time {
   color: var(--color-muted);
   font-size: 12px;
+}
+.community-detail__comment-owner-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.community-detail__comment-edit,
+.community-detail__comment-delete,
+.community-detail__comment-save,
+.community-detail__comment-cancel {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.community-detail__comment-edit,
+.community-detail__comment-save {
+  color: var(--color-accent-blue);
+}
+.community-detail__comment-delete {
+  color: #c0392b;
+}
+.community-detail__comment-cancel {
+  color: var(--color-muted);
+}
+.community-detail__comment-edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--color-accent-blue);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-ink);
 }
 .community-detail__comment-empty {
   margin: 0 0 10px;

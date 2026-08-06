@@ -5,7 +5,7 @@ import org.ssafy.b102.backend.group.entity.Group;
 import org.ssafy.b102.backend.group.entity.GroupVisibility;
 
 /**
- * 소모임 카드 응답(생성·입장·목록 항목 공통). 프론트 CommunityGroup 모양에 맞춘다.
+ * 길드 카드 응답(생성·입장·목록 항목 공통). 프론트 CommunityGroup 모양에 맞춘다.
  *
  * <p>{@code joinCode}는 요청자가 가입한 경우에만 채우고, 비가입자는 null이다.
  */

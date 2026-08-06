@@ -3,16 +3,14 @@ import type { GameName, WaitingRoomIdentity } from '../types/waitingRoom'
 import type { MatchServerEvent } from '../types/matchmaking'
 
 export type MatchConnectionStatus =
-  | 'idle'
-  | 'connecting'
-  | 'open'
-  | 'closed'
-  | 'error'
+  'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
 interface UseMatchSocketOptions {
   onMatchSuccess?: (roomId: string, gameType: GameName) => void
   onRequeued?: (gameType: GameName) => void
   onError?: (code: string, message: string) => void
+  onOpen?: (generation: number) => void
+  onUnexpectedClose?: (generation: number) => void
 }
 
 /**
@@ -34,29 +32,52 @@ function resolveMatchWebSocketUrl(): string {
 export function useMatchSocket(options: UseMatchSocketOptions = {}) {
   const status = ref<MatchConnectionStatus>('idle')
   const errorMessage = ref<string | null>(null)
+  const connectionGeneration = ref(0)
+  const isConnected = ref(false)
 
   let socket: globalThis.WebSocket | null = null
 
-  function connect(identity: WaitingRoomIdentity): void {
-    close()
+  function connect(identity: WaitingRoomIdentity): boolean {
+    if (
+      socket &&
+      (socket.readyState === globalThis.WebSocket.CONNECTING ||
+        socket.readyState === globalThis.WebSocket.OPEN)
+    ) {
+      return false
+    }
+
+    connectionGeneration.value += 1
+    const generation = connectionGeneration.value
     errorMessage.value = null
+    isConnected.value = false
     status.value = 'connecting'
 
     const ws = new globalThis.WebSocket(resolveMatchWebSocketUrl())
     socket = ws
 
     ws.onopen = () => {
+      if (!isCurrentSocket(ws, generation)) return
       status.value = 'open'
+      isConnected.value = true
       ws.send(JSON.stringify({ type: 'AUTH', ...identity }))
+      options.onOpen?.(generation)
     }
-    ws.onmessage = (event) => handleMessage(String(event.data))
+    ws.onmessage = (event) => {
+      if (!isCurrentSocket(ws, generation)) return
+      handleMessage(String(event.data))
+    }
     ws.onerror = () => {
+      if (!isCurrentSocket(ws, generation)) return
       status.value = 'error'
     }
     ws.onclose = () => {
-      if (socket === ws) socket = null
+      if (!isCurrentSocket(ws, generation)) return
+      socket = null
+      isConnected.value = false
       if (status.value !== 'error') status.value = 'closed'
+      options.onUnexpectedClose?.(generation)
     }
+    return true
   }
 
   function handleMessage(raw: string): void {
@@ -83,7 +104,10 @@ export function useMatchSocket(options: UseMatchSocketOptions = {}) {
 
   function close(): void {
     const active = socket
+    connectionGeneration.value += 1
     socket = null
+    isConnected.value = false
+    status.value = 'closed'
     if (!active) return
     active.onopen = null
     active.onmessage = null
@@ -97,11 +121,20 @@ export function useMatchSocket(options: UseMatchSocketOptions = {}) {
     }
   }
 
+  function isCurrentSocket(
+    candidate: globalThis.WebSocket,
+    generation: number,
+  ): boolean {
+    return socket === candidate && connectionGeneration.value === generation
+  }
+
   onScopeDispose(close)
 
   return {
     status: readonly(status),
     errorMessage: readonly(errorMessage),
+    connectionGeneration: readonly(connectionGeneration),
+    isConnected: readonly(isConnected),
     connect,
     close,
   }

@@ -478,7 +478,7 @@ function handleQuickAction(action: QuickAction) {
                 <b class="hero-title__green">도전!</b></span
               >
             </h1>
-            <p>소모임에서 같이 놀고 TOP 3 기록을 노려보세요</p>
+            <p>길드에서 같이 놀고 TOP 3 기록을 노려보세요</p>
             <RouterLink class="hero-banner__cta" to="/games">
               <span class="hero-banner__cta-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" focusable="false">

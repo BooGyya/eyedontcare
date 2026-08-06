@@ -22,7 +22,6 @@ const emit = defineEmits<{
       mode: RoomFlow
       roomCode?: string
       roomId?: string
-      role?: 'host' | 'player'
     },
   ]
 }>()
@@ -74,11 +73,7 @@ function closeDialog() {
   emit('close')
 }
 function createRoom() {
-  emit('enterRoom', {
-    mode: 'friends',
-    roomCode: String(Math.floor(1000 + Math.random() * 9000)),
-    role: 'host',
-  })
+  emit('enterRoom', { mode: 'friends' })
 }
 function joinRoom() {
   if (!/^\d{4}$/.test(roomCode.value.trim())) {
@@ -88,7 +83,6 @@ function joinRoom() {
   emit('enterRoom', {
     mode: 'friends',
     roomCode: roomCode.value.trim(),
-    role: 'player',
   })
 }
 function enterRandomRoom(roomId: string) {
@@ -106,7 +100,10 @@ async function startMatching() {
   // 신규 게스트는 세션이 없으므로 join을 먼저 호출해 세션을 확보하고, 이미 성사된 경우
   // 응답의 waitingRoomId로 곧바로 입장한다. 아니면 소켓을 열어 MATCH_SUCCESS를 기다린다.
   try {
-    const result = await joinMatch(GAME_NAME_BY_ID[props.gameId], currentAccessToken())
+    const result = await joinMatch(
+      GAME_NAME_BY_ID[props.gameId],
+      currentAccessToken(),
+    )
     if (!props.open) return
     if (result.waitingRoomId) {
       enterRandomRoom(result.waitingRoomId)

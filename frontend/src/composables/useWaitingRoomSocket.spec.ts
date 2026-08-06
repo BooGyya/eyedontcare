@@ -14,6 +14,7 @@ class MockWebSocket {
   static instances: MockWebSocket[] = []
 
   readyState = MockWebSocket.CONNECTING
+  closeCalls = 0
   sent: string[] = []
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
@@ -32,6 +33,7 @@ class MockWebSocket {
   }
 
   close(): void {
+    this.closeCalls += 1
     this.readyState = MockWebSocket.CLOSED
     this.onclose?.()
   }
@@ -43,6 +45,15 @@ class MockWebSocket {
 
   simulateMessage(payload: unknown): void {
     this.onmessage?.({ data: JSON.stringify(payload) })
+  }
+
+  simulateError(): void {
+    this.onerror?.()
+  }
+
+  simulateUnexpectedClose(): void {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.()
   }
 }
 
@@ -97,6 +108,7 @@ describe('useWaitingRoomSocket', () => {
 
       expect(socket.status.value).toBe('open')
       expect(socket.roomState.value?.roomCode).toBe('1234')
+      expect(socket.connectedRoomId.value).toBe('room-1')
       expect(received).toHaveLength(1)
     })
     scope.stop()
@@ -172,6 +184,143 @@ describe('useWaitingRoomSocket', () => {
         { type: 'READY_STATUS', isReady: true },
         { type: 'START_GAME' },
       ])
+    })
+    scope.stop()
+  })
+
+  it('does not create another socket for the same active room', () => {
+    const scope = effectScope()
+    scope.run(() => {
+      const socket = useWaitingRoomSocket()
+      expect(socket.connect('room-1', { accessToken: 'jwt' })).toBe(true)
+      expect(socket.connect('room-1', { accessToken: 'jwt' })).toBe(false)
+      MockWebSocket.instances[0].simulateOpen()
+      expect(socket.connect('room-1', { accessToken: 'jwt' })).toBe(false)
+      expect(MockWebSocket.instances).toHaveLength(1)
+    })
+    scope.stop()
+  })
+
+  it('invalidates old events without client close and accepts its server close as expected', () => {
+    const scope = effectScope()
+    scope.run(() => {
+      const states: string[] = []
+      const errors = vi.fn()
+      const starts = vi.fn()
+      const unexpected = vi.fn()
+      const socket = useWaitingRoomSocket({
+        onRoomState: (state) => states.push(state.roomId),
+        onGameStart: starts,
+        onError: errors,
+        onUnexpectedClose: unexpected,
+      })
+      socket.connect('room-1', { accessToken: 'jwt' })
+      const old = MockWebSocket.instances[0]
+      old.simulateOpen()
+      old.simulateMessage({ type: 'ROOM_STATE', data: roomState })
+      const generation = socket.connectionGeneration.value
+
+      socket.invalidateCurrentConnectionEvents()
+
+      expect(old.closeCalls).toBe(0)
+      expect(old.readyState).toBe(MockWebSocket.OPEN)
+      expect(socket.connectionGeneration.value).toBe(generation + 1)
+      expect(socket.connectedRoomId.value).toBeNull()
+      expect(socket.roomState.value).toBeNull()
+
+      old.simulateMessage({
+        type: 'ROOM_STATE',
+        data: { ...roomState, roomStatus: 'CLOSED' },
+      })
+      old.simulateMessage({
+        type: 'GAME_START',
+        data: {
+          roomId: 'room-1',
+          gameName: 'EYEFIGHT',
+          startedAt: '2026-07-31T00:00:01Z',
+          openviduUrl: null,
+          token: null,
+        },
+      })
+      old.simulateMessage({
+        type: 'ERROR',
+        data: { code: 'WR_0001', message: 'stale error' },
+      })
+      old.simulateError()
+
+      expect(states).toEqual(['room-1'])
+      expect(starts).not.toHaveBeenCalled()
+      expect(errors).not.toHaveBeenCalled()
+      expect(socket.status.value).toBe('open')
+
+      old.simulateUnexpectedClose()
+
+      expect(unexpected).not.toHaveBeenCalled()
+      expect(socket.status.value).toBe('closed')
+    })
+    scope.stop()
+  })
+
+  it('clears old state and ignores callbacks from the previous room', () => {
+    const scope = effectScope()
+    scope.run(() => {
+      const received: string[] = []
+      const unexpected = vi.fn()
+      const socket = useWaitingRoomSocket({
+        onRoomState: (state) => received.push(state.roomId),
+        onUnexpectedClose: unexpected,
+      })
+      socket.connect('room-1', { accessToken: 'jwt' })
+      const old = MockWebSocket.instances[0]
+      old.simulateOpen()
+      old.simulateMessage({ type: 'ROOM_STATE', data: roomState })
+      const oldMessage = old.onmessage
+      const oldClose = old.onclose
+      const oldError = old.onerror
+
+      socket.connect('room-2', { accessToken: 'jwt' })
+      expect(old.closeCalls).toBe(1)
+      expect(socket.roomState.value).toBeNull()
+      expect(socket.errorMessage.value).toBeNull()
+      expect(socket.connectedRoomId.value).toBe('room-2')
+
+      oldMessage?.({
+        data: JSON.stringify({
+          type: 'ROOM_STATE',
+          data: { ...roomState, roomId: 'room-1', roomStatus: 'CLOSED' },
+        }),
+      })
+      oldError?.()
+      oldClose?.()
+
+      expect(received).toEqual(['room-1'])
+      expect(socket.status.value).toBe('connecting')
+      expect(socket.connectedRoomId.value).toBe('room-2')
+      expect(unexpected).not.toHaveBeenCalled()
+    })
+    scope.stop()
+  })
+
+  it('reports only an unexpected close from the current room', () => {
+    const scope = effectScope()
+    scope.run(() => {
+      const unexpected = vi.fn()
+      const socket = useWaitingRoomSocket({
+        onUnexpectedClose: unexpected,
+      })
+      socket.connect('room-1', { accessToken: 'jwt' })
+      const ws = MockWebSocket.instances[0]
+      ws.simulateOpen()
+      ws.simulateUnexpectedClose()
+
+      expect(unexpected).toHaveBeenCalledWith({
+        roomId: 'room-1',
+        generation: expect.any(Number),
+      })
+
+      socket.connect('room-2', { accessToken: 'jwt' })
+      socket.close()
+      expect(unexpected).toHaveBeenCalledTimes(1)
     })
     scope.stop()
   })

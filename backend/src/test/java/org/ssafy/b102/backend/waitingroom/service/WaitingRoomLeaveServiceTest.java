@@ -82,7 +82,7 @@ class WaitingRoomLeaveServiceTest {
 			.thenReturn(ResolvedWaitingRoomParticipant.member("USER:1", "회원"));
 		when(store.leaveAtomically(any())).thenReturn(LeaveWaitingRoomResult.LEFT);
 
-		service.leave(ROOM_ID, member, null);
+		WaitingRoomLeaveOutcome outcome = service.leave(ROOM_ID, member, null);
 
 		ArgumentCaptor<LeaveWaitingRoomCommand> captor =
 			ArgumentCaptor.forClass(LeaveWaitingRoomCommand.class);
@@ -93,6 +93,9 @@ class WaitingRoomLeaveServiceTest {
 		assertThat(captor.getValue().maxParticipants()).isEqualTo(2);
 		assertThat(captor.getValue().activeTtl()).isEqualTo(Duration.ofMinutes(10));
 		assertThat(captor.getValue().closedTtl()).isEqualTo(Duration.ofSeconds(30));
+		assertThat(outcome.roomId()).isEqualTo(ROOM_ID);
+		assertThat(outcome.participantKey()).isEqualTo("USER:1");
+		assertThat(outcome.inviteResult()).isEqualTo(LeaveWaitingRoomResult.LEFT);
 	}
 
 	@Test

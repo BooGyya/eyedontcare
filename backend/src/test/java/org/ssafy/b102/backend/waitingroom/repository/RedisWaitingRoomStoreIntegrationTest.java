@@ -592,6 +592,41 @@ class RedisWaitingRoomStoreIntegrationTest {
 	}
 
 	@Test
+	void lateCountdownCompletionDoesNotStartClosedInviteRoom() {
+		setupFullRoom();
+		UUID countdownId =
+			UUID.fromString("9e3c76b2-7f78-4275-b8af-7cdd921bbb4f");
+		Instant countdownEndsAt =
+			Instant.parse("2026-07-30T04:02:03Z");
+		redisTemplate.opsForHash().put(ROOM_KEY, "roomStatus", "COUNTDOWN");
+		redisTemplate.opsForHash().put(
+			ROOM_KEY,
+			"countdownId",
+			countdownId.toString()
+		);
+		redisTemplate.opsForHash().put(
+			ROOM_KEY,
+			"countdownEndsAt",
+			countdownEndsAt.toString()
+		);
+
+		assertThat(store.leaveAtomically(leaveCommand("GUEST:one")))
+			.isEqualTo(LeaveWaitingRoomResult.ROOM_CLOSED);
+		assertThat(store.completeCountdownAtomically(
+			new CompleteCountdownCommand(
+				ROOM_ID,
+				"0123",
+				countdownId,
+				countdownEndsAt,
+				2,
+				TTL
+			)
+		)).isEqualTo(CompleteCountdownResult.ROOM_CLOSED);
+		assertThat(store.findSnapshot(ROOM_ID).orElseThrow().room().roomStatus())
+			.isEqualTo(RoomStatus.CLOSED);
+	}
+
+	@Test
 	void closedExistingParticipantIsIdempotentWithoutRenewingTtl() {
 		setupFullRoom();
 		store.leaveAtomically(leaveCommand("USER:1"));

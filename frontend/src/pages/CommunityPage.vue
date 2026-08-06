@@ -13,7 +13,6 @@ import {
   getGroups,
   getMyGroups,
   joinGroupByCode,
-  joinGroupById,
   toCommunityGroup,
 } from '../api/group'
 import type {
@@ -34,8 +33,8 @@ const isGuestUser = computed(() => !auth.isAuthenticated)
 const groupFilters: readonly CommunityGroupFilter[] = ['all', 'owned', 'joined']
 const filterLabels: Record<CommunityGroupFilter, string> = {
   all: '전체',
-  owned: '내가 만든 모임',
-  joined: '참여 중인 모임',
+  owned: '내가 만든 길드',
+  joined: '참여 중인 길드',
 }
 const groupFilterItems = groupFilters.map((filter) => filterLabels[filter])
 
@@ -60,7 +59,7 @@ const initialDraft = (): CommunityGroupDraft => ({
 const createDraft = ref<CommunityGroupDraft>(initialDraft())
 
 /**
- * 전체 목록(GET /groups)과 내 소모임(GET /groups/me)을 id 기준으로 합쳐 화면 목록을 만든다.
+ * 전체 목록(GET /groups)과 내 길드(GET /groups/me)를 id 기준으로 합쳐 화면 목록을 만든다.
  * 게스트는 인증 전용 API라 호출하지 않는다(화면은 로그인 유도).
  */
 let loadGroupsPromise: Promise<void> | null = null
@@ -73,7 +72,10 @@ function loadGroups(): Promise<void> {
     isLoading.value = true
     errorMessage.value = ''
     try {
-      const [groupList, myList] = await Promise.all([getGroups(), getMyGroups()])
+      const [groupList, myList] = await Promise.all([
+        getGroups(),
+        getMyGroups(),
+      ])
       if (!auth.isAuthenticated) return
 
       const byId = new Map<string, CommunityGroup>()
@@ -85,7 +87,7 @@ function loadGroups(): Promise<void> {
     } catch (error) {
       if (!auth.isAuthenticated) return
       errorMessage.value =
-        error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
+        error instanceof ApiError ? error.message : '길드를 불러오지 못했어요.'
     } finally {
       isLoading.value = false
     }
@@ -176,28 +178,20 @@ function upsertGroup(group: CommunityGroup) {
   }
 }
 
-async function handleGroupAction(group: CommunityGroup) {
-  if (group.isJoined) {
-    void router.push({ name: 'community-detail', params: { groupId: group.id } })
-    return
-  }
-  if (group.members >= group.capacity) {
-    showToast('정원이 마감된 소모임이에요.')
-    return
-  }
-  if (group.visibility === 'private') {
-    joinCode.value = ''
-    joinCodeError.value = ''
-    isJoinDialogOpen.value = true
+// 공개 길드는 가입 여부와 무관하게 상세로 들어가 그 화면 우측 상단에서 가입한다.
+// 비공개 길드는 가입 전까지만 코드 입력 다이얼로그로 보낸다.
+function handleGroupAction(group: CommunityGroup) {
+  if (group.isJoined || group.visibility === 'public') {
+    void router.push({
+      name: 'community-detail',
+      params: { groupId: group.id },
+    })
     return
   }
 
-  try {
-    upsertGroup(toCommunityGroup(await joinGroupById(group.id)))
-    showToast(`${group.name}에 가입했어요!`)
-  } catch (error) {
-    showToast(error instanceof ApiError ? error.message : '가입에 실패했어요.')
-  }
+  joinCode.value = ''
+  joinCodeError.value = ''
+  isJoinDialogOpen.value = true
 }
 
 async function handleJoinByCode() {
@@ -217,7 +211,7 @@ async function handleJoinByCode() {
     showToast(`${joined.name}에 가입했어요!`)
   } catch (error) {
     if (error instanceof ApiError && error.code === 'GROUP-002') {
-      joinCodeError.value = '존재하지 않는 소모임이에요.'
+      joinCodeError.value = '존재하지 않는 길드예요.'
       return
     }
     joinCodeError.value =
@@ -228,9 +222,9 @@ async function handleJoinByCode() {
 function validateCreateDraft() {
   const nextErrors: Partial<Record<keyof CommunityGroupDraft, string>> = {}
   if (!createDraft.value.name.trim())
-    nextErrors.name = '소모임 이름을 입력해주세요.'
+    nextErrors.name = '길드 이름을 입력해주세요.'
   if (!createDraft.value.description.trim())
-    nextErrors.description = '소모임 소개를 입력해주세요.'
+    nextErrors.description = '길드 소개를 입력해주세요.'
   if (createDraft.value.capacity < 2 || createDraft.value.capacity > 100) {
     nextErrors.capacity = '최대 인원은 2명부터 100명까지 설정할 수 있어요.'
   }
@@ -256,12 +250,12 @@ async function handleCreateGroup() {
     closeCreateDialog()
     showToast(
       created.joinCode
-        ? `${created.name} 소모임을 만들었어요! 참여 코드: ${created.joinCode}`
-        : `${created.name} 소모임을 만들었어요!`,
+        ? `${created.name} 길드를 만들었어요! 참여 코드: ${created.joinCode}`
+        : `${created.name} 길드를 만들었어요!`,
     )
   } catch (error) {
     showToast(
-      error instanceof ApiError ? error.message : '소모임 생성에 실패했어요.',
+      error instanceof ApiError ? error.message : '길드 생성에 실패했어요.',
     )
   }
 }
@@ -281,7 +275,7 @@ watch(
 
 onMounted(() => {
   void loadGroups()
-  // 메인 화면의 '소모임 코드 입장'이 /community?join=code 로 진입하면 코드 입장 다이얼로그를
+  // 메인 화면의 '길드 코드 입장'이 /community?join=code 로 진입하면 코드 입장 다이얼로그를
   // 바로 연다(게스트는 openJoinDialog가 로그인 유도). 새로고침 시 반복되지 않도록 쿼리는 지운다.
   if (route.query.join === 'code') {
     openJoinDialog()
@@ -297,7 +291,7 @@ onMounted(() => {
     <div class="community-page__heading">
       <PageHeader
         eyebrow="PLAY TOGETHER"
-        title="소모임"
+        title="길드"
         description="같은 목표를 가진 친구들과 눈 건강 루틴을 만들어보세요."
       />
       <div class="community-page__actions">
@@ -315,13 +309,13 @@ onMounted(() => {
           class="community-page__primary-button"
           @click="openCreateDialog"
         >
-          + 소모임 만들기
+          + 길드 만들기
         </button>
       </div>
     </div>
 
     <div v-if="isGuestUser" class="community-page__guest" role="status">
-      <p>소모임은 로그인 후 이용할 수 있어요.</p>
+      <p>길드는 로그인 후 이용할 수 있어요.</p>
       <button
         type="button"
         class="community-page__primary-button"
@@ -333,7 +327,7 @@ onMounted(() => {
 
     <template v-else>
       <p v-if="isLoading" class="community-page__status" role="status">
-        소모임을 불러오는 중이에요…
+        길드를 불러오는 중이에요…
       </p>
       <div v-else-if="errorMessage" class="community-page__status" role="alert">
         <p>{{ errorMessage }}</p>
@@ -347,128 +341,128 @@ onMounted(() => {
       </div>
       <template v-else>
         <div class="community-page__toolbar">
-      <SegmentedTabs
-        label="소모임 필터"
-        :items="groupFilterItems"
-        :model-value="filterLabels[selectedFilter]"
-        @update:model-value="selectFilter"
-      />
-      <div class="community-page__toolbar-controls">
-        <label class="community-page__search-label">
-          <span class="sr-only">소모임 검색</span>
-          <svg
-            class="community-page__search-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            <circle
-              cx="10.5"
-              cy="10.5"
-              r="6.5"
-              stroke="currentColor"
-              stroke-width="1.8"
-            />
-            <path
-              d="M20 20l-4.35-4.35"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-            />
-          </svg>
-          <input
-            v-model="searchQuery"
-            data-testid="community-search"
-            type="search"
-            maxlength="50"
-            placeholder="소모임 검색"
+          <SegmentedTabs
+            label="길드 필터"
+            :items="groupFilterItems"
+            :model-value="filterLabels[selectedFilter]"
+            @update:model-value="selectFilter"
           />
-          <button
-            v-if="searchQuery"
-            type="button"
-            class="community-page__search-clear"
-            aria-label="검색어 지우기"
-            @click="clearSearch"
-          >
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M6 6l12 12M18 6 6 18"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
+          <div class="community-page__toolbar-controls">
+            <label class="community-page__search-label">
+              <span class="sr-only">길드 검색</span>
+              <svg
+                class="community-page__search-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="10.5"
+                  cy="10.5"
+                  r="6.5"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M20 20l-4.35-4.35"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <input
+                v-model="searchQuery"
+                data-testid="community-search"
+                type="search"
+                maxlength="50"
+                placeholder="길드 검색"
               />
-            </svg>
-          </button>
-        </label>
-        <label class="community-page__sort-label">
-          <span class="sr-only">소모임 정렬</span>
-          <select v-model="selectedSort" aria-label="소모임 정렬">
-            <option value="latest">최신순</option>
-            <option value="members">참여 인원순</option>
-            <option value="name">이름순</option>
-          </select>
-        </label>
-      </div>
-    </div>
+              <button
+                v-if="searchQuery"
+                type="button"
+                class="community-page__search-clear"
+                aria-label="검색어 지우기"
+                @click="clearSearch"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M6 6l12 12M18 6 6 18"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </label>
+            <label class="community-page__sort-label">
+              <span class="sr-only">길드 정렬</span>
+              <select v-model="selectedSort" aria-label="길드 정렬">
+                <option value="latest">최신순</option>
+                <option value="members">참여 인원순</option>
+                <option value="name">이름순</option>
+              </select>
+            </label>
+          </div>
+        </div>
 
-    <p class="community-page__result" aria-live="polite">
-      {{ filteredGroups.length }}개의 소모임
-    </p>
+        <p class="community-page__result" aria-live="polite">
+          {{ filteredGroups.length }}개의 길드
+        </p>
 
-    <TransitionGroup
-      v-if="filteredGroups.length"
-      tag="div"
-      name="group-list"
-      class="community-page__list"
-    >
-      <CommunityGroupCard
-        v-for="group in filteredGroups"
-        :key="group.id"
-        :group="group"
-        :is-guest="isGuestUser"
-        @join="handleGroupAction"
-        @enter="handleGroupAction"
-      />
-    </TransitionGroup>
-    <section v-else class="community-page__empty" aria-live="polite">
-      <img
-        :src="teamworkImage"
-        alt=""
-        aria-hidden="true"
-        class="community-page__empty-image"
-      />
-      <strong>찾는 소모임이 없어요.</strong>
-      <p>검색어 또는 필터를 바꿔서 다시 찾아보세요.</p>
-      <div class="community-page__empty-actions">
-        <button
-          type="button"
-          class="community-page__primary-button"
-          @click="openCreateDialog"
+        <TransitionGroup
+          v-if="filteredGroups.length"
+          tag="div"
+          name="group-list"
+          class="community-page__list"
         >
-          소모임 만들기
-        </button>
-        <button
-          type="button"
-          class="community-page__empty-reset"
-          @click="resetFilters"
-        >
-          필터 초기화
-        </button>
-      </div>
-    </section>
+          <CommunityGroupCard
+            v-for="group in filteredGroups"
+            :key="group.id"
+            :group="group"
+            :is-guest="isGuestUser"
+            @join="handleGroupAction"
+            @enter="handleGroupAction"
+          />
+        </TransitionGroup>
+        <section v-else class="community-page__empty" aria-live="polite">
+          <img
+            :src="teamworkImage"
+            alt=""
+            aria-hidden="true"
+            class="community-page__empty-image"
+          />
+          <strong>찾는 길드가 없어요.</strong>
+          <p>검색어 또는 필터를 바꿔서 다시 찾아보세요.</p>
+          <div class="community-page__empty-actions">
+            <button
+              type="button"
+              class="community-page__primary-button"
+              @click="openCreateDialog"
+            >
+              길드 만들기
+            </button>
+            <button
+              type="button"
+              class="community-page__empty-reset"
+              @click="resetFilters"
+            >
+              필터 초기화
+            </button>
+          </div>
+        </section>
       </template>
     </template>
 
     <CommunityDialog
       :open="isCreateDialogOpen"
-      title="소모임 만들기"
-      description="친구들을 초대할 나만의 소모임을 만들어보세요."
+      title="길드 만들기"
+      description="친구들을 초대할 나만의 길드를 만들어보세요."
       :close-on-backdrop="false"
       @close="closeCreateDialog"
     >
       <form class="community-form" @submit.prevent="handleCreateGroup">
         <label>
-          <span>소모임 이름</span>
+          <span>길드 이름</span>
           <div class="community-form__field">
             <input
               v-model="createDraft.name"
@@ -542,15 +536,18 @@ onMounted(() => {
             비공개</label
           >
         </fieldset>
-        <p v-if="createDraft.visibility === 'private'" class="community-form__hint">
-          비공개 소모임의 참여 코드는 생성 후 자동으로 발급돼요.
+        <p
+          v-if="createDraft.visibility === 'private'"
+          class="community-form__hint"
+        >
+          비공개 길드의 참여 코드는 생성 후 자동으로 발급돼요.
         </p>
         <button
           data-testid="create-group-submit"
           class="community-form__submit"
           type="submit"
         >
-          소모임 만들기
+          길드 만들기
         </button>
       </form>
     </CommunityDialog>
@@ -558,7 +555,7 @@ onMounted(() => {
     <CommunityDialog
       :open="isJoinDialogOpen"
       title="코드로 참가하기"
-      description="소모임 코드를 입력하고 친구들과 함께 게임해요."
+      description="길드 코드를 입력하고 친구들과 함께 게임해요."
       @close="closeJoinDialog"
     >
       <form class="community-form" @submit.prevent="handleJoinByCode">
@@ -576,7 +573,7 @@ onMounted(() => {
           <small v-if="joinCodeError" role="alert">{{ joinCodeError }}</small>
         </label>
         <p class="community-form__hint">
-          참여 코드는 소모임 리더 또는 참여자에게 받아 입력해주세요.
+          참여 코드는 길드 리더 또는 길드원에게 받아 입력해주세요.
         </p>
         <button class="community-form__submit" type="submit">가입하기</button>
       </form>

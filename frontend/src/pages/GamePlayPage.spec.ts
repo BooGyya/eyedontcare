@@ -575,6 +575,80 @@ describe('gameplay routes', () => {
     wrapper.unmount()
   })
 
+  it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
+    'disables multiplayer replay after the opponent has left: %s',
+    async (gameId) => {
+      const router = createGameRouter()
+      await router.push(
+        `/games/${gameId}/result?mode=random&result=opponent-left`,
+      )
+      await router.isReady()
+      const pinia =
+        gameId === 'draw'
+          ? createDrawResultPinia(gameId as GameDetailId, 'random')
+          : createCompetitiveResultPinia(
+              gameId as GameDetailId,
+              'WIN',
+              'random',
+            )
+      const wrapper = mount(GameResultPage, {
+        global: { plugins: [router, pinia] },
+      })
+
+      const replayButtons = wrapper
+        .findAll('button')
+        .filter((button) => button.text().includes('다시 플레이'))
+      expect(replayButtons.length).toBeGreaterThan(0)
+      replayButtons.forEach((button) => {
+        expect(button.attributes('disabled')).toBeDefined()
+      })
+      expect(wrapper.text()).toContain(
+        '상대방이 퇴장하여 다시 플레이할 수 없습니다.',
+      )
+
+      await replayButtons[0].trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.name).toBe('game-result')
+      wrapper.unmount()
+    },
+  )
+
+  it('disables replay when the result screen receives PARTICIPANT_LEFT', async () => {
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    MockWebSocket.instances = []
+
+    const router = createGameRouter()
+    await router.push('/games/rhythm/result?mode=friends&roomId=room-1')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: {
+        plugins: [router, createCompetitiveResultPinia('rhythm', 'WIN')],
+      },
+    })
+    await flushPromises()
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeTruthy()
+    ws.simulateOpen()
+    ws.simulateMessage({
+      type: 'PARTICIPANT_LEFT',
+      data: { participantKey: 'GUEST:peer' },
+    })
+    await nextTick()
+
+    const replayButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('다시 플레이'))
+    expect(replayButton?.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain(
+      '상대방이 퇴장하여 다시 플레이할 수 없습니다.',
+    )
+
+    wrapper.unmount()
+    globalThis.sessionStorage.removeItem(GUEST_STORAGE_KEY)
+  })
+
   it.each([true, false])(
     'renders the blink solo result asset based on the new-record state: %s',
     async (isNewRecord) => {

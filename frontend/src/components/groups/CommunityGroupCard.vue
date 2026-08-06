@@ -22,17 +22,20 @@ const emit = defineEmits<{
   enter: [group: CommunityGroup]
 }>()
 
-const isFull = computed(() => props.group.members >= props.group.capacity)
+// 공개 길드는 가입 여부와 무관하게 상세로 입장한다(가입은 상세 화면 우측 상단에서 한다).
+// 비공개 길드는 가입 전이면 코드 입력으로, 가입 후에는 상세 입장으로 보낸다.
+const entersDetail = computed(
+  () => props.group.isJoined || props.group.visibility === 'public',
+)
 
 const actionLabel = computed(() => {
   if (props.isGuest) return '로그인 후 이용'
-  if (props.group.isJoined) return '입장하기'
-  if (isFull.value) return '정원 마감'
-  return props.group.visibility === 'private' ? '코드로 가입' : '가입하기'
+  if (entersDetail.value) return '입장하기'
+  return '코드로 가입'
 })
 
 function handleAction() {
-  if (props.group.isJoined) {
+  if (entersDetail.value) {
     emit('enter', props.group)
     return
   }
@@ -69,7 +72,6 @@ function handleAction() {
         >
         <button
           :data-testid="`community-group-action-${group.id}`"
-          :disabled="isFull && !group.isJoined"
           type="button"
           @click="handleAction"
         >

@@ -968,8 +968,8 @@ async function handleConfirmWithdraw() {
         >
           <h2 id="withdraw-title">정말 탈퇴하시겠어요?</h2>
           <p class="profile-dialog__warning">
-            탈퇴하면 게임 기록과 랭킹, 소모임 활동 내역이 모두 삭제되고 되돌릴
-            수 없어요.<br />그래도 정말 탈퇴하시겠어요?
+            탈퇴하면 게임 기록과 랭킹, 길드 활동 내역이 모두 삭제되고 되돌릴 수
+            없어요.<br />그래도 정말 탈퇴하시겠어요?
           </p>
           <div class="profile-dialog__actions">
             <button

@@ -44,7 +44,7 @@ export const profileData: UserProfile = {
       id: 'group-ranking',
       icon: '♛',
       tone: 'purple',
-      title: '소모임 랭킹 4위',
+      title: '길드 랭킹 4위',
       description: '를 달성했어요.',
       time: '어제 오후 8:40',
       score: '+180',

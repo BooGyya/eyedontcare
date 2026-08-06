@@ -22,7 +22,7 @@ export const communityGroups: CommunityGroup[] = [
   {
     id: 'focus-champions',
     name: '집중력 챔피언스',
-    description: '눈으로 그리기와 리듬 게임 기록을 함께 올려 보는 모임이에요.',
+    description: '눈으로 그리기와 리듬 게임 기록을 함께 올려 보는 길드예요.',
     image: gameWaveImage,
     members: 5,
     capacity: 10,
@@ -68,7 +68,7 @@ export const communityGroups: CommunityGroup[] = [
 /**
  * 게임 후기 게시판 mock 데이터.
  * 백엔드에 게시판 API가 아직 없어 프론트에서만 임시로 관리한다(mock-first).
- * 실제 소모임은 백엔드가 숫자 id를 내려주므로 위 communityGroups의 문자열 id와 일치하지
+ * 실제 길드는 백엔드가 숫자 id를 내려주므로 위 communityGroups의 문자열 id와 일치하지
  * 않을 수 있다 — 이 경우 CommunityDetailPage에서 앞쪽 몇 개를 기본값으로 보여준다.
  */
 export const communityPosts: CommunityPost[] = [

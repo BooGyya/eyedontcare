@@ -3,7 +3,7 @@ const navigationItems = [
   { label: '홈', to: '/' },
   { label: '게임', to: '/games', testId: 'nav-games' },
   { label: '랭킹', to: '/ranking' },
-  { label: '소모임', to: '/community' },
+  { label: '길드', to: '/community' },
 ]
 </script>
 
