@@ -535,6 +535,17 @@ watch(
                 />
               </svg>
             </button>
+            <svg
+              v-if="member.role === 'OWNER'"
+              class="community-detail__member-crown"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+                fill="var(--color-gold)"
+              />
+            </svg>
             <span class="community-detail__member-avatar">
               <img
                 :src="avatarForUserId(member.userId)"
@@ -542,17 +553,6 @@ watch(
               />
             </span>
             <span class="community-detail__member-name">
-              <svg
-                v-if="member.role === 'OWNER'"
-                class="community-detail__member-crown"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
-                  fill="var(--color-gold)"
-                />
-              </svg>
               <span class="community-detail__member-name-text">{{
                 member.nickname
               }}</span>
@@ -1017,9 +1017,11 @@ watch(
   text-overflow: ellipsis;
 }
 .community-detail__member-crown {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
 }
 .community-detail__member-kick {
   position: absolute;
