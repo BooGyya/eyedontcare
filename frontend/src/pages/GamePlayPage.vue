@@ -818,9 +818,13 @@ const airGameState = ref<AirHockeyState>(makeInitialAirHockeyState())
 const isAirVsAi = computed(() => mode.value === 'ai')
 const airOpponentScore = ref(0)
 const airOpponentSynced = ref(false)
+// 멀티플레이 퍽 권위자(host). 두 참가자 키 중 사전순으로 작은 쪽을 호스트로 정한다(양쪽이 동일하게
+// 결정). 호스트만 퍽을 시뮬레이션·득점하고 상대에게 브로드캐스트하며, 비호스트는 받은 퍽을 렌더한다.
+const airIsHost = ref(false)
+const airRunsPuck = computed(() => isAirVsAi.value || airIsHost.value)
 const airMyScore = computed(() => airGameState.value.bottom.score)
 const airOpponentDisplayScore = computed(() =>
-  isAirVsAi.value ? airGameState.value.top.score : airOpponentScore.value,
+  airRunsPuck.value ? airGameState.value.top.score : airOpponentScore.value,
 )
 const airTimeLabel = computed(() => {
   const totalSeconds = Math.max(
@@ -837,7 +841,17 @@ let airLastFrameAt: number | undefined
 let airLastMoveSentAt = 0
 
 const airGameSession = useGameSessionSocket({
-  onSessionState: updateOpponentNickname,
+  onSessionState: (state) => {
+    updateOpponentNickname(state)
+    // 두 참가자 키 중 사전순 최솟값을 호스트로 정한다(양쪽 클라이언트가 동일한 결론).
+    const myKey = currentParticipantKey()
+    const keys = state.participants
+      .map((participant) => participant.participantKey)
+      .filter((key): key is string => Boolean(key))
+    if (myKey && keys.length >= 2) {
+      airIsHost.value = keys.every((key) => key === myKey || myKey < key)
+    }
+  },
   onPlayerEvent: (event) => {
     if (event.eventType === 'GAME_OVER') {
       opponentFinished = true
@@ -849,7 +863,13 @@ const airGameSession = useGameSessionSocket({
       return
     }
     if (event.eventType === 'AIR_HOCKEY_ACTION') {
+      // 비호스트가 보낸 타격. 호스트가 상대(top) 말렛으로 반영해 권위 퍽에 적용한다.
       applyStrike(airGameState.value, 'top', globalThis.performance.now())
+      return
+    }
+    if (event.eventType === 'AIR_HOCKEY_PUCK') {
+      // 호스트가 보낸 권위 퍽. 비호스트는 자기 시점(하단=나)으로 Y를 미러링해 렌더한다.
+      applyAuthoritativePuck(event.payload ?? {})
       return
     }
     if (event.eventType === 'AIR_HOCKEY_SCORE') {
@@ -860,6 +880,30 @@ const airGameSession = useGameSessionSocket({
   },
   onParticipantLeft: handleOpponentLeft,
 })
+
+/** 호스트가 보낸 권위 퍽 스냅샷을 비호스트 시점(Y 미러링)으로 적용한다. 점수도 호스트 기준으로 맞춘다. */
+function applyAuthoritativePuck(payload: Record<string, unknown>): void {
+  const state = airGameState.value
+  const x = Number(payload.x)
+  const y = Number(payload.y)
+  const vx = Number(payload.vx)
+  const vy = Number(payload.vy)
+  if (Number.isFinite(x)) state.puck.x = x
+  if (Number.isFinite(y)) state.puck.y = AIR_HOCKEY_HEIGHT - y
+  if (Number.isFinite(vx)) state.puck.vx = vx
+  if (Number.isFinite(vy)) state.puck.vy = -vy
+  state.puck.held = Boolean(payload.held)
+  state.server = payload.server === 'bottom' ? 'top' : 'bottom'
+  // 호스트 프레임 기준 bottom=호스트 득점, top=비호스트(나) 득점 → 미러링해 매핑한다.
+  const bottomScore = Number(payload.bottomScore)
+  const topScore = Number(payload.topScore)
+  if (Number.isFinite(topScore)) state.bottom.score = topScore
+  if (Number.isFinite(bottomScore)) {
+    state.top.score = bottomScore
+    airOpponentScore.value = bottomScore
+  }
+  airOpponentSynced.value = true
+}
 
 async function initAirHockeyGame() {
   if (calibrationStore.eyeProfile) {
@@ -895,8 +939,13 @@ async function initAirHockeyGame() {
       event.type === 'FAST_BLINK' ||
       event.type === 'DOUBLE_BLINK'
     ) {
-      applyStrike(airGameState.value, 'bottom', event.occurredAt)
-      if (!isAirVsAi.value) airGameSession.sendPlayerEvent('AIR_HOCKEY_ACTION')
+      // 퍽을 시뮬하는 쪽(AI 모드 또는 호스트)만 로컬에서 타격을 적용한다.
+      // 비호스트는 호스트에게 타격을 알려 호스트의 상대(top) 말렛으로 반영시킨다(권위 퍽에만 적용).
+      if (airRunsPuck.value) {
+        applyStrike(airGameState.value, 'bottom', event.occurredAt)
+      } else {
+        airGameSession.sendPlayerEvent('AIR_HOCKEY_ACTION')
+      }
     }
   })
 
@@ -994,12 +1043,8 @@ function updateAirPuckPhysics(dt: number, now: number) {
     )
     state.puck.vy *= -1
   } else if (goalResult === 'top' || goalResult === 'bottom') {
+    // 퍽을 시뮬하는 쪽(AI/호스트)만 득점을 판정한다. 멀티 점수는 매 프레임 AIR_HOCKEY_PUCK로 함께 보낸다.
     scoreGoal(state, goalResult, now)
-    if (goalResult === 'bottom' && !isAirVsAi.value) {
-      airGameSession.sendPlayerEvent('AIR_HOCKEY_SCORE', {
-        score: state.bottom.score,
-      })
-    }
     return
   }
 
@@ -1135,7 +1180,10 @@ function runAirHockeyLoop() {
     updateAirAiTarget(dt)
     updateAirMallet(airGameState.value.bottom, now)
     updateAirMallet(airGameState.value.top, now)
-    updateAirPuckPhysics(dt, now)
+    // 퍽은 권위자(AI 모드 또는 멀티 호스트)만 시뮬·득점한다. 비호스트는 AIR_HOCKEY_PUCK로 받은 퍽을 렌더만 한다.
+    if (airRunsPuck.value) {
+      updateAirPuckPhysics(dt, now)
+    }
 
     if (
       !isAirVsAi.value &&
@@ -1144,6 +1192,21 @@ function runAirHockeyLoop() {
       airLastMoveSentAt = now
       airGameSession.sendPlayerEvent('AIR_HOCKEY_MOVE', {
         targetX: airGameState.value.bottom.targetX,
+      })
+    }
+
+    // 호스트는 권위 퍽 상태와 양쪽 점수를 매 프레임 비호스트에게 보낸다(호스트 좌표 기준).
+    if (!isAirVsAi.value && airIsHost.value) {
+      const puck = airGameState.value.puck
+      airGameSession.sendPlayerEvent('AIR_HOCKEY_PUCK', {
+        x: puck.x,
+        y: puck.y,
+        vx: puck.vx,
+        vy: puck.vy,
+        held: puck.held,
+        server: airGameState.value.server,
+        bottomScore: airGameState.value.bottom.score,
+        topScore: airGameState.value.top.score,
       })
     }
 
@@ -1574,9 +1637,10 @@ function recordAirHockeyResult() {
       (AIR_HOCKEY_MATCH_DURATION_MS - airGameState.value.remainingMs) / 1000,
     ),
   )
+  const opponentKnown = airRunsPuck.value || airOpponentSynced.value
   const outcome: LastGameOutcome = isAirVsAi.value
     ? resolveAirHockeyAiOutcome()
-    : !airOpponentSynced.value
+    : !opponentKnown
       ? 'UNKNOWN'
       : myScore > opponentScore
         ? 'WIN'
@@ -1591,10 +1655,7 @@ function recordAirHockeyResult() {
     outcome,
     scoreLabel: '득점',
     score: `${myScore}`,
-    opponentScore:
-      isAirVsAi.value || airOpponentSynced.value
-        ? `${opponentScore}`
-        : undefined,
+    opponentScore: opponentKnown ? `${opponentScore}` : undefined,
     headline:
       outcome === 'WIN'
         ? '승리!'
