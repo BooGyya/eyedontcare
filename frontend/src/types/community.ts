@@ -63,5 +63,7 @@ export type CommunityPost = {
   isLeader?: boolean
   content: string
   timeLabel: string
+  /** 요청자 본인이 작성한 글이면 true — 수정/삭제 버튼 노출 기준 */
+  mine?: boolean
   comments: CommunityComment[]
 }

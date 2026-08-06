@@ -29,9 +29,10 @@ import org.ssafy.b102.backend.user.repository.UserRepository;
  * 길드 후기 게시판(글·댓글) 서비스.
  *
  * <p>조회는 인증된 회원이면 가능하고, 작성(글·댓글)은 해당 길드 가입자만 가능하다.
- * 댓글 수정·삭제는 그중에서도 작성자 본인만 할 수 있다. 작성자 닉네임은 users에서 조회해
- * 채우며, 방장이 쓴 글은 {@code isLeader}로, 요청자 본인이 쓴 댓글은 {@code mine}으로 표시한다.
- * 글자 수 상한은 요청 DTO의 {@code @Size}로 검증해 프론트 우회 요청까지 막는다.
+ * 글·댓글의 수정·삭제는 그중에서도 작성자 본인만 할 수 있다. 작성자 닉네임은 users에서 조회해
+ * 채우며, 방장이 쓴 글은 {@code isLeader}로, 요청자 본인이 쓴 글·댓글은 {@code mine}으로 표시한다.
+ * 글을 삭제하면 그 글에 달린 댓글도 함께 삭제한다. 글자 수 상한은 요청 DTO의 {@code @Size}로
+ * 검증해 프론트 우회 요청까지 막는다.
  */
 @Service
 public class GroupBoardService {
@@ -81,6 +82,7 @@ public class GroupBoardService {
 				post.getAuthorUserId().equals(ownerUserId),
 				post.getContent(),
 				post.getCreatedAt(),
+				post.getAuthorUserId().equals(userId),
 				commentsByPost
 					.getOrDefault(post.getId(), List.of())
 					.stream()
@@ -116,8 +118,51 @@ public class GroupBoardService {
 			group.isOwner(userId),
 			saved.getContent(),
 			saved.getCreatedAt(),
+			true,
 			List.of()
 		);
+	}
+
+	/**
+	 * 후기 글을 수정한다. 길드원이면서 글 작성자 본인만 가능하다.
+	 */
+	@Transactional
+	public GroupPostResponse updatePost(
+		Long userId,
+		Long groupId,
+		Long postId,
+		String content
+	) {
+		Group group = findGroupOrThrow(groupId);
+		requireMember(groupId, userId);
+		GroupPost post = findPostOrThrow(postId, groupId);
+		requirePostAuthor(post, userId);
+
+		post.updateContent(content);
+
+		return new GroupPostResponse(
+			post.getId(),
+			nickname(userId),
+			group.isOwner(userId),
+			post.getContent(),
+			post.getCreatedAt(),
+			true,
+			List.of()
+		);
+	}
+
+	/**
+	 * 후기 글을 삭제한다. 길드원이면서 글 작성자 본인만 가능하다. 글에 달린 댓글도 함께 삭제한다.
+	 */
+	@Transactional
+	public void deletePost(Long userId, Long groupId, Long postId) {
+		findGroupOrThrow(groupId);
+		requireMember(groupId, userId);
+		GroupPost post = findPostOrThrow(postId, groupId);
+		requirePostAuthor(post, userId);
+
+		groupCommentRepository.deleteByPostId(postId);
+		groupPostRepository.delete(post);
 	}
 
 	@Transactional
@@ -219,6 +264,12 @@ public class GroupBoardService {
 	private void requireCommentAuthor(GroupComment comment, Long userId) {
 		if (!comment.getAuthorUserId().equals(userId)) {
 			throw new BusinessException(GroupErrorCode.COMMENT_FORBIDDEN);
+		}
+	}
+
+	private void requirePostAuthor(GroupPost post, Long userId) {
+		if (!post.getAuthorUserId().equals(userId)) {
+			throw new BusinessException(GroupErrorCode.POST_FORBIDDEN);
 		}
 	}
 

@@ -14,6 +14,8 @@ import {
   kickMember,
   getGroupPosts,
   createGroupPost,
+  updateGroupPost,
+  deleteGroupPost,
   createGroupComment,
   updateGroupComment,
   deleteGroupComment,
@@ -111,6 +113,51 @@ async function submitPost() {
   } catch (error) {
     showToast(
       error instanceof ApiError ? error.message : '글 저장에 실패했어요.',
+    )
+  }
+}
+
+// --- 글 수정/삭제 (본인 글만) ---
+const editingPostId = ref<string | null>(null)
+const postEditDrafts = ref<Record<string, string>>({})
+
+function startPostEdit(post: CommunityPost) {
+  editingPostId.value = post.id
+  postEditDrafts.value[post.id] = post.content
+}
+
+function cancelPostEdit() {
+  editingPostId.value = null
+}
+
+async function savePostEdit(post: CommunityPost) {
+  const content = (postEditDrafts.value[post.id] ?? '').trim()
+  if (!content) {
+    showToast('내용을 입력해 주세요.')
+    return
+  }
+  try {
+    const saved = await updateGroupPost(groupId.value, post.id, content)
+    post.content = saved.content
+    post.timeLabel = toTimeLabel(saved.createdAt)
+    editingPostId.value = null
+    showToast('글을 수정했어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '글 수정에 실패했어요.',
+    )
+  }
+}
+
+async function handleDeletePost(post: CommunityPost) {
+  if (!globalThis.confirm('글을 삭제할까요? 댓글도 함께 삭제돼요.')) return
+  try {
+    await deleteGroupPost(groupId.value, post.id)
+    posts.value = posts.value.filter((item) => item.id !== post.id)
+    showToast('글을 삭제했어요.')
+  } catch (error) {
+    showToast(
+      error instanceof ApiError ? error.message : '글 삭제에 실패했어요.',
     )
   }
 }
@@ -660,11 +707,63 @@ watch(
                 </svg>
                 {{ post.author }}
               </span>
-              <span class="community-detail__post-time">{{
-                post.timeLabel
-              }}</span>
+              <span class="community-detail__post-header-right">
+                <span class="community-detail__post-time">{{
+                  post.timeLabel
+                }}</span>
+                <span
+                  v-if="post.mine && editingPostId !== post.id"
+                  class="community-detail__post-owner-actions"
+                >
+                  <button
+                    type="button"
+                    class="community-detail__post-edit"
+                    @click="startPostEdit(post)"
+                  >
+                    수정
+                  </button>
+                  <button
+                    type="button"
+                    class="community-detail__post-delete"
+                    @click="handleDeletePost(post)"
+                  >
+                    삭제
+                  </button>
+                </span>
+              </span>
             </div>
-            <p class="community-detail__post-content">{{ post.content }}</p>
+            <template v-if="editingPostId === post.id">
+              <textarea
+                v-model="postEditDrafts[post.id]"
+                class="community-detail__post-edit-textarea"
+                :maxlength="POST_MAX_LENGTH"
+                @input="autoGrowComposer"
+              />
+              <div class="community-detail__post-edit-actions">
+                <span class="community-detail__composer-count">
+                  {{ (postEditDrafts[post.id] ?? '').length }}/{{
+                    POST_MAX_LENGTH
+                  }}
+                </span>
+                <button
+                  type="button"
+                  class="community-detail__ghost"
+                  @click="cancelPostEdit"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  class="community-detail__primary"
+                  @click="savePostEdit(post)"
+                >
+                  저장
+                </button>
+              </div>
+            </template>
+            <p v-else class="community-detail__post-content">
+              {{ post.content }}
+            </p>
             <button
               type="button"
               class="community-detail__comment-toggle"
@@ -1185,8 +1284,62 @@ watch(
   font-size: 13px;
   font-weight: 800;
 }
+.community-detail__post-header-right {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
 .community-detail__post-time {
   color: var(--color-muted);
+  font-size: 12px;
+}
+.community-detail__post-owner-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.community-detail__post-edit,
+.community-detail__post-delete {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.community-detail__post-edit {
+  color: var(--color-accent-blue);
+}
+.community-detail__post-delete {
+  color: #c0392b;
+}
+.community-detail__post-edit-textarea {
+  width: 100%;
+  min-height: 72px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-accent-blue);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-ink);
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.community-detail__post-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.community-detail__post-edit-actions .community-detail__primary,
+.community-detail__post-edit-actions .community-detail__ghost {
+  padding: 6px 14px;
   font-size: 12px;
 }
 .community-detail__post-content {

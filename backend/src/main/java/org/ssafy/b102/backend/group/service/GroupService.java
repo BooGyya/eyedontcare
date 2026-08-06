@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.ssafy.b102.backend.global.error.BusinessException;
@@ -118,7 +119,12 @@ public class GroupService {
 		int page,
 		int size
 	) {
-		Pageable pageable = PageRequest.of(page - 1, size);
+		// 최신 길드가 먼저 보이도록 정렬 — 정렬이 없으면 새 길드가 페이지 밖으로 밀려 안 보인다.
+		Pageable pageable = PageRequest.of(
+			page - 1,
+			size,
+			Sort.by(Sort.Direction.DESC, "createdAt")
+		);
 		String normalizedKeyword = keyword == null ? "" : keyword;
 
 		Page<Group> groups = groupRepository

@@ -217,13 +217,14 @@ export interface GroupCommentResponse {
   mine: boolean
 }
 
-/** 후기 글 응답(백엔드 원본). 최신 글이 먼저 온다. */
+/** 후기 글 응답(백엔드 원본). 최신 글이 먼저 온다. `mine`은 요청자 본인이 작성한 글인지를 나타낸다. */
 export interface GroupPostResponse {
   postId: number
   author: string | null
   isLeader: boolean
   content: string
   createdAt: string
+  mine: boolean
   comments: GroupCommentResponse[]
 }
 
@@ -246,6 +247,28 @@ export async function createGroupPost(
   return apiRequest<GroupPostResponse>(`/groups/${groupId}/posts`, {
     method: 'POST',
     body: { content },
+  })
+}
+
+/** 후기 수정(작성자 본인 전용). 수정된 글을 반환한다. */
+export async function updateGroupPost(
+  groupId: string,
+  postId: string,
+  content: string,
+): Promise<GroupPostResponse> {
+  return apiRequest<GroupPostResponse>(`/groups/${groupId}/posts/${postId}`, {
+    method: 'PATCH',
+    body: { content },
+  })
+}
+
+/** 후기 삭제(작성자 본인 전용). 댓글도 함께 삭제된다. */
+export async function deleteGroupPost(
+  groupId: string,
+  postId: string,
+): Promise<void> {
+  await apiRequest<null>(`/groups/${groupId}/posts/${postId}`, {
+    method: 'DELETE',
   })
 }
 
@@ -324,6 +347,7 @@ export function toCommunityPost(
     isLeader: response.isLeader,
     content: response.content,
     timeLabel: toTimeLabel(response.createdAt),
+    mine: response.mine,
     comments: response.comments.map(toCommunityComment),
   }
 }
