@@ -915,6 +915,8 @@ watch(
   color: var(--color-ink);
   line-height: 1.6;
   word-break: keep-all;
+  /* 공백 없는 긴 소개글도 옆으로 넘치지 않고 아래로 줄바꿈되게 한다. */
+  overflow-wrap: anywhere;
 }
 .community-detail__leader,
 .community-detail__code {
