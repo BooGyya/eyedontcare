@@ -26,9 +26,9 @@ import org.ssafy.b102.backend.user.entity.User;
 import org.ssafy.b102.backend.user.repository.UserRepository;
 
 /**
- * 소모임 후기 게시판(글·댓글) 서비스.
+ * 길드 후기 게시판(글·댓글) 서비스.
  *
- * <p>조회는 인증된 회원이면 가능하고, 작성(글·댓글)은 해당 소모임 가입자만 가능하다.
+ * <p>조회는 인증된 회원이면 가능하고, 작성(글·댓글)은 해당 길드 가입자만 가능하다.
  * 댓글 수정·삭제는 그중에서도 작성자 본인만 할 수 있다. 작성자 닉네임은 users에서 조회해
  * 채우며, 방장이 쓴 글은 {@code isLeader}로, 요청자 본인이 쓴 댓글은 {@code mine}으로 표시한다.
  * 글자 수 상한은 요청 DTO의 {@code @Size}로 검증해 프론트 우회 요청까지 막는다.
@@ -144,7 +144,7 @@ public class GroupBoardService {
 	}
 
 	/**
-	 * 댓글을 수정한다. 소모임 멤버이면서 댓글 작성자 본인만 가능하다.
+	 * 댓글을 수정한다. 길드원이면서 댓글 작성자 본인만 가능하다.
 	 */
 	@Transactional
 	public GroupCommentResponse updateComment(
@@ -172,7 +172,7 @@ public class GroupBoardService {
 	}
 
 	/**
-	 * 댓글을 삭제한다. 소모임 멤버이면서 댓글 작성자 본인만 가능하다.
+	 * 댓글을 삭제한다. 길드원이면서 댓글 작성자 본인만 가능하다.
 	 */
 	@Transactional
 	public void deleteComment(
@@ -228,7 +228,7 @@ public class GroupBoardService {
 		}
 	}
 
-	/** 비공개 소모임 게시판은 멤버만 조회할 수 있다(공개는 비회원도 조회 가능). */
+	/** 비공개 길드 게시판은 길드원만 조회할 수 있다(공개는 비회원도 조회 가능). */
 	private void requireViewable(Group group, Long userId) {
 		if (group.getVisibility() != GroupVisibility.PUBLIC
 			&& !groupMemberRepository.existsByGroupIdAndUserId(

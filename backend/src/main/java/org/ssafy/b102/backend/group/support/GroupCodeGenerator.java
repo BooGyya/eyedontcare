@@ -4,7 +4,7 @@ import java.security.SecureRandom;
 import org.springframework.stereotype.Component;
 
 /**
- * 소모임 입장 코드 생성기.
+ * 길드 입장 코드 생성기.
  *
  * <p>혼동하기 쉬운 문자를 제외한 대문자·숫자 6자리를 만든다. 유일성 검증(중복 재시도)은
  * 서비스가 담당하며, 여기서는 후보 코드만 만든다.

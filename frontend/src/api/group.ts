@@ -1,5 +1,5 @@
 /**
- * 소모임 REST 호출 + 백엔드 응답 → 화면용 모델 변환.
+ * 길드 REST 호출 + 백엔드 응답 → 화면용 모델 변환.
  *
  * 백엔드(`/api/v1/groups`)는 공개 목록/검색·상세·생성·입장(코드/공개id)·나가기를 제공한다. 응답은
  * 프론트 CommunityGroup에 맞춰 인원수·리더·요청자 상태(isOwner/isJoined)·입장코드를 담지만,
@@ -39,7 +39,7 @@ import type {
 export type GroupVisibilityCode = 'PUBLIC' | 'PRIVATE'
 export type GroupRoleCode = 'OWNER' | 'MEMBER'
 
-/** 소모임 카드 응답(백엔드 원본). `joinCode`는 가입자에게만 채워진다. */
+/** 길드 카드 응답(백엔드 원본). `joinCode`는 가입자에게만 채워진다. */
 export interface GroupResponse {
   groupId: number
   name: string
@@ -109,7 +109,7 @@ const IMAGE_POOL = [
   profileWinkImage,
 ]
 
-/** groupId로 대표 이미지를 결정적으로 고른다(같은 소모임은 항상 같은 이미지). */
+/** groupId로 대표 이미지를 결정적으로 고른다(같은 길드는 항상 같은 이미지). */
 function imageForGroupId(groupId: number): string {
   // groupId가 숫자가 아니면(undefined/NaN 등) IMAGE_POOL[NaN]이 undefined가 되어 이미지가
   // 통째로 사라진다. 유효한 정수가 아니면 첫 이미지로 고정해 항상 이미지를 보장한다.
@@ -150,7 +150,7 @@ export async function createGroup(
   return apiRequest<GroupResponse>('/groups', { method: 'POST', body })
 }
 
-/** 코드로 입장(비공개 포함). 백엔드가 코드로 소모임을 찾아 가입시킨다. */
+/** 코드로 입장(비공개 포함). 백엔드가 코드로 길드를 찾아 가입시킨다. */
 export async function joinGroupByCode(
   groupCode: string,
 ): Promise<GroupResponse> {
@@ -160,7 +160,7 @@ export async function joinGroupByCode(
   })
 }
 
-/** 공개 소모임을 id로 바로 입장(코드 없이). 비공개는 백엔드가 거부한다. */
+/** 공개 길드를 id로 바로 입장(코드 없이). 비공개는 백엔드가 거부한다. */
 export async function joinGroupById(groupId: string): Promise<GroupResponse> {
   return apiRequest<GroupResponse>(`/groups/${groupId}/join`, {
     method: 'POST',
@@ -171,12 +171,12 @@ export async function leaveGroup(groupId: string): Promise<void> {
   await apiRequest<null>(`/groups/${groupId}/leave`, { method: 'POST' })
 }
 
-/** 소모임 삭제(방장 전용). 멤버 전원과 함께 삭제된다. */
+/** 길드 삭제(방장 전용). 길드원 전원과 함께 삭제된다. */
 export async function deleteGroup(groupId: string): Promise<void> {
   await apiRequest<null>(`/groups/${groupId}`, { method: 'DELETE' })
 }
 
-/** 소모임 멤버 강퇴(방장 전용). */
+/** 길드원 강퇴(방장 전용). */
 export async function kickMember(
   groupId: string,
   userId: number,

@@ -9,10 +9,10 @@ import jakarta.persistence.Table;
 import org.ssafy.b102.backend.global.common.entity.BaseTimeEntity;
 
 /**
- * 소모임 게임 후기 글.
+ * 길드 게임 후기 글.
  *
  * <p>{@code group_id}는 {@code groups_}를, {@code author_user_id}는 {@code users}를 논리 참조한다.
- * 다른 도메인처럼 사용자·소모임 제약은 컬럼으로만 유지한다. 작성 시각은 {@link BaseTimeEntity}가 관리한다.
+ * 다른 도메인처럼 사용자·길드 제약은 컬럼으로만 유지한다. 작성 시각은 {@link BaseTimeEntity}가 관리한다.
  */
 @Entity
 @Table(name = "group_posts")

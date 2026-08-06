@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 import org.ssafy.b102.backend.global.common.entity.BaseTimeEntity;
 
 /**
- * 소모임 후기 글에 달린 댓글.
+ * 길드 후기 글에 달린 댓글.
  *
  * <p>{@code post_id}는 {@code group_posts}를, {@code author_user_id}는 {@code users}를 논리 참조한다.
  * 작성 시각은 {@link BaseTimeEntity}가 관리한다.

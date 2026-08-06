@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * 소모임 댓글 작성 요청. 최대 길이는 프론트 COMMENT_MAX_LENGTH(200)와 동일하게 맞춰
+ * 길드 댓글 작성 요청. 최대 길이는 프론트 COMMENT_MAX_LENGTH(200)와 동일하게 맞춰
  * 프론트 제한을 우회한 요청도 서버에서 막는다.
  */
 public record GroupCommentCreateRequest(

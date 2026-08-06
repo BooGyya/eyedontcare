@@ -49,7 +49,7 @@ async function load() {
     detail.value = await getGroup(groupId.value)
   } catch (error) {
     errorMessage.value =
-      error instanceof ApiError ? error.message : '소모임을 불러오지 못했어요.'
+      error instanceof ApiError ? error.message : '길드를 불러오지 못했어요.'
   } finally {
     isLoading.value = false
   }
@@ -218,7 +218,7 @@ async function handleLeave() {
   isBusy.value = true
   try {
     await leaveGroup(groupId.value)
-    showToast('소모임에서 나갔어요.')
+    showToast('길드에서 나갔어요.')
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(
@@ -232,12 +232,12 @@ async function handleLeave() {
 async function handleDelete() {
   if (!detail.value || isBusy.value) return
   // 삭제는 되돌릴 수 없으므로 한 번 더 확인한다.
-  if (!globalThis.confirm('소모임을 삭제하면 되돌릴 수 없어요. 삭제할까요?'))
+  if (!globalThis.confirm('길드를 삭제하면 되돌릴 수 없어요. 삭제할까요?'))
     return
   isBusy.value = true
   try {
     await deleteGroup(groupId.value)
-    showToast('소모임을 삭제했어요.')
+    showToast('길드를 삭제했어요.')
     void router.push({ name: 'community' })
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '삭제에 실패했어요.')
@@ -252,7 +252,7 @@ async function handleKick(userId: number, nickname: string) {
   isBusy.value = true
   try {
     await kickMember(groupId.value, userId)
-    showToast('멤버를 강퇴했어요.')
+    showToast('길드원을 강퇴했어요.')
     await load()
   } catch (error) {
     showToast(error instanceof ApiError ? error.message : '강퇴에 실패했어요.')
@@ -294,8 +294,8 @@ watch(
   <section class="community-detail">
     <PageHeader
       eyebrow="COMMUNITY"
-      :title="detail?.name ?? '소모임'"
-      description="소모임 정보와 참여자를 확인하세요."
+      :title="detail?.name ?? '길드'"
+      description="길드 정보와 길드원을 확인하세요."
     />
 
     <div class="community-detail__toolbar">
@@ -314,7 +314,7 @@ watch(
             stroke-linejoin="round"
           />
         </svg>
-        소모임 목록으로
+        길드 목록으로
       </button>
 
       <div v-if="detail" class="community-detail__top-actions">
@@ -325,7 +325,7 @@ watch(
           :disabled="isBusy"
           @click="handleDelete"
         >
-          소모임 삭제
+          길드 삭제
         </button>
         <button
           v-else-if="detail.isJoined"
@@ -334,7 +334,7 @@ watch(
           :disabled="isBusy"
           @click="handleLeave"
         >
-          소모임 나가기
+          길드 나가기
         </button>
         <button
           v-else-if="detail.visibility === 'PUBLIC'"
@@ -353,7 +353,7 @@ watch(
       class="community-detail__status"
       role="status"
     >
-      <p>소모임 상세는 로그인 후 확인할 수 있어요.</p>
+      <p>길드 상세는 로그인 후 확인할 수 있어요.</p>
       <button
         type="button"
         class="community-detail__primary"
@@ -364,7 +364,7 @@ watch(
     </div>
 
     <p v-else-if="isLoading" class="community-detail__status" role="status">
-      소모임을 불러오는 중이에요…
+      길드를 불러오는 중이에요…
     </p>
 
     <div v-else-if="errorMessage" class="community-detail__status" role="alert">
@@ -505,12 +505,12 @@ watch(
           v-if="!detail.isJoined && detail.visibility !== 'PUBLIC'"
           class="community-detail__hint community-detail__hint--card"
         >
-          비공개 소모임은 참여 코드로 입장할 수 있어요.
+          비공개 길드는 참여 코드로 입장할 수 있어요.
         </p>
       </article>
 
-      <section class="community-detail__members" aria-label="참여자 명단">
-        <h2>참여자 {{ detail.memberList.length }}명</h2>
+      <section class="community-detail__members" aria-label="길드원 명단">
+        <h2>길드원 {{ detail.memberList.length }}명</h2>
         <ul class="community-detail__member-grid">
           <li
             v-for="member in detail.memberList"
@@ -535,6 +535,17 @@ watch(
                 />
               </svg>
             </button>
+            <svg
+              v-if="member.role === 'OWNER'"
+              class="community-detail__member-crown"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
+                fill="var(--color-gold)"
+              />
+            </svg>
             <span class="community-detail__member-avatar">
               <img
                 :src="avatarForUserId(member.userId)"
@@ -542,17 +553,6 @@ watch(
               />
             </span>
             <span class="community-detail__member-name">
-              <svg
-                v-if="member.role === 'OWNER'"
-                class="community-detail__member-crown"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  d="M4 8l3 3 5-6 5 6 3-3-1.5 10h-13L4 8Z"
-                  fill="var(--color-gold)"
-                />
-              </svg>
               <span class="community-detail__member-name-text">{{
                 member.nickname
               }}</span>
@@ -566,8 +566,8 @@ watch(
           <div class="community-detail__board-heading-text">
             <h2>Talk</h2>
             <p class="community-detail__board-sub">
-              소모임 멤버들과 자유롭게 이야기해요. 게임 후기도, 같이 할 사람
-              구하기도 좋아요!
+              길드원들과 자유롭게 이야기해요. 게임 후기도, 같이 할 사람 구하기도
+              좋아요!
             </p>
           </div>
           <button
@@ -579,7 +579,7 @@ watch(
             글쓰기
           </button>
           <p v-else class="community-detail__board-hint">
-            소모임에 가입하면 이야기를 남길 수 있어요.
+            길드에 가입하면 이야기를 남길 수 있어요.
           </p>
         </div>
 
@@ -591,7 +591,7 @@ watch(
           <textarea
             v-model="composerContent"
             class="community-detail__composer-textarea"
-            placeholder="멤버들에게 하고 싶은 이야기를 남겨보세요"
+            placeholder="길드원들에게 하고 싶은 이야기를 남겨보세요"
             rows="3"
             :maxlength="POST_MAX_LENGTH"
             @input="autoGrowComposer"
@@ -1017,9 +1017,11 @@ watch(
   text-overflow: ellipsis;
 }
 .community-detail__member-crown {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
 }
 .community-detail__member-kick {
   position: absolute;

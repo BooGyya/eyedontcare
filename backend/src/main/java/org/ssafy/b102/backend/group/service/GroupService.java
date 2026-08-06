@@ -33,7 +33,7 @@ import org.ssafy.b102.backend.user.entity.User;
 import org.ssafy.b102.backend.user.repository.UserRepository;
 
 /**
- * 소모임 도메인 서비스.
+ * 길드 도메인 서비스.
  *
  * <p>모든 기능은 인증된 회원 기준이다. 응답은 프론트 CommunityGroup 모양에 맞춰
  * 인원수(members)·방장 닉네임(leader)·요청자 상태(isOwner/isJoined)·입장 코드(joinCode)를 담는다.
@@ -156,8 +156,8 @@ public class GroupService {
 			.map(GroupMember::getRole)
 			.orElse(null);
 
-		// 비공개 소모임은 로그인만으로 상세에 접근할 수 없다. 멤버(방장 포함)만 볼 수 있고,
-		// 비회원은 403으로 막는다(공개 소모임은 비회원도 조회 가능).
+		// 비공개 길드는 로그인만으로 상세에 접근할 수 없다. 길드원(방장 포함)만 볼 수 있고,
+		// 비회원은 403으로 막는다(공개 길드는 비회원도 조회 가능).
 		if (group.getVisibility() != GroupVisibility.PUBLIC && myRole == null) {
 			throw new BusinessException(GroupErrorCode.PRIVATE_GROUP_MEMBER_ONLY);
 		}
@@ -200,7 +200,7 @@ public class GroupService {
 	}
 
 	/**
-	 * 공개 소모임을 id로 바로 가입한다(코드 없이). 비공개 소모임은 코드로만 입장할 수 있으므로
+	 * 공개 길드를 id로 바로 가입한다(코드 없이). 비공개 길드는 코드로만 입장할 수 있으므로
 	 * 거부한다 — 코드 입장은 {@link #join(Long, String)}이 담당한다.
 	 */
 	@Transactional

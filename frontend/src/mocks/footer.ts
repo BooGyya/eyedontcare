@@ -16,7 +16,7 @@ export const policyDocuments: PolicyDocument[] = [
         heading: '계정과 이용',
         bullets: [
           '카카오 계정으로 간편하게 가입하고 로그인할 수 있어요.',
-          '게스트 모드에서는 일부 기능(랭킹 기록, 소모임 참여)이 제한돼요.',
+          '게스트 모드에서는 일부 기능(랭킹 기록, 길드 참여)이 제한돼요.',
           '계정 정보는 본인만 사용해야 하며 타인에게 양도할 수 없어요.',
         ],
       },
@@ -57,7 +57,7 @@ export const policyDocuments: PolicyDocument[] = [
         heading: '이용 목적',
         bullets: [
           '게임 진행과 기록 저장',
-          '랭킹·소모임 등 소셜 기능 제공',
+          '랭킹·길드 등 소셜 기능 제공',
           '서비스 개선을 위한 통계 분석',
         ],
       },
@@ -78,7 +78,7 @@ export const policyDocuments: PolicyDocument[] = [
         heading: '서로 존중해요',
         bullets: [
           '비방, 혐오 표현, 괴롭힘은 금지돼요.',
-          '닉네임과 소모임 이름도 다른 사람을 존중하는 표현을 사용해요.',
+          '닉네임과 길드 이름도 다른 사람을 존중하는 표현을 사용해요.',
         ],
       },
       {

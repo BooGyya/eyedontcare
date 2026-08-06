@@ -12,10 +12,10 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 
 /**
- * 소모임 멤버.
+ * 길드원.
  *
  * <p>{@code group_id}는 {@code groups_}를, {@code user_id}는 {@code users}를 참조한다.
- * 한 소모임에 같은 회원이 중복 가입하지 못하도록 (group_id, user_id) 유니크 제약을 둔다.
+ * 한 길드에 같은 회원이 중복 가입하지 못하도록 (group_id, user_id) 유니크 제약을 둔다.
  */
 @Entity
 @Table(

@@ -22,8 +22,8 @@ const emit = defineEmits<{
   enter: [group: CommunityGroup]
 }>()
 
-// 공개 소모임은 가입 여부와 무관하게 상세로 입장한다(가입은 상세 화면 우측 상단에서 한다).
-// 비공개 소모임은 가입 전이면 코드 입력으로, 가입 후에는 상세 입장으로 보낸다.
+// 공개 길드는 가입 여부와 무관하게 상세로 입장한다(가입은 상세 화면 우측 상단에서 한다).
+// 비공개 길드는 가입 전이면 코드 입력으로, 가입 후에는 상세 입장으로 보낸다.
 const entersDetail = computed(
   () => props.group.isJoined || props.group.visibility === 'public',
 )

@@ -73,7 +73,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 소모임을_생성하면_방장을_OWNER로_등록한다() {
+	void 길드를_생성하면_방장을_OWNER로_등록한다() {
 		when(groupCodeGenerator.generate()).thenReturn("A1B2C3");
 		when(groupRepository.existsByGroupCode("A1B2C3")).thenReturn(false);
 		when(groupRepository.save(any(Group.class)))
@@ -277,7 +277,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 비공개_소모임_비멤버_상세_조회는_GROUP_013이다() {
+	void 비공개_길드_비멤버_상세_조회는_GROUP_013이다() {
 		Group group = group(GroupVisibility.PRIVATE, 30);
 		when(groupRepository.findById(GROUP_ID))
 			.thenReturn(Optional.of(group));
@@ -291,7 +291,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 비공개_소모임_멤버는_상세를_조회할_수_있다() {
+	void 비공개_길드_멤버는_상세를_조회할_수_있다() {
 		Group group = group(GroupVisibility.PRIVATE, 30);
 		when(groupRepository.findById(GROUP_ID))
 			.thenReturn(Optional.of(group));
@@ -309,7 +309,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 없는_소모임_상세는_GROUP_001이다() {
+	void 없는_길드_상세는_GROUP_001이다() {
 		when(groupRepository.findById(GROUP_ID)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> groupService.getGroup(OWNER_ID, GROUP_ID))
@@ -351,7 +351,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 이미_가입한_소모임은_GROUP_004다() {
+	void 이미_가입한_길드는_GROUP_004다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		when(groupRepository.findByGroupCode("A1B2C3"))
 			.thenReturn(Optional.of(group));
@@ -421,7 +421,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 방장은_소모임을_삭제한다() {
+	void 방장은_길드를_삭제한다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		when(groupRepository.findById(GROUP_ID)).thenReturn(Optional.of(group));
 
@@ -483,7 +483,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 공개_소모임은_id로_바로_가입한다() {
+	void 공개_길드는_id로_바로_가입한다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		when(groupRepository.findById(GROUP_ID))
 			.thenReturn(Optional.of(group));
@@ -503,7 +503,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 비공개_소모임_id_가입은_GROUP_011이다() {
+	void 비공개_길드_id_가입은_GROUP_011이다() {
 		when(groupRepository.findById(GROUP_ID))
 			.thenReturn(Optional.of(group(GroupVisibility.PRIVATE, 30)));
 
@@ -531,7 +531,7 @@ class GroupServiceTest {
 	}
 
 	@Test
-	void 없는_소모임_id_가입은_GROUP_001이다() {
+	void 없는_길드_id_가입은_GROUP_001이다() {
 		when(groupRepository.findById(GROUP_ID)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> groupService.joinById(MEMBER_ID, GROUP_ID))

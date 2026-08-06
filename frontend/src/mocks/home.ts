@@ -74,8 +74,8 @@ export const homeQuickActions: QuickAction[] = [
   },
   {
     id: 'group',
-    title: '소모임 코드 입장',
-    description: '친구들과 소모임을 만들고 함께 게임을 즐겨요!',
+    title: '길드 코드 입장',
+    description: '친구들과 길드를 만들고 함께 게임을 즐겨요!',
     image: groupIllustrationImage,
     tone: 'purple',
     destination: '/community?join=code',

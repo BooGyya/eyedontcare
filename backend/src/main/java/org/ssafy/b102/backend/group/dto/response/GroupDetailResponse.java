@@ -6,7 +6,7 @@ import org.ssafy.b102.backend.group.entity.Group;
 import org.ssafy.b102.backend.group.entity.GroupVisibility;
 
 /**
- * 소모임 상세 응답. 카드 필드에 멤버 명단({@code memberList})을 더한다.
+ * 길드 상세 응답. 카드 필드에 길드원 명단({@code memberList})을 더한다.
  * {@code joinCode}는 가입자에게만 채운다.
  */
 public record GroupDetailResponse(
