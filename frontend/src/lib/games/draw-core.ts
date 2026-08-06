@@ -236,9 +236,10 @@ export function isDrawGameFinished(state: DrawGameState): boolean {
 }
 
 /**
- * 시선 좌표(0~1)를 획에 추가한다. `ai_game` 프로토타입의 `addPointToStroke`를 그대로 이식했다 —
+ * 시선 좌표(0~1)를 획에 추가한다. `ai_game` 프로토타입의 `addPointToStroke`를 이식했다 —
  * 이전 점과 너무 멀면(0.22 초과) 새 획으로 끊고(깜빡임 직후엔 `allowBridge`로 이어붙임), 너무
- * 가까우면(0.0025 미만) 손떨림으로 보고 무시한다.
+ * 가까우면(0.0025 미만) 손떨림으로 보고 무시한다. 획의 색은 만들 때 정해지므로, 펜 색이
+ * 바뀌면 진행 중인 획을 즉시 끊어 다음 점부터 새 색으로 그려지게 한다.
  */
 export function addPointToStroke(
   strokes: DrawStroke[],
@@ -247,6 +248,9 @@ export function addPointToStroke(
   options: { color: string; width: number; allowBridge?: boolean },
 ): DrawStroke | null {
   let stroke = activeStroke
+  if (stroke && stroke.color !== options.color) {
+    stroke = null
+  }
   const previous = stroke?.points.at(-1)
   if (previous && !options.allowBridge && distance(previous, point) > 0.22) {
     stroke = null
