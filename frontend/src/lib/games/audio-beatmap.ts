@@ -8,6 +8,14 @@
  *
  * 순수 계산 함수 위주라 대부분 유닛 테스트 가능하다(`analyzeAudioUrlToBeatmap`만 fetch/디코딩이
  * 필요해 실제 오디오 없이는 테스트하기 어렵다).
+ *
+ * ⚠️ "너무 어렵다"는 피드백이 계속 나와서 두 가지를 완화했다.
+ * 1. **노트 개수**: 비트 그리드가 만들어낸 노트에 {@link DEFAULT_NOTE_DENSITY} 비율만큼만
+ *    남기는 필터({@link filterByDensity})를 최종 단계에 추가했다. 균등하게 분산해서 걷어내므로
+ *    (Bresenham 방식) 특정 구간만 갑자기 비거나 몰리지 않는다.
+ * 2. **동시에 양쪽 눈을 감아야 하는 노트(듀얼 노트) 빈도**: {@link createMelodyAwareBeatmapEntries}/
+ *    {@link createBeatmapEntries}의 듀얼 노트 판정 임계값을 더 엄격하게(더 높게) 올렸다 — 아주
+ *    강한 비트나 큰 음정 도약에서만 듀얼 노트가 나오게 했다.
  */
 import type { RhythmBeatmapEntry, RhythmLane } from './rhythm-core'
 
@@ -19,6 +27,8 @@ const DEFAULT_MIN_BEATS = 8
 const DEFAULT_MIN_BPM = 80
 const DEFAULT_MAX_BPM = 180
 const DEFAULT_MELODY_WINDOW_MS = 185
+/** 최종 노트 중 이 비율만 남긴다(나머지는 균등하게 걷어낸다) — 난이도 완화용. */
+const DEFAULT_NOTE_DENSITY = 0.72
 const MELODY_FREQUENCIES: readonly number[] = Object.freeze([
   110, 130.81, 155.56, 196, 246.94, 293.66, 349.23, 392, 493.88, 587.33, 698.46,
   783.99, 987.77, 1174.66, 1396.91, 1567.98, 1975.53,
@@ -59,6 +69,8 @@ export interface BeatmapOptions {
   minBpm?: number
   maxBpm?: number
   melodyWindowMs?: number
+  /** 최종 노트 중 남길 비율(0~1). 기본값 {@link DEFAULT_NOTE_DENSITY} — 난이도 완화용. */
+  noteDensity?: number
 }
 
 interface EnergyFrame {
@@ -129,6 +141,10 @@ export function analyzeAudioBufferToBeatmap(
     Math.round(options.melodyWindowMs ?? DEFAULT_MELODY_WINDOW_MS),
     60,
   )
+  const noteDensity = Math.min(
+    Math.max(options.noteDensity ?? DEFAULT_NOTE_DENSITY, 0.1),
+    1,
+  )
   const energies = calculateEnergyFrames(
     channelData,
     audioBuffer.sampleRate,
@@ -183,6 +199,11 @@ export function analyzeAudioBufferToBeatmap(
     mode = 'onset'
     phaseOffsetMs = 0
   }
+
+  // 난이도 완화: minBeats 하한 판정이 끝난 뒤(=게임 진행에 필요한 최소 노트 수는 이미
+  // 확보된 뒤) 최종 노트에만 밀도 필터를 적용한다. 판정 전에 걷어내면 엉뚱한 fallback(onset
+  // 모드)로 잘못 넘어갈 수 있어서 순서가 중요하다.
+  notes = filterByDensity(notes, noteDensity)
 
   return {
     durationMs: Math.round(audioBuffer.duration * 1000),
@@ -321,8 +342,9 @@ export function createBeatmapEntries(
   onsets: OnsetCandidate[],
 ): RhythmBeatmapEntry[] {
   return onsets.map((onset, index) => {
+    // 난이도 완화: 듀얼 노트(양쪽 눈 동시)는 아주 강한 비트에서만 나오게 임계값을 올렸다.
     const lanes: RhythmLane[] =
-      onset.strength >= 0.82
+      onset.strength >= 0.9
         ? ['LEFT_EYE', 'RIGHT_EYE']
         : index % 2 === 0
           ? ['LEFT_EYE']
@@ -499,9 +521,11 @@ export function createMelodyAwareBeatmapEntries(
         ? Math.abs(Math.log2(melody.frequencyHz / previousFrequency))
         : 0
     let lanes: RhythmLane[]
+    // 난이도 완화: 듀얼 노트(양쪽 눈 동시)는 아주 강한 비트나 훨씬 큰 음정 도약에서만
+    // 나오게 임계값을 올렸다(기존 0.92/0.42+0.48 → 0.95/0.55+0.62).
     if (
-      beat.strength >= 0.92 ||
-      (jumpOctaves >= 0.42 && beat.strength >= 0.48)
+      beat.strength >= 0.95 ||
+      (jumpOctaves >= 0.55 && beat.strength >= 0.62)
     ) {
       lanes = ['LEFT_EYE', 'RIGHT_EYE']
     } else if (hasMelody) {
@@ -694,6 +718,29 @@ function normalizeOnsetStrengths<T extends { strength: number }>(
     ...onset,
     strength: (onset.strength - min) / range,
   }))
+}
+
+/**
+ * 노트를 균등하게 분산해서 `keepRatio`만큼만 남긴다(Bresenham 방식) — 특정 구간만 갑자기
+ * 비거나 몰리지 않고 전체적으로 고르게 줄어든다. 난이도 완화(노트 개수 줄이기)에 쓴다.
+ */
+export function filterByDensity<T>(items: T[], keepRatio: number): T[] {
+  if (keepRatio >= 1) {
+    return items
+  }
+  if (keepRatio <= 0) {
+    return []
+  }
+  const result: T[] = []
+  let accumulator = 0
+  for (const item of items) {
+    accumulator += keepRatio
+    if (accumulator >= 1) {
+      result.push(item)
+      accumulator -= 1
+    }
+  }
+  return result
 }
 
 function mean(values: number[]): number {

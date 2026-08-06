@@ -6,6 +6,11 @@
  *
  * 왼쪽/오른쪽 눈 감음 이벤트를 `applyRhythmInput`에 넣어주고, 매 프레임 `updateRhythmRound`로
  * 노트 생성과 미스 판정을 진행시키면 된다.
+ *
+ * ⚠️ "너무 어렵다"는 피드백이 계속 나와서 난이도를 완화했다: `HIT_WINDOWS`(판정 범위)를 넓히고
+ * `DUAL_NOTE_CHANCE`(동시에 양쪽 눈을 감아야 하는 노트가 나올 확률, 랜덤 생성 모드용)를
+ * 낮췄다. 실제 게임에서 쓰는 음악 비트맵 모드의 노트 개수/듀얼 노트 완화는
+ * `audio-beatmap.ts`에서 처리한다.
  */
 
 export const RHYTHM_LANES = ['LEFT_EYE', 'RIGHT_EYE'] as const
@@ -20,8 +25,12 @@ export const NOTE_TRAVEL_MAX_MS = 5000
 /** 라운드 시작 후 첫 노트가 내려오기까지의 여유(랜덤 생성 모드). 비트맵(음악) 모드는 곡 싱크 유지를 위해 적용하지 않는다. */
 export const DEFAULT_RHYTHM_START_DELAY_MS = 0
 export const BEATMAP_LOOKAHEAD_BUFFER_MS = 500
-export const DUAL_NOTE_CHANCE = 0.24
-export const HIT_WINDOWS = { PERFECT: 90, GREAT: 160, GOOD: 260 } as const
+export const DUAL_NOTE_CHANCE = 0.14
+/**
+ * 판정 범위(ms). "어렵다"는 피드백이 계속 나와서, 기존값(PERFECT 90/GREAT 160/GOOD 260)보다
+ * 넉넉하게 넓혔다 — 특히 GOOD은 "놓치지 않는 최대 허용 오차"라 이게 제일 체감이 크다.
+ */
+export const HIT_WINDOWS = { PERFECT: 130, GREAT: 220, GOOD: 340 } as const
 
 export type RhythmLane = (typeof RHYTHM_LANES)[number]
 export type RhythmInput = (typeof RHYTHM_INPUTS)[number]

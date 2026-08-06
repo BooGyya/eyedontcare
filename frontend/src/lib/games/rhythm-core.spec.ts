@@ -5,6 +5,7 @@ import {
   DEFAULT_RHYTHM_HEALTH,
   finishRhythmRound,
   getRhythmAccuracy,
+  HIT_WINDOWS,
   judgeRhythmDelta,
   makeInitialRhythmState,
   scoreRhythmJudgement,
@@ -91,8 +92,8 @@ describe('rhythm-core', () => {
     updateRhythmRound(state, 0)
     state.combo = 4 // 이전 콤보가 있었다고 가정
 
-    // 히트 윈도우(GOOD=260ms)를 한참 지나서 업데이트하면 MISS 처리된다.
-    updateRhythmRound(state, 1300)
+    // 히트 윈도우(GOOD)를 한참 지나서 업데이트하면 MISS 처리된다.
+    updateRhythmRound(state, 1000 + HIT_WINDOWS.GOOD + 50)
     expect(state.misses).toBe(1)
     expect(state.health).toBe(2)
     expect(state.combo).toBe(0)
