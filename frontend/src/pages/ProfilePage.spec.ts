@@ -271,10 +271,11 @@ describe('ProfilePage', () => {
     await wrapper.find('.profile-page__records li').trigger('click')
     await flushPromises()
     expect(document.body.textContent).toContain('경기 결과')
-    // 멀티플레이 상세: 함께한 상대 표에 JSONB의 상대 정보(이름·점수·승패)가 나온다.
+    // 멀티플레이 상세: 플레이어 스코어보드에 나와 상대가 함께 나온다.
     const modalText = document.body.textContent ?? ''
-    expect(modalText).toContain('함께한 상대')
-    expect(modalText).toContain('라이벌')
+    expect(modalText).toContain('플레이어')
+    expect(modalText).toContain('(나)') // 내 행 표시
+    expect(modalText).toContain('라이벌') // 상대(JSONB opponentNickname)
     expect(modalText).toContain('00:02') // 내 생존 시간(2초)
     expect(modalText).toContain('00:01') // 상대 생존 시간(1초)
 

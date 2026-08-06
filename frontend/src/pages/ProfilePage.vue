@@ -274,16 +274,17 @@ const isSharedMatch = computed(
     selectedRecord.value?.playMode === 'RANDOM',
 )
 
-interface OpponentRow {
+interface PlayerRow {
   key: string
   name: string
   score: string
   outcome: GameOutcome
+  isMe: boolean
 }
 
-// 나와 함께 플레이한 상대 목록(친구 초대·랜덤 매칭에서만). 참가자 배열에 상대가 있으면
-// 그것을, 없으면(현재 멀티는 본인만 참가자로 저장) JSONB의 상대 정보로 1행을 구성한다.
-const opponentRows = computed<OpponentRow[]>(() => {
+// 상대 행(친구 초대·랜덤 매칭에서만). 참가자 배열에 상대가 있으면 그것을,
+// 없으면(현재 멀티는 본인만 참가자로 저장) JSONB의 상대 정보로 1행을 구성한다.
+const opponentRows = computed<PlayerRow[]>(() => {
   const record = selectedRecord.value
   if (!record || !isSharedMatch.value) return []
 
@@ -295,6 +296,7 @@ const opponentRows = computed<OpponentRow[]>(() => {
       name: p.displayName,
       score: formatScore(record.gameName, p.score),
       outcome: p.outcome,
+      isMe: false,
     }))
   }
 
@@ -312,8 +314,25 @@ const opponentRows = computed<OpponentRow[]>(() => {
         typeof rawScore === 'number' ? rawScore : null,
       ),
       outcome: invertOutcome(detailOutcome.value),
+      isMe: false,
     },
   ]
+})
+
+// 상세 스코어보드: 상대가 있을 때만 내 행을 맨 위에 붙여 나·상대를 함께 보여준다.
+const playerRows = computed<PlayerRow[]>(() => {
+  const opponents = opponentRows.value
+  const record = selectedRecord.value
+  if (!opponents.length || !record) return []
+  const me = myDetailParticipant.value
+  const myRow: PlayerRow = {
+    key: 'me',
+    name: me?.displayName || auth.user.nickname || '나',
+    score: formatScore(record.gameName, me?.score ?? null),
+    outcome: detailOutcome.value,
+    isMe: true,
+  }
+  return [myRow, ...opponents]
 })
 
 async function loadRecords() {
@@ -1001,12 +1020,16 @@ async function handleConfirmWithdraw() {
             </article>
           </div>
           <div
-            v-if="opponentRows.length"
+            v-if="playerRows.length"
             class="game-result-modal__participants"
           >
-            <div><span>함께한 상대</span><span>점수</span><span>결과</span></div>
-            <div v-for="row in opponentRows" :key="row.key">
-              <b>{{ row.name }}</b
+            <div><span>플레이어</span><span>점수</span><span>결과</span></div>
+            <div
+              v-for="row in playerRows"
+              :key="row.key"
+              :class="{ 'game-result-modal__participant--me': row.isMe }"
+            >
+              <b>{{ row.name }}{{ row.isMe ? ' (나)' : '' }}</b
               ><span>{{ row.score }}</span
               ><span>{{ getOutcomeLabel(row.outcome) }}</span>
             </div>
@@ -1647,6 +1670,13 @@ async function handleConfirmWithdraw() {
   border-top: 1px solid var(--color-line);
   background: var(--color-surface-soft);
   font-weight: 800;
+}
+.game-result-modal__participant--me {
+  color: var(--color-ink);
+  font-weight: 700;
+}
+.game-result-modal__participant--me b {
+  color: var(--color-primary);
 }
 .game-result-modal__participants b {
   overflow: hidden;
