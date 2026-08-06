@@ -1239,6 +1239,41 @@ function clearReplayCountdown() {
   replayCountdownTimer = undefined
 }
 
+// --- 게임플레이 배경음악(BGM) ---
+// 게임 종류별 배경음악. 리듬은 음원 자체가 게임 요소(rhythmAudio)이므로 매핑에 넣지 않는다.
+const GAME_BGM_URLS: Record<string, string> = {
+  air: '/audio/bgm-air.mp3',
+  draw: '/audio/bgm-draw.mp3',
+  hold: '/audio/bgm-hold.mp3',
+  blink: '/audio/bgm-blink.mp3',
+}
+let gameBgmAudio: globalThis.HTMLAudioElement | undefined
+
+/** 게임 시작 시 해당 게임의 BGM을 반복 재생한다. 매핑에 없는 게임(rhythm 포함)은 아무 것도 하지 않는다. */
+function playGameBgm(gameId: string): void {
+  // startGame()이 중복 호출되어도 이미 재생 중인 오디오를 또 만들지 않는다.
+  if (gameBgmAudio) return
+  const url = GAME_BGM_URLS[gameId]
+  if (!url) return
+
+  const audio = new globalThis.Audio(url)
+  audio.loop = true
+  audio.volume = 0.5
+  gameBgmAudio = audio
+  // 브라우저 자동재생 정책으로 재생이 거부될 수 있어 실패는 조용히 무시한다. 테스트 환경(jsdom)처럼
+  // play()가 Promise를 반환하지 않는 경우도 있어 옵셔널 체이닝으로 방어한다.
+  audio.play()?.catch(() => {})
+}
+
+/** 게임 BGM을 멈추고 처음으로 되감는다. 결과 화면 전환·상대 이탈·게임 나가기 등
+ * 여러 종료 경로에서 각각 호출되므로 중복 호출에도 안전해야 한다. */
+function stopGameBgm(): void {
+  if (!gameBgmAudio) return
+  gameBgmAudio.pause()
+  gameBgmAudio.currentTime = 0
+  gameBgmAudio = undefined
+}
+
 function startGame() {
   if (!game.value) return
   playStartedAt = new Date().toISOString()
@@ -1260,6 +1295,7 @@ function startGame() {
   if (game.value.id === 'draw') {
     void initDrawGame()
   }
+  playGameBgm(game.value.id)
   globalThis.window.addEventListener('beforeunload', handleBeforeUnload)
   cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
 }
@@ -1308,6 +1344,8 @@ onUnmounted(() => {
   // 언마운트를 트리거하지 않으므로 표시가 남아, 재진입 시 새로고침으로 감지된다.
   clearGameInProgress()
   globalThis.window.removeEventListener('beforeunload', handleBeforeUnload)
+  // 게임 종류와 무관하게(rhythm 제외) BGM이 재생 중일 수 있으므로 언마운트 시 항상 정지를 시도한다.
+  stopGameBgm()
   if (game.value?.id === 'hold') stopStareGame()
   if (game.value?.id === 'blink') stopBlinkGame()
   if (game.value?.id === 'rhythm') stopRhythmGame()
@@ -1388,6 +1426,9 @@ async function toResult() {
   if (!game.value) return
   exiting = true
   clearGameInProgress()
+  // 결과 제출(submitPlayedResult)이 끝날 때까지 화면 전환이 지연될 수 있으므로, 언마운트를
+  // 기다리지 않고 결과 화면으로 넘어가기로 결정된 이 시점에 BGM을 바로 멈춘다.
+  stopGameBgm()
   // 정상 종료를 상대에게 알린다(이후 소켓 종료를 상대가 이탈로 오인해 몰수 처리하지 않게).
   sendActiveGameOver()
   const score =
@@ -2054,6 +2095,8 @@ function handleOpponentLeft() {
   if (exiting || opponentFinished) return
   exiting = true
   clearGameInProgress()
+  // game-result로 바로 이동하는 경로라 toResult()를 거치지 않으므로 여기서 별도로 멈춰야 한다.
+  stopGameBgm()
   showToast('상대방이 나가 승리했어요.')
   recordForfeitWin()
   if (game.value) {
