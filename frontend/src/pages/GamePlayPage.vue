@@ -1423,11 +1423,25 @@ async function toResult() {
   const storedOutcome = lastGameResultStore.current?.outcome
   const submissionOutcome =
     storedOutcome === 'UNKNOWN' ? undefined : storedOutcome
+  // 멀티플레이(혼자·AI가 아닌 대결)에서만 상대 점수를 기록에 남긴다. 전적 상세의
+  // "함께한 상대" 표에서 상대 점수 칸을 채우는 데 쓴다. 내 slot score와 같은 단위로 저장한다.
+  const isMultiplayer = mode.value !== 'solo' && mode.value !== 'ai'
   const resultData =
     game.value.id === 'hold'
-      ? { survivalTimeMs: Math.round(stareGameState.value.elapsedMs) }
+      ? {
+          survivalTimeMs: Math.round(stareGameState.value.elapsedMs),
+          opponentScore: isMultiplayer
+            ? Math.round(stareOpponentElapsedMs.value / 1000)
+            : undefined,
+        }
       : game.value.id === 'blink'
-        ? { blinkCount: blinkGameState.value.blinkCount }
+        ? {
+            blinkCount: blinkGameState.value.blinkCount,
+            opponentScore:
+              isMultiplayer && opponentBlinkCount.value !== null
+                ? opponentBlinkCount.value
+                : undefined,
+          }
         : game.value.id === 'rhythm'
           ? {
               maxCombo: rhythmGameState.value.maxCombo,
@@ -1439,7 +1453,7 @@ async function toResult() {
           : game.value.id === 'air' && mode.value === 'ai'
             ? { opponentScore: airGameState.value.top.score }
             : game.value.id === 'air'
-              ? {}
+              ? { opponentScore: airOpponentDisplayScore.value }
               : game.value.id === 'draw'
                 ? { drawRounds: [...drawGameState.value.history] }
                 : undefined

@@ -64,11 +64,11 @@ const RESULT_DETAIL = {
   startedAt: '2026-07-24T09:00:00Z',
   endedAt: '2026-07-24T09:03:00Z',
   mySlotNo: 1,
+  // 현재 멀티플레이는 본인만 참가자로 저장하고, 상대는 JSONB에 담긴다.
   participants: [
-    { slotNo: 1, participantType: 'USER', displayName: '나', outcome: 'WIN', rank: 1, score: 180 },
-    { slotNo: 2, participantType: 'USER', displayName: '상대', outcome: 'LOSE', rank: 2, score: 150 },
+    { slotNo: 1, participantType: 'USER', displayName: '나', outcome: 'WIN', rank: 1, score: 2 },
   ],
-  gameResult: { '1': { score: 180 }, '2': { score: 150 } },
+  gameResult: { '1': { score: 2, opponentNickname: '라이벌', opponentScore: 1 } },
 }
 
 function memberUser(overrides: Partial<AuthUser> = {}): AuthUser {
@@ -271,6 +271,13 @@ describe('ProfilePage', () => {
     await wrapper.find('.profile-page__records li').trigger('click')
     await flushPromises()
     expect(document.body.textContent).toContain('경기 결과')
+    // 멀티플레이 상세: 플레이어 스코어보드에 나와 상대가 함께 나온다.
+    const modalText = document.body.textContent ?? ''
+    expect(modalText).toContain('플레이어')
+    expect(modalText).toContain('(나)') // 내 행 표시
+    expect(modalText).toContain('라이벌') // 상대(JSONB opponentNickname)
+    expect(modalText).toContain('00:02') // 내 생존 시간(2초)
+    expect(modalText).toContain('00:01') // 상대 생존 시간(1초)
 
     const confirmButton = document.body.querySelector<HTMLButtonElement>(
       '.game-result-modal__confirm',
