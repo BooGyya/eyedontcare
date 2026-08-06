@@ -132,6 +132,17 @@ const isDrawingActive = ref(true)
 const drawCursor = ref<{ x: number; y: number } | null>(null)
 const drawBrushWidth = 5
 let drawRafHandle: number | undefined
+/**
+ * 시간 초과 자동 제출이 라운드당 딱 한 번만 일어나게 막는 플래그.
+ *
+ * ⚠️ 실제 배포에서 발견된 버그를 고친 부분: 시간이 다 돼서 자동 제출한 게 실패하면
+ * `reportDrawJudgingError`가 phase를 다시 'running'으로 되돌리는데, 남은 시간은 이미 0이라
+ * 그대로면 바로 다음 애니메이션 프레임(1/60초 후)에 "시간이 다 됐다"고 또 판단해서 자동 제출을
+ * 또 시도 → 또 실패 → 또 되돌림 ⟳ 이 반복되며 초당 60번씩 AI 채점 API를 호출하는 무한 루프가
+ * 됐었다. 이 플래그로 "이미 시간 초과로 한 번 시도했다"를 기억해 두면, 실패해서 running으로
+ * 되돌아가도 자동 재시도는 멈추고 — 사용자가 '제출하기' 버튼을 직접 눌러야만 재시도된다.
+ */
+let drawTimeUpSubmitted = false
 let unsubscribeDrawKeydown: (() => void) | undefined
 let drawShouldBridge = false
 /**
@@ -1772,6 +1783,7 @@ async function initDrawGame() {
   drawStrokes = []
   drawActiveStroke = null
   isDrawingActive.value = true
+  drawTimeUpSubmitted = false
   startDrawRound(drawGameState.value, drawWords.value)
 
   unsubscribeDrawKeydown = onDrawKeydown()
@@ -1800,7 +1812,11 @@ function runDrawLoop() {
     updateDrawCursorFromGaze()
 
     if (drawGameState.value.phase === 'running') {
-      if (tickDrawRoundTimer(drawGameState.value, deltaMs)) {
+      if (
+        tickDrawRoundTimer(drawGameState.value, deltaMs) &&
+        !drawTimeUpSubmitted
+      ) {
+        drawTimeUpSubmitted = true
         void submitDrawRound('시간 종료')
       }
     }
@@ -1943,6 +1959,7 @@ function advanceDrawRound() {
   clearDrawCanvas()
   selectedColor.value = '#161c2d'
   isDrawingActive.value = true
+  drawTimeUpSubmitted = false
   startDrawRound(drawGameState.value, drawWords.value)
 }
 
