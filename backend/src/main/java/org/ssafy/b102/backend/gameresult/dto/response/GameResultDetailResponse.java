@@ -17,6 +17,7 @@ public record GameResultDetailResponse(
 	Integer difficulty,
 	Instant startedAt,
 	Instant endedAt,
+	Integer mySlotNo,
 	List<ParticipantResultResponse> participants,
 	Map<String, Object> gameResult
 ) {
@@ -25,7 +26,10 @@ public record GameResultDetailResponse(
 		participants = participants == null ? List.of() : List.copyOf(participants);
 	}
 
-	public static GameResultDetailResponse from(GameResult gameResult) {
+	/**
+	 * @param mySlotNo 조회자 본인의 슬롯 번호. 프론트가 내 점수·상대 목록을 구분하는 데 쓴다.
+	 */
+	public static GameResultDetailResponse from(GameResult gameResult, Integer mySlotNo) {
 		Game game = gameResult.getGame();
 
 		return new GameResultDetailResponse(
@@ -35,6 +39,7 @@ public record GameResultDetailResponse(
 			game.getDifficulty(),
 			gameResult.getStartedAt(),
 			gameResult.getEndedAt(),
+			mySlotNo,
 			gameResult.getParticipants().stream()
 				.sorted(Comparator.comparing(Participant::getSlotNo))
 				.map(ParticipantResultResponse::from)

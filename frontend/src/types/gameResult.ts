@@ -26,13 +26,14 @@ export interface MyGameResultPage {
   totalElements: number
 }
 
-/** `GET /game-results/{id}` 상세 참가자. 점수/본인식별자는 담기지 않는다. */
+/** `GET /game-results/{id}` 상세 참가자. `score`는 랭킹 반영 점수(게스트/AI·미기록 시 null). */
 export interface ParticipantResult {
   slotNo: number
   participantType: ParticipantType
   displayName: string
   outcome: GameOutcome
   rank: number
+  score: number | null
 }
 
 /** `POST /game-results` 요청의 참가자 한 명. */
@@ -70,6 +71,8 @@ export interface GameResultDetailResponse {
   difficulty: number | null
   startedAt: string
   endedAt: string
+  /** 조회자 본인의 슬롯 번호. 내 점수·상대 목록 구분에 쓴다. */
+  mySlotNo: number | null
   participants: ParticipantResult[]
   /** 게임별 구조가 달라 그대로 저장/조회되는 JSON. */
   gameResult: Record<string, unknown>

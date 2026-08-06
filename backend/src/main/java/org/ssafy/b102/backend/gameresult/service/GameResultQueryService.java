@@ -48,9 +48,9 @@ public class GameResultQueryService {
 		GameResult gameResult = gameResultRepository.findById(resultId)
 			.orElseThrow(() -> new BusinessException(GameResultErrorCode.RESULT_NOT_FOUND));
 
-		participantRepository.findByResultIdAndUserId(resultId, userId)
+		Participant myParticipant = participantRepository.findByResultIdAndUserId(resultId, userId)
 			.orElseThrow(() -> new BusinessException(GameResultErrorCode.RESULT_ACCESS_DENIED));
 
-		return GameResultDetailResponse.from(gameResult);
+		return GameResultDetailResponse.from(gameResult, myParticipant.getSlotNo());
 	}
 }
