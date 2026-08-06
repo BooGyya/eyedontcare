@@ -3050,13 +3050,10 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         </template>
       </aside>
     </section>
+    <!-- 라운드 진행은 버튼으로만 — 백드롭 클릭이 다음 라운드/최종 결과로 넘겨버리지 않게 한다. -->
     <Teleport to="body"
       ><Transition name="dialog-pop"
-        ><div
-          v-if="drawScoreOpen"
-          class="score-backdrop"
-          @click.self="advanceDrawRound"
-        >
+        ><div v-if="drawScoreOpen" class="score-backdrop">
           <section
             role="dialog"
             aria-modal="true"
