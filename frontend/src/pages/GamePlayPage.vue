@@ -510,17 +510,6 @@ const rhythmRightNotes = computed(() =>
 let rhythmRafHandle: number | undefined
 let unsubscribeRhythmEvents: (() => void) | undefined
 
-// 라운드 시작 후 첫 비트가 판정선에 닿기까지의 도입 시간(ms). 이 동안 비트가 오른쪽에서
-// 밀려 들어와 갑자기 생성되지 않는다. 음악 모드는 비트맵을 이만큼 미루고 오디오도 이만큼 늦게 재생한다.
-const RHYTHM_LEAD_IN_MS = 2000
-const isRhythmStartCountdownOpen = ref(false)
-const rhythmStartCountdown = ref(3)
-let rhythmStartCountdownTimer: ReturnType<typeof globalThis.setInterval> | undefined
-let rhythmAudioStartTimer: ReturnType<typeof globalThis.setTimeout> | undefined
-const rhythmStageRef = ref<globalThis.HTMLElement | null>(null)
-// vue-tsc가 템플릿 ref를 '사용'으로 인식하지 못해 noUnusedLocals에 걸리는 것을 막는다.
-void rhythmStageRef
-
 function rhythmInputToLanes(input: RhythmInput | 'NONE'): RhythmLane[] {
   if (input === 'BOTH_EYES') return ['LEFT_EYE', 'RIGHT_EYE']
   if (input === 'LEFT_EYE' || input === 'RIGHT_EYE') return [input]
@@ -576,7 +565,7 @@ function noteLeftPercent(note: RhythmNote): number {
 const RHYTHM_AUDIO_URL = '/audio/ssafy.mp3'
 const rhythmIsAnalyzingAudio = ref(false)
 /** 오디오 재생이 실제로 성공했을 때만 true — true면 게임 시계를 audio.currentTime 기준으로 돌린다. */
-const rhythmHasMusic = ref(false)
+const rhythmUsesMusicClock = ref(false)
 let rhythmAudio: globalThis.HTMLAudioElement | undefined
 
 async function prepareRhythmBeatmap(): Promise<void> {
@@ -585,28 +574,22 @@ async function prepareRhythmBeatmap(): Promise<void> {
     const beatmap = await analyzeAudioUrlToBeatmap(RHYTHM_AUDIO_URL)
     if (beatmap.notes.length === 0) return // 분석은 됐지만 쓸 만한 비트가 없으면 랜덤 생성 폴백
 
-    // 모든 비트를 lead-in만큼 뒤로 밀어 곡 시작 직후 비트도 오른쪽에서 온전히 밀려 들어오게 한다.
-    // 오디오 재생도 라운드 시작 후 lead-in만큼 늦춰(beginRhythmRound) 소리와 비트를 맞춘다.
-    const shiftedEntries = beatmap.notes.map((entry) => ({
-      ...entry,
-      timeMs: entry.timeMs + RHYTHM_LEAD_IN_MS,
-    }))
     rhythmGameState.value = makeInitialRhythmState({
       // 기획 확정본 기준 제한 시간(30초)은 그대로 지킨다 — 곡이 더 길어도 30초를 넘는 노트는
       // rhythm-core의 generateBeatmapRhythmNotes가 자동으로 건너뛴다.
       durationMs: rhythmGameState.value.durationMs,
       bpm: beatmap.bpmEstimate || undefined,
-      beatmapEntries: shiftedEntries,
+      beatmapEntries: beatmap.notes,
     })
 
-    // 오디오는 여기서 만들되 재생은 카운트다운 뒤 lead-in에 맞춰 시작한다.
     const audio = new globalThis.Audio(RHYTHM_AUDIO_URL)
     audio.volume = 0.6
+    await audio.play()
     rhythmAudio = audio
-    rhythmHasMusic.value = true
+    rhythmUsesMusicClock.value = true
   } catch {
-    // 네트워크 실패, 디코딩 실패 등 — 조용히 랜덤 노트로 진행한다.
-    rhythmHasMusic.value = false
+    // 네트워크 실패, 디코딩 실패, 자동재생 차단(NotAllowedError) 등 — 조용히 랜덤 노트로 진행한다.
+    rhythmUsesMusicClock.value = false
   } finally {
     rhythmIsAnalyzingAudio.value = false
   }
@@ -658,8 +641,9 @@ async function initRhythmGame() {
     }
     if (!input) return
 
-    // 노트 hitAt·게임 시계가 모두 performance.now() 도메인이므로 판정도 같은 도메인(occurredAt)을 쓴다.
-    const now = event.occurredAt
+    const now = rhythmUsesMusicClock.value
+      ? (rhythmAudio?.currentTime ?? 0) * 1000
+      : event.occurredAt
     const inputResult = applyRhythmInput(rhythmGameState.value, input, now)
     if (inputResult.hit) {
       showRhythmFeedback(
@@ -672,54 +656,13 @@ async function initRhythmGame() {
   })
 
   await prepareRhythmBeatmap()
-  // 멀티플레이는 준비방의 서버 카운트다운으로 양쪽 시작 시점을 맞추므로 게임 안에서 또 세지 않는다.
-  // 솔로(다시하기 포함)는 준비방 카운트다운을 생략하고 여기 게임 화면 안에서만 3·2·1 후 시작한다.
-  if (!isMultiplayerMode.value) {
-    await runRhythmStartCountdown()
-  }
-  beginRhythmRound()
-}
-
-/** 3·2·1 카운트다운을 띄우고 끝나면 resolve한다. */
-function runRhythmStartCountdown(): Promise<void> {
-  return new Promise((resolve) => {
-    scrollRhythmStageIntoView()
-    rhythmStartCountdown.value = 3
-    isRhythmStartCountdownOpen.value = true
-    rhythmStartCountdownTimer = globalThis.setInterval(() => {
-      if (rhythmStartCountdown.value <= 1) {
-        globalThis.clearInterval(rhythmStartCountdownTimer)
-        rhythmStartCountdownTimer = undefined
-        isRhythmStartCountdownOpen.value = false
-        resolve()
-        return
-      }
-      rhythmStartCountdown.value -= 1
-    }, 1000)
-  })
-}
-
-/** 리듬 게임 영역이 한눈에 보이도록 스크롤한다(스크롤해야 보이던 문제 해결). */
-function scrollRhythmStageIntoView(): void {
-  const stage = rhythmStageRef.value
-  // jsdom 등 scrollIntoView 미구현 환경 대비로 함수 존재를 확인한다.
-  if (stage && typeof stage.scrollIntoView === 'function') {
-    stage.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
-}
-
-function beginRhythmRound() {
-  scrollRhythmStageIntoView()
-  // 벽시계(performance.now)로 시작한다. lead-in만큼 첫 비트가 오른쪽에서 들어온다.
-  startRhythmRound(rhythmGameState.value, globalThis.performance.now(), {
-    startDelayMs: RHYTHM_LEAD_IN_MS,
-  })
-  // 음악 모드는 비트맵을 lead-in만큼 밀어 뒀으므로, 오디오도 그만큼 늦게 재생해 소리와 비트를 맞춘다.
-  if (rhythmHasMusic.value && rhythmAudio) {
-    rhythmAudioStartTimer = globalThis.setTimeout(() => {
-      rhythmAudio?.play().catch(() => {})
-    }, RHYTHM_LEAD_IN_MS)
-  }
+  startRhythmRound(
+    rhythmGameState.value,
+    rhythmUsesMusicClock.value ? 0 : globalThis.performance.now(),
+    // 랜덤 생성(음악 미사용) 모드에선 시작 2초 뒤부터 노트가 내려오도록 여유를 둔다.
+    // 음악 모드는 비트맵이 곡과 동기화돼야 하므로 지연을 넣지 않는다.
+    { startDelayMs: rhythmUsesMusicClock.value ? 0 : 2000 },
+  )
   runRhythmLoop()
 }
 
@@ -733,9 +676,11 @@ function sendRhythmState() {
 
 function runRhythmLoop() {
   const tick = (rafNow: number) => {
-    // 게임 시계는 벽시계(performance.now = rAF 타임스탬프)로 통일한다. 노트 hitAt·입력 판정(occurredAt)이
-    // 모두 같은 도메인이라 판정이 일관되고, 음악은 lead-in만큼 늦게 재생해 소리와 비트를 맞춘다.
-    const now = rafNow
+    // 음악이 실제로 재생 중이면 오디오 재생 위치를 게임 시계로 쓴다 — rAF 타이밍과 오디오 재생은
+    // 미세하게 어긋날 수 있어서, 판정 기준은 항상 "지금 들리는 소리"와 맞춰야 한다.
+    const now = rhythmUsesMusicClock.value
+      ? (rhythmAudio?.currentTime ?? 0) * 1000
+      : rafNow
     rhythmNow.value = now
     const previousNoteStatuses = new Map(
       rhythmGameState.value.notes.map((note) => [note.id, note.status]),
@@ -767,7 +712,9 @@ function runRhythmLoop() {
 /** 상대가 먼저 체력을 다 잃었을 때 내 라운드도 정식으로 종료 처리하고 결과 화면으로 넘어간다. */
 function finishRhythmDuelEarly() {
   if (rhythmGameState.value.phase === 'finished') return
-  const now = globalThis.performance.now()
+  const now = rhythmUsesMusicClock.value
+    ? (rhythmAudio?.currentTime ?? 0) * 1000
+    : globalThis.performance.now()
   finishRhythmRound(rhythmGameState.value, now, 'MANUAL')
   stopRhythmAudio()
   toResult()
@@ -778,15 +725,6 @@ function stopRhythmGame() {
     globalThis.cancelAnimationFrame(rhythmRafHandle)
     rhythmRafHandle = undefined
   }
-  if (rhythmStartCountdownTimer !== undefined) {
-    globalThis.clearInterval(rhythmStartCountdownTimer)
-    rhythmStartCountdownTimer = undefined
-  }
-  if (rhythmAudioStartTimer !== undefined) {
-    globalThis.clearTimeout(rhythmAudioStartTimer)
-    rhythmAudioStartTimer = undefined
-  }
-  isRhythmStartCountdownOpen.value = false
   unsubscribeRhythmEvents?.()
   unsubscribeRhythmEvents = undefined
   clearRhythmFeedback()
@@ -818,13 +756,9 @@ const airGameState = ref<AirHockeyState>(makeInitialAirHockeyState())
 const isAirVsAi = computed(() => mode.value === 'ai')
 const airOpponentScore = ref(0)
 const airOpponentSynced = ref(false)
-// 멀티플레이 퍽 권위자(host). 두 참가자 키 중 사전순으로 작은 쪽을 호스트로 정한다(양쪽이 동일하게
-// 결정). 호스트만 퍽을 시뮬레이션·득점하고 상대에게 브로드캐스트하며, 비호스트는 받은 퍽을 렌더한다.
-const airIsHost = ref(false)
-const airRunsPuck = computed(() => isAirVsAi.value || airIsHost.value)
 const airMyScore = computed(() => airGameState.value.bottom.score)
 const airOpponentDisplayScore = computed(() =>
-  airRunsPuck.value ? airGameState.value.top.score : airOpponentScore.value,
+  isAirVsAi.value ? airGameState.value.top.score : airOpponentScore.value,
 )
 const airTimeLabel = computed(() => {
   const totalSeconds = Math.max(
@@ -841,17 +775,7 @@ let airLastFrameAt: number | undefined
 let airLastMoveSentAt = 0
 
 const airGameSession = useGameSessionSocket({
-  onSessionState: (state) => {
-    updateOpponentNickname(state)
-    // 두 참가자 키 중 사전순 최솟값을 호스트로 정한다(양쪽 클라이언트가 동일한 결론).
-    const myKey = currentParticipantKey()
-    const keys = state.participants
-      .map((participant) => participant.participantKey)
-      .filter((key): key is string => Boolean(key))
-    if (myKey && keys.length >= 2) {
-      airIsHost.value = keys.every((key) => key === myKey || myKey < key)
-    }
-  },
+  onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
     if (event.eventType === 'GAME_OVER') {
       opponentFinished = true
@@ -863,13 +787,7 @@ const airGameSession = useGameSessionSocket({
       return
     }
     if (event.eventType === 'AIR_HOCKEY_ACTION') {
-      // 비호스트가 보낸 타격. 호스트가 상대(top) 말렛으로 반영해 권위 퍽에 적용한다.
       applyStrike(airGameState.value, 'top', globalThis.performance.now())
-      return
-    }
-    if (event.eventType === 'AIR_HOCKEY_PUCK') {
-      // 호스트가 보낸 권위 퍽. 비호스트는 자기 시점(하단=나)으로 Y를 미러링해 렌더한다.
-      applyAuthoritativePuck(event.payload ?? {})
       return
     }
     if (event.eventType === 'AIR_HOCKEY_SCORE') {
@@ -880,30 +798,6 @@ const airGameSession = useGameSessionSocket({
   },
   onParticipantLeft: handleOpponentLeft,
 })
-
-/** 호스트가 보낸 권위 퍽 스냅샷을 비호스트 시점(Y 미러링)으로 적용한다. 점수도 호스트 기준으로 맞춘다. */
-function applyAuthoritativePuck(payload: Record<string, unknown>): void {
-  const state = airGameState.value
-  const x = Number(payload.x)
-  const y = Number(payload.y)
-  const vx = Number(payload.vx)
-  const vy = Number(payload.vy)
-  if (Number.isFinite(x)) state.puck.x = x
-  if (Number.isFinite(y)) state.puck.y = AIR_HOCKEY_HEIGHT - y
-  if (Number.isFinite(vx)) state.puck.vx = vx
-  if (Number.isFinite(vy)) state.puck.vy = -vy
-  state.puck.held = Boolean(payload.held)
-  state.server = payload.server === 'bottom' ? 'top' : 'bottom'
-  // 호스트 프레임 기준 bottom=호스트 득점, top=비호스트(나) 득점 → 미러링해 매핑한다.
-  const bottomScore = Number(payload.bottomScore)
-  const topScore = Number(payload.topScore)
-  if (Number.isFinite(topScore)) state.bottom.score = topScore
-  if (Number.isFinite(bottomScore)) {
-    state.top.score = bottomScore
-    airOpponentScore.value = bottomScore
-  }
-  airOpponentSynced.value = true
-}
 
 async function initAirHockeyGame() {
   if (calibrationStore.eyeProfile) {
@@ -939,13 +833,8 @@ async function initAirHockeyGame() {
       event.type === 'FAST_BLINK' ||
       event.type === 'DOUBLE_BLINK'
     ) {
-      // 퍽을 시뮬하는 쪽(AI 모드 또는 호스트)만 로컬에서 타격을 적용한다.
-      // 비호스트는 호스트에게 타격을 알려 호스트의 상대(top) 말렛으로 반영시킨다(권위 퍽에만 적용).
-      if (airRunsPuck.value) {
-        applyStrike(airGameState.value, 'bottom', event.occurredAt)
-      } else {
-        airGameSession.sendPlayerEvent('AIR_HOCKEY_ACTION')
-      }
+      applyStrike(airGameState.value, 'bottom', event.occurredAt)
+      if (!isAirVsAi.value) airGameSession.sendPlayerEvent('AIR_HOCKEY_ACTION')
     }
   })
 
@@ -1043,8 +932,12 @@ function updateAirPuckPhysics(dt: number, now: number) {
     )
     state.puck.vy *= -1
   } else if (goalResult === 'top' || goalResult === 'bottom') {
-    // 퍽을 시뮬하는 쪽(AI/호스트)만 득점을 판정한다. 멀티 점수는 매 프레임 AIR_HOCKEY_PUCK로 함께 보낸다.
     scoreGoal(state, goalResult, now)
+    if (goalResult === 'bottom' && !isAirVsAi.value) {
+      airGameSession.sendPlayerEvent('AIR_HOCKEY_SCORE', {
+        score: state.bottom.score,
+      })
+    }
     return
   }
 
@@ -1180,10 +1073,7 @@ function runAirHockeyLoop() {
     updateAirAiTarget(dt)
     updateAirMallet(airGameState.value.bottom, now)
     updateAirMallet(airGameState.value.top, now)
-    // 퍽은 권위자(AI 모드 또는 멀티 호스트)만 시뮬·득점한다. 비호스트는 AIR_HOCKEY_PUCK로 받은 퍽을 렌더만 한다.
-    if (airRunsPuck.value) {
-      updateAirPuckPhysics(dt, now)
-    }
+    updateAirPuckPhysics(dt, now)
 
     if (
       !isAirVsAi.value &&
@@ -1192,21 +1082,6 @@ function runAirHockeyLoop() {
       airLastMoveSentAt = now
       airGameSession.sendPlayerEvent('AIR_HOCKEY_MOVE', {
         targetX: airGameState.value.bottom.targetX,
-      })
-    }
-
-    // 호스트는 권위 퍽 상태와 양쪽 점수를 매 프레임 비호스트에게 보낸다(호스트 좌표 기준).
-    if (!isAirVsAi.value && airIsHost.value) {
-      const puck = airGameState.value.puck
-      airGameSession.sendPlayerEvent('AIR_HOCKEY_PUCK', {
-        x: puck.x,
-        y: puck.y,
-        vx: puck.vx,
-        vy: puck.vy,
-        held: puck.held,
-        server: airGameState.value.server,
-        bottomScore: airGameState.value.bottom.score,
-        topScore: airGameState.value.top.score,
       })
     }
 
@@ -1275,12 +1150,6 @@ function finishReplayCountdown() {
 
 function openReplayCountdown() {
   clearReplayCountdown()
-  // 리듬은 게임 화면 안에서 자체 카운트다운을 하므로, 다시하기도 리플레이 카운트다운을 건너뛰고
-  // 바로 시작한다(게임 안 3·2·1이 대신 뜬다).
-  if (game.value?.id === 'rhythm') {
-    finishReplayCountdown()
-    return
-  }
   replayCountdown.value = 3
   isReplayCountdownOpen.value = true
   replayCountdownTimer = globalThis.setInterval(() => {
@@ -1637,10 +1506,9 @@ function recordAirHockeyResult() {
       (AIR_HOCKEY_MATCH_DURATION_MS - airGameState.value.remainingMs) / 1000,
     ),
   )
-  const opponentKnown = airRunsPuck.value || airOpponentSynced.value
   const outcome: LastGameOutcome = isAirVsAi.value
     ? resolveAirHockeyAiOutcome()
-    : !opponentKnown
+    : !airOpponentSynced.value
       ? 'UNKNOWN'
       : myScore > opponentScore
         ? 'WIN'
@@ -1655,7 +1523,10 @@ function recordAirHockeyResult() {
     outcome,
     scoreLabel: '득점',
     score: `${myScore}`,
-    opponentScore: opponentKnown ? `${opponentScore}` : undefined,
+    opponentScore:
+      isAirVsAi.value || airOpponentSynced.value
+        ? `${opponentScore}`
+        : undefined,
     headline:
       outcome === 'WIN'
         ? '승리!'
@@ -2154,13 +2025,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     :dismissible="false"
   />
 
-  <GameStartCountdownModal
-    :open="isRhythmStartCountdownOpen"
-    :countdown="rhythmStartCountdown"
-    countdown-label="리듬 게임 시작 카운트다운"
-    :dismissible="false"
-  />
-
   <GamePlayShell
     v-if="game && session"
     :title="game.id === 'draw' ? '눈으로 그리기' : displayTitle"
@@ -2498,7 +2362,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             ><progress :value="rhythmProgressPercent" max="100" />
           </div>
           <div
-            ref="rhythmStageRef"
             class="rhythm-stage"
             :class="{
               'rhythm-stage--feedback': rhythmFeedback !== null,
@@ -2612,7 +2475,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             </span>
             <span class="rhythm-accuracy-badge"
               >정확도 {{ rhythmAccuracyPercent }}%</span
-            ><span v-if="rhythmHasMusic" class="rhythm-music-badge"
+            ><span v-if="rhythmUsesMusicClock" class="rhythm-music-badge"
               >🎵 실제 음악</span
             >
           </div>
@@ -2997,13 +2860,28 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         ><div
           v-if="drawScoreOpen"
           class="score-backdrop"
-          @click.self="advanceDrawRound"
+          @click.self="drawScoreOpen = false"
         >
           <section
             role="dialog"
             aria-modal="true"
             aria-labelledby="draw-score-title"
           >
+            <button
+              class="dialog-close"
+              type="button"
+              aria-label="채점 결과 닫기"
+              @click="drawScoreOpen = false"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
             <header class="draw-score-heading">
               <div>
                 <p class="eyebrow">AI 채점 결과</p>
@@ -5631,6 +5509,29 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 .dialog-action svg {
   width: 18px;
   height: 18px;
+}
+.dialog-close {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  color: #27345e;
+  background: transparent;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+.dialog-close svg {
+  width: 20px;
+  height: 20px;
+}
+.dialog-close:hover {
+  background: var(--color-surface-soft);
 }
 .missing {
   padding: 60px;
