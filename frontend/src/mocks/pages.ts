@@ -491,7 +491,7 @@ export const communityGroups: CommunityGroup[] = [
   {
     id: 'night-owls',
     name: '야간 눈 건강 연구소',
-    description: '늦은 시간에도 즐겁게 게임하고 기록을 나누는 소모임',
+    description: '늦은 시간에도 즐겁게 게임하고 기록을 나누는 길드',
     image: teamworkImage,
     members: 18,
     capacity: 24,

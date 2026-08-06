@@ -8,14 +8,14 @@ import jakarta.validation.constraints.Size;
 import org.ssafy.b102.backend.group.entity.GroupVisibility;
 
 /**
- * 소모임 생성 요청.
+ * 길드 생성 요청.
  *
  * <p>{@code capacity}는 선택이며, 없으면 서비스에서 기본값(50)을 적용한다.
  */
 public record GroupCreateRequest(
 
-	@NotBlank(message = "소모임 이름은 필수입니다.")
-	@Size(max = 50, message = "소모임 이름은 50자 이하여야 합니다.")
+	@NotBlank(message = "길드 이름은 필수입니다.")
+	@Size(max = 50, message = "길드 이름은 50자 이하여야 합니다.")
 	String name,
 
 	@Size(max = 255, message = "소개는 255자 이하여야 합니다.")

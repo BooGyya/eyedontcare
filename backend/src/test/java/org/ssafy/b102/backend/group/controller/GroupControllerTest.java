@@ -44,7 +44,7 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 소모임을_생성하면_201과_방장정보를_반환한다() throws Exception {
+	void 길드를_생성하면_201과_방장정보를_반환한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.groupResponse = new GroupResponse(
 			10L, "모임", "소개", 1, 30, GroupVisibility.PUBLIC,
@@ -109,7 +109,7 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 내_소모임을_조회한다() throws Exception {
+	void 내_길드를_조회한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.myListResponse = new MyGroupListResponse(List.of(
 			new GroupResponse(
@@ -144,7 +144,7 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 없는_소모임_상세는_404_GROUP_001이다() throws Exception {
+	void 없는_길드_상세는_404_GROUP_001이다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.toThrow = new BusinessException(GroupErrorCode.GROUP_NOT_FOUND);
 
@@ -175,7 +175,7 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 공개_소모임에_id로_입장한다() throws Exception {
+	void 공개_길드에_id로_입장한다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.groupResponse = new GroupResponse(
 			10L, "모임", null, 2, 30, GroupVisibility.PUBLIC,
@@ -193,7 +193,7 @@ class GroupControllerTest {
 	}
 
 	@Test
-	void 비공개_소모임_id_입장은_403_GROUP_011이다() throws Exception {
+	void 비공개_길드_id_입장은_403_GROUP_011이다() throws Exception {
 		RecordingGroupService service = new RecordingGroupService();
 		service.toThrow =
 			new BusinessException(GroupErrorCode.PRIVATE_GROUP_REQUIRES_CODE);

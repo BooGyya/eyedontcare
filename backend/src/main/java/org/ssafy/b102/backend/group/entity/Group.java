@@ -12,7 +12,7 @@ import jakarta.persistence.UniqueConstraint;
 import org.ssafy.b102.backend.global.common.entity.BaseTimeEntity;
 
 /**
- * 소모임.
+ * 길드.
  *
  * <p>{@code owner_user_id}는 {@code users}를 논리 참조한다. 참가자 테이블과 동일하게
  * 사용자 도메인 제약은 걸지 않고 컬럼만 유지한다. 테이블명은 SQL 예약어 {@code GROUPS}를

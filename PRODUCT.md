@@ -23,7 +23,7 @@ web
 - 브라우저 + 웹캠 환경에서 플레이. 게임 시작 전 준비(Ready) 단계를 거쳐 플레이 → 결과 화면으로 이어진다.
 - 미니게임 5종이 라우트로 존재한다: `air`(Eye Hockey 에어 하키), `hold`(Eye See 눈싸움), `draw`(Eye Draw 눈으로 그리기), `rhythm`(Blink the Beat 리듬 게임), `blink`(Eye Show Speed 눈 깜빡이기).
 - 플레이 모드: 혼자하기(랭킹 반영), 친구와 대결(방 생성·초대코드 입장), 랜덤 매칭, 일부 게임은 AI 대결.
-- 주간 랭킹, 커뮤니티(소모임), 프로필, 알림, 설정 화면이 있다. 디스코드 연동·소모임 코드 입장은 "다음 단계 준비 예정"으로 명시된 미구현 기능이다.
+- 주간 랭킹, 커뮤니티(길드), 프로필, 알림, 설정 화면이 있다. 디스코드 연동·길드 코드 입장은 "다음 단계 준비 예정"으로 명시된 미구현 기능이다.
 - 팀 저장소는 SSAFY 프로젝트(S15P11B102) 구조로, 프론트엔드(`frontend/`)와 백엔드(`backend/`)가 분리되어 있고 Git 브랜치·커밋·PR 정책이 `docs/`에 문서화되어 있다.
 
 ## Capabilities and Constraints
@@ -37,7 +37,7 @@ web
 ## Brand Commitments
 
 - **web_prototype 디자인이 기준이다(사용자 확인, 구속력 있음).** 원본은 `C:\Users\SSAFY\Downloads\web_prototype`(index.html, styles.css, app.js, assets/)이며, 향후 디자인 작업은 이 프로토타입의 룩을 따른다.
-- 프로토타입 PNG 에셋은 `frontend/src/assets/images/`(brand/games/illustrations/profiles)에 복사되어 있다: 로고, 눈 마스코트, 게임별 카드·메인 이미지, 프로필 아바타 8종, 일러스트(팀워크·소모임·디스코드·카카오톡).
+- 프로토타입 PNG 에셋은 `frontend/src/assets/images/`(brand/games/illustrations/profiles)에 복사되어 있다: 로고, 눈 마스코트, 게임별 카드·메인 이미지, 프로필 아바타 8종, 일러스트(팀워크·길드·디스코드·카카오톡).
 - 서비스명: eye-dont-care (패키지명 기준). 화면 표기는 로고 에셋을 따른다.
 
 ## Evidence on Hand

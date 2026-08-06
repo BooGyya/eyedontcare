@@ -24,7 +24,7 @@ import org.ssafy.b102.backend.group.dto.response.GroupPostResponse;
 import org.ssafy.b102.backend.group.service.GroupBoardService;
 
 /**
- * 소모임 후기 게시판(글·댓글) API. 조회는 회원 인증만, 작성은 해당 소모임 가입자만 가능하고,
+ * 길드 후기 게시판(글·댓글) API. 조회는 회원 인증만, 작성은 해당 길드 가입자만 가능하고,
  * 댓글 수정·삭제는 그중에서도 작성자 본인만 가능하다.
  */
 @RestController

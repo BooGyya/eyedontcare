@@ -3,7 +3,7 @@ package org.ssafy.b102.backend.group.dto.response;
 import java.util.List;
 
 /**
- * 소모임 후기 게시판 목록. 최신 글이 먼저 온다.
+ * 길드 후기 게시판 목록. 최신 글이 먼저 온다.
  */
 public record GroupPostListResponse(
 	List<GroupPostResponse> posts

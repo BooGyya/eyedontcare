@@ -228,22 +228,22 @@ describe('CommunityDetailPage', () => {
     expect(getGroupPosts).not.toHaveBeenCalled()
   })
 
-  it('상세와 참여자 명단을 렌더한다', async () => {
+  it('상세와 길드원 명단을 렌더한다', async () => {
     const { wrapper } = await mountDetail()
 
     expect(getGroup).toHaveBeenCalled()
     expect(wrapper.text()).toContain('눈 건강 루틴 연구소')
-    expect(wrapper.text()).toContain('참여자 2명')
+    expect(wrapper.text()).toContain('길드원 2명')
     expect(wrapper.text()).toContain('나')
   })
 
-  it('참여 중 멤버는 나가기로 API를 부른다', async () => {
+  it('가입한 길드원은 나가기로 API를 부른다', async () => {
     const { wrapper } = await mountDetail()
 
     const leaveButton = wrapper
       .find('.community-detail__top-actions')
       .findAll('button')
-      .find((button) => button.text().includes('소모임 나가기'))
+      .find((button) => button.text().includes('길드 나가기'))
     expect(leaveButton).toBeDefined()
     await leaveButton!.trigger('click')
     await flushPromises()
@@ -251,7 +251,7 @@ describe('CommunityDetailPage', () => {
     expect(leaveGroup).toHaveBeenCalled()
   })
 
-  it('공개 소모임 미가입자에게는 우측 상단에 가입하기만 노출된다', async () => {
+  it('공개 길드 미가입자에게는 우측 상단에 가입하기만 노출된다', async () => {
     getGroup.mockResolvedValue(
       detail({ isJoined: false, isOwner: false, joinCode: null }),
     )
@@ -262,18 +262,18 @@ describe('CommunityDetailPage', () => {
     expect(topActions.findAll('button')).toHaveLength(1)
   })
 
-  it('참여자 명단에는 방장 대신 리더 라벨이 노출된다', async () => {
+  it('길드원 명단에는 방장 대신 리더 라벨이 노출된다', async () => {
     const { wrapper } = await mountDetail()
 
     expect(wrapper.text()).toContain('리더')
     expect(wrapper.text()).not.toContain('방장')
   })
 
-  it('뒤로가기 컨트롤에 소모임 목록으로가 노출된다', async () => {
+  it('뒤로가기 컨트롤에 길드 목록으로가 노출된다', async () => {
     const { wrapper } = await mountDetail()
 
     expect(wrapper.find('.community-detail__back').text()).toContain(
-      '소모임 목록으로',
+      '길드 목록으로',
     )
   })
 

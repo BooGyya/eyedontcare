@@ -5,7 +5,7 @@ import type { GroupResponse } from './group'
 function groupResponse(overrides: Partial<GroupResponse> = {}): GroupResponse {
   return {
     groupId: 1,
-    name: '테스트 소모임',
+    name: '테스트 길드',
     description: null,
     members: 1,
     capacity: 10,
