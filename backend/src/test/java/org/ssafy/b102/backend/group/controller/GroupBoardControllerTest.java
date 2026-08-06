@@ -44,7 +44,7 @@ class GroupBoardControllerTest {
 		RecordingBoardService service = new RecordingBoardService();
 		service.listResponse = new GroupPostListResponse(List.of(
 			new GroupPostResponse(
-				5L, "방장", true, "첫 후기", CREATED_AT,
+				5L, "방장", true, "첫 후기", CREATED_AT, false,
 				List.of(new GroupCommentResponse(
 					9L, "멤버", "좋아요", CREATED_AT, false)))
 		));
@@ -65,7 +65,7 @@ class GroupBoardControllerTest {
 	void 후기를_작성하면_201을_반환한다() throws Exception {
 		RecordingBoardService service = new RecordingBoardService();
 		service.postResponse = new GroupPostResponse(
-			5L, "나", false, "새 후기", CREATED_AT, List.of());
+			5L, "나", false, "새 후기", CREATED_AT, true, List.of());
 
 		mockMvc(service)
 			.perform(post("/api/v1/groups/{groupId}/posts", 10L)
@@ -184,6 +184,50 @@ class GroupBoardControllerTest {
 		assertThat(service.capturedCommentId).isEqualTo(9L);
 	}
 
+	@Test
+	void 본인_글을_수정하면_200을_반환한다() throws Exception {
+		RecordingBoardService service = new RecordingBoardService();
+		service.postResponse = new GroupPostResponse(
+			5L, "나", false, "수정한 후기", CREATED_AT, true, List.of());
+
+		mockMvc(service)
+			.perform(patch("/api/v1/groups/{groupId}/posts/{postId}", 10L, 5L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"content\":\"수정한 후기\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.code").value("GROUP_POST_UPDATE_SUCCESS"))
+			.andExpect(jsonPath("$.data.content").value("수정한 후기"))
+			.andExpect(jsonPath("$.data.mine").value(true));
+
+		assertThat(service.capturedPostId).isEqualTo(5L);
+		assertThat(service.capturedContent).isEqualTo("수정한 후기");
+	}
+
+	@Test
+	void 다른_사람의_글_수정은_403_GROUP_016이다() throws Exception {
+		RecordingBoardService service = new RecordingBoardService();
+		service.toThrow = new BusinessException(GroupErrorCode.POST_FORBIDDEN);
+
+		mockMvc(service)
+			.perform(patch("/api/v1/groups/{groupId}/posts/{postId}", 10L, 5L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"content\":\"수정 시도\"}"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("GROUP-016"));
+	}
+
+	@Test
+	void 본인_글을_삭제하면_200을_반환한다() throws Exception {
+		RecordingBoardService service = new RecordingBoardService();
+
+		mockMvc(service)
+			.perform(delete("/api/v1/groups/{groupId}/posts/{postId}", 10L, 5L))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.code").value("GROUP_POST_DELETE_SUCCESS"));
+
+		assertThat(service.capturedPostId).isEqualTo(5L);
+	}
+
 	private MockMvc mockMvc(GroupBoardService service) {
 		SecurityContextHolder.getContext().setAuthentication(
 			new UsernamePasswordAuthenticationToken(
@@ -246,6 +290,24 @@ class GroupBoardControllerTest {
 			this.capturedGroupId = groupId;
 			this.capturedContent = content;
 			return postResponse;
+		}
+
+		@Override
+		public GroupPostResponse updatePost(
+			Long userId, Long groupId, Long postId, String content
+		) {
+			maybeThrow();
+			this.capturedGroupId = groupId;
+			this.capturedPostId = postId;
+			this.capturedContent = content;
+			return postResponse;
+		}
+
+		@Override
+		public void deletePost(Long userId, Long groupId, Long postId) {
+			maybeThrow();
+			this.capturedGroupId = groupId;
+			this.capturedPostId = postId;
 		}
 
 		@Override

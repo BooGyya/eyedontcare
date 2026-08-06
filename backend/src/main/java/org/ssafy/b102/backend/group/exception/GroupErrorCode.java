@@ -93,6 +93,12 @@ public enum GroupErrorCode implements ErrorCode {
 		HttpStatus.FORBIDDEN,
 		"GROUP-015",
 		"본인이 작성한 댓글만 수정·삭제할 수 있습니다."
+	),
+
+	POST_FORBIDDEN(
+		HttpStatus.FORBIDDEN,
+		"GROUP-016",
+		"본인이 작성한 글만 수정·삭제할 수 있습니다."
 	);
 
 	private final HttpStatus status;

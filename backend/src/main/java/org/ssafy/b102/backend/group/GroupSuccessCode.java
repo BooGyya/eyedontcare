@@ -54,6 +54,16 @@ public enum GroupSuccessCode implements SuccessCode {
 		"후기를 작성했습니다."
 	),
 
+	GROUP_POST_UPDATE_SUCCESS(
+		"GROUP_POST_UPDATE_SUCCESS",
+		"후기를 수정했습니다."
+	),
+
+	GROUP_POST_DELETE_SUCCESS(
+		"GROUP_POST_DELETE_SUCCESS",
+		"후기를 삭제했습니다."
+	),
+
 	GROUP_COMMENT_CREATE_SUCCESS(
 		"GROUP_COMMENT_CREATE_SUCCESS",
 		"댓글을 작성했습니다."

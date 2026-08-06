@@ -18,6 +18,7 @@ import org.ssafy.b102.backend.group.GroupSuccessCode;
 import org.ssafy.b102.backend.group.dto.request.GroupCommentCreateRequest;
 import org.ssafy.b102.backend.group.dto.request.GroupCommentUpdateRequest;
 import org.ssafy.b102.backend.group.dto.request.GroupPostCreateRequest;
+import org.ssafy.b102.backend.group.dto.request.GroupPostUpdateRequest;
 import org.ssafy.b102.backend.group.dto.response.GroupCommentResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupPostListResponse;
 import org.ssafy.b102.backend.group.dto.response.GroupPostResponse;
@@ -25,7 +26,7 @@ import org.ssafy.b102.backend.group.service.GroupBoardService;
 
 /**
  * 길드 후기 게시판(글·댓글) API. 조회는 회원 인증만, 작성은 해당 길드 가입자만 가능하고,
- * 댓글 수정·삭제는 그중에서도 작성자 본인만 가능하다.
+ * 글·댓글의 수정·삭제는 그중에서도 작성자 본인만 가능하다.
  */
 @RestController
 @RequestMapping("/api/v1/groups/{groupId}")
@@ -69,6 +70,40 @@ public class GroupBoardController {
 				GroupSuccessCode.GROUP_POST_CREATE_SUCCESS,
 				response
 			));
+	}
+
+	@PatchMapping("/posts/{postId}")
+	public ResponseEntity<ApiResponse<GroupPostResponse>> updatePost(
+		@AuthenticationPrincipal AuthenticatedUser member,
+		@PathVariable Long groupId,
+		@PathVariable Long postId,
+		@Valid @RequestBody GroupPostUpdateRequest request
+	) {
+		GroupPostResponse response = groupBoardService.updatePost(
+			member.userId(),
+			groupId,
+			postId,
+			request.content()
+		);
+
+		return ResponseEntity.ok(ApiResponse.success(
+			GroupSuccessCode.GROUP_POST_UPDATE_SUCCESS,
+			response
+		));
+	}
+
+	@DeleteMapping("/posts/{postId}")
+	public ResponseEntity<ApiResponse<Void>> deletePost(
+		@AuthenticationPrincipal AuthenticatedUser member,
+		@PathVariable Long groupId,
+		@PathVariable Long postId
+	) {
+		groupBoardService.deletePost(member.userId(), groupId, postId);
+
+		return ResponseEntity.ok(ApiResponse.success(
+			GroupSuccessCode.GROUP_POST_DELETE_SUCCESS,
+			null
+		));
 	}
 
 	@PostMapping("/posts/{postId}/comments")

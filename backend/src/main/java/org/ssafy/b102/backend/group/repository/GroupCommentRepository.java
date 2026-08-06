@@ -11,4 +11,6 @@ public interface GroupCommentRepository
 	List<GroupComment> findByPostIdInOrderByCreatedAtAsc(
 		Collection<Long> postIds
 	);
+
+	void deleteByPostId(Long postId);
 }
