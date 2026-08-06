@@ -2936,7 +2936,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         ><div
           v-if="drawScoreOpen"
           class="score-backdrop"
-          @click.self="drawScoreOpen = false"
+          @click.self="advanceDrawRound"
         >
           <section
             role="dialog"
@@ -2947,7 +2947,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
               class="dialog-close"
               type="button"
               aria-label="채점 결과 닫기"
-              @click="drawScoreOpen = false"
+              @click="advanceDrawRound"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
