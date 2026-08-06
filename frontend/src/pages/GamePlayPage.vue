@@ -672,8 +672,11 @@ async function initRhythmGame() {
   })
 
   await prepareRhythmBeatmap()
-  // 게임 화면을 먼저 보이게 스크롤한 뒤 3·2·1 카운트다운, 그 다음에 라운드를 시작한다.
-  await runRhythmStartCountdown()
+  // 멀티플레이는 준비방의 서버 카운트다운으로 양쪽 시작 시점을 맞추므로 게임 안에서 또 세지 않는다.
+  // 솔로(다시하기 포함)는 준비방 카운트다운을 생략하고 여기 게임 화면 안에서만 3·2·1 후 시작한다.
+  if (!isMultiplayerMode.value) {
+    await runRhythmStartCountdown()
+  }
   beginRhythmRound()
 }
 
@@ -1209,6 +1212,12 @@ function finishReplayCountdown() {
 
 function openReplayCountdown() {
   clearReplayCountdown()
+  // 리듬은 게임 화면 안에서 자체 카운트다운을 하므로, 다시하기도 리플레이 카운트다운을 건너뛰고
+  // 바로 시작한다(게임 안 3·2·1이 대신 뜬다).
+  if (game.value?.id === 'rhythm') {
+    finishReplayCountdown()
+    return
+  }
   replayCountdown.value = 3
   isReplayCountdownOpen.value = true
   replayCountdownTimer = globalThis.setInterval(() => {
