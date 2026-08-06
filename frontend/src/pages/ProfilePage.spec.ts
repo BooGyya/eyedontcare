@@ -63,11 +63,12 @@ const RESULT_DETAIL = {
   difficulty: null,
   startedAt: '2026-07-24T09:00:00Z',
   endedAt: '2026-07-24T09:03:00Z',
+  mySlotNo: 1,
   participants: [
-    { slotNo: 1, participantType: 'USER', displayName: '나', outcome: 'WIN', rank: 1 },
-    { slotNo: 2, participantType: 'USER', displayName: '상대', outcome: 'LOSE', rank: 2 },
+    { slotNo: 1, participantType: 'USER', displayName: '나', outcome: 'WIN', rank: 1, score: 180 },
+    { slotNo: 2, participantType: 'USER', displayName: '상대', outcome: 'LOSE', rank: 2, score: 150 },
   ],
-  gameResult: { '1': { survivalTimeMs: 180000 } },
+  gameResult: { '1': { score: 180 }, '2': { score: 150 } },
 }
 
 function memberUser(overrides: Partial<AuthUser> = {}): AuthUser {
@@ -136,7 +137,14 @@ describe('ProfilePage', () => {
     expect(wrapper.text()).toContain(profileData.nickname)
     expect(wrapper.text()).toContain('최근 경기 기록')
     expect(wrapper.findAll('.profile-page__records li')).toHaveLength(3)
-    expect(wrapper.text()).toContain('눈싸움에서 1위로 승리했어요.')
+    // 1:1 승부 게임: 순위 없이 승패만.
+    expect(wrapper.text()).toContain('눈싸움에서 승리했어요.')
+    // 그리기(전 모드)·혼자하기 게임은 결과와 무관하게 '완료'로 표시.
+    expect(wrapper.text()).toContain('눈으로 그리기를 완료했어요.')
+    expect(wrapper.text()).toContain('눈 깜빡이기를 완료했어요.')
+    // 1:1이라 순위(위)는 어디에도 노출하지 않는다.
+    expect(wrapper.text()).not.toContain('위로 승리')
+    expect(wrapper.find('.profile-page__records').text()).not.toMatch(/\d위/)
   })
 
   it('prompts guests to log in for game records', async () => {

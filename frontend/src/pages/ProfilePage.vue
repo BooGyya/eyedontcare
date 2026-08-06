@@ -10,12 +10,14 @@ import { getMyResults, getResult } from '../api/gameResult'
 import { ApiError } from '../api/http'
 import { isValidPassword, PASSWORD_POLICY_MESSAGE } from '../utils/password'
 import { GAME_DISPLAY_NAME } from '../types/waitingRoom'
+import type { GameName } from '../types/waitingRoom'
 import type { ProfileImageCode } from '../types/auth'
 import type {
   GameOutcome,
   GameResultDetailResponse,
   GameResultPlayMode,
   MyGameResult,
+  ParticipantResult,
 } from '../types/gameResult'
 
 /** 백엔드 닉네임 규칙: 공백 없이 한글/영문/숫자 2~10자. */
@@ -145,28 +147,114 @@ function getOutcomeLabel(outcome: GameOutcome) {
   }[outcome]
 }
 
+// 한글 받침 유무로 목적격 조사(을/를)를 고른다. 받침 없거나 한글이 아니면 '를'.
+function objectParticle(word: string): string {
+  const last = word.charCodeAt(word.length - 1)
+  const hasFinalConsonant =
+    last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0
+  return hasFinalConsonant ? '을' : '를'
+}
+
+// "완료"로 표시할 게임: 눈으로 그리기(전 모드) + 눈 깜빡이기·눈싸움·리듬의 혼자하기(SOLO).
+// 그 외(멀티/AI, 에어하키 등)는 승리/패배로 표시한다. (1:1이라 순위는 쓰지 않는다.)
+const SOLO_COMPLETION_GAMES = new Set<GameName>(['BLINK', 'EYEFIGHT', 'RHYTHM'])
+
+function isCompletionRecord(
+  gameName: GameName,
+  playMode: GameResultPlayMode,
+): boolean {
+  if (gameName === 'DRAWING') return true
+  return SOLO_COMPLETION_GAMES.has(gameName) && playMode === 'SOLO'
+}
+
+/** 표시용 결과. 완료 게임은 승패 대신 항상 '완료'로 보여준다. */
+function displayOutcome(
+  gameName: GameName,
+  playMode: GameResultPlayMode,
+  outcome: GameOutcome,
+): GameOutcome {
+  return isCompletionRecord(gameName, playMode) ? 'COMPLETED' : outcome
+}
+
 function getSummary(record: MyGameResult) {
   const name = GAME_DISPLAY_NAME[record.gameName]
+  const outcome = displayOutcome(
+    record.gameName,
+    record.playMode,
+    record.myOutcome,
+  )
 
-  if (record.myOutcome === 'COMPLETED') {
-    return `${name}를 완료했어요.`
+  if (outcome === 'COMPLETED') {
+    return `${name}${objectParticle(name)} 완료했어요.`
   }
-  if (record.myOutcome === 'WIN') {
-    return `${name}에서 ${record.myRank}위로 승리했어요.`
+  if (outcome === 'WIN') {
+    return `${name}에서 승리했어요.`
   }
-  return `${name}에서 ${record.myRank}위를 기록했어요.`
+  if (outcome === 'LOSE') {
+    return `${name}에서 패배했어요.`
+  }
+  return `${name}에서 무승부를 기록했어요.`
 }
 
-/** 게임별 gameResult JSON에서 생존 시간(ms)을 방어적으로 찾아 반환한다. 없으면 null. */
-function survivalTimeMs(detail: GameResultDetailResponse): number | null {
-  for (const value of Object.values(detail.gameResult)) {
-    if (value && typeof value === 'object' && 'survivalTimeMs' in value) {
-      const ms = (value as { survivalTimeMs?: unknown }).survivalTimeMs
-      if (typeof ms === 'number') return ms
-    }
-  }
-  return null
+/** 목록 행에 표시할 결과(완료/승리/패배/무승부). 아이콘·배지에 공통으로 쓴다. */
+function recordOutcome(record: MyGameResult): GameOutcome {
+  return displayOutcome(record.gameName, record.playMode, record.myOutcome)
 }
+
+/** 상세 모달에서 표시할 내 결과(완료 게임은 '완료'). */
+const detailOutcome = computed<GameOutcome>(() => {
+  const record = selectedRecord.value
+  if (!record) return selectedMyOutcome.value
+  return displayOutcome(
+    record.gameName,
+    record.playMode,
+    selectedMyOutcome.value,
+  )
+})
+
+// 상세 응답에서 내 참가자. mySlotNo로 찾고, 없으면(구버전 응답) 결과·순위가 맞는
+// 참가자 → 첫 참가자 순으로 추정한다.
+const myDetailParticipant = computed<ParticipantResult | null>(() => {
+  const record = selectedRecord.value
+  if (!record) return null
+  const bySlot = record.participants.find((p) => p.slotNo === record.mySlotNo)
+  if (bySlot) return bySlot
+  const byOutcome = record.participants.find(
+    (p) =>
+      p.outcome === selectedMyOutcome.value && p.rank === selectedMyRank.value,
+  )
+  return byOutcome ?? record.participants[0] ?? null
+})
+
+const isDetailAirHockey = computed(
+  () => selectedRecord.value?.gameName === 'HOCKEY',
+)
+
+// 승패/완료 문구 하단 점수. 에어하키는 점수 없이 플레이 시간만 보여주므로 null,
+// 그 외 게임은 랭킹에 반영하는 점수를 게임별 형식으로 보여준다.
+const myRankingScore = computed<{ label: string; value: string } | null>(() => {
+  const record = selectedRecord.value
+  if (!record || isDetailAirHockey.value) return null
+  const score = myDetailParticipant.value?.score
+  if (score === null || score === undefined) return null
+  if (record.gameName === 'EYEFIGHT') {
+    return { label: '생존 시간', value: formatDuration(score * 1000) }
+  }
+  return { label: '점수', value: `${score}점` }
+})
+
+// 나와 함께 플레이한 상대 목록(친구 초대·랜덤 매칭에서만, 나 자신 제외).
+const isSharedMatch = computed(
+  () =>
+    selectedRecord.value?.playMode === 'INVITE' ||
+    selectedRecord.value?.playMode === 'RANDOM',
+)
+const otherParticipants = computed<ParticipantResult[]>(() => {
+  const record = selectedRecord.value
+  if (!record) return []
+  const mySlot = myDetailParticipant.value?.slotNo
+  return record.participants.filter((p) => p.slotNo !== mySlot)
+})
 
 async function loadRecords() {
   if (!auth.isAuthenticated || auth.user.id === null) {
@@ -534,11 +622,11 @@ async function handleConfirmWithdraw() {
           @keydown="handleRecordKeydown(record, $event)"
         >
           <span
-            :class="`profile-page__record-icon--${record.myOutcome.toLowerCase()}`"
+            :class="`profile-page__record-icon--${recordOutcome(record).toLowerCase()}`"
             aria-hidden="true"
           >
             <svg
-              v-if="record.myOutcome === 'WIN'"
+              v-if="recordOutcome(record) === 'WIN'"
               viewBox="0 0 20 20"
               fill="none"
             >
@@ -563,7 +651,7 @@ async function handleConfirmWithdraw() {
               />
             </svg>
             <svg
-              v-else-if="record.myOutcome === 'LOSE'"
+              v-else-if="recordOutcome(record) === 'LOSE'"
               viewBox="0 0 20 20"
               fill="none"
             >
@@ -582,7 +670,7 @@ async function handleConfirmWithdraw() {
               />
             </svg>
             <svg
-              v-else-if="record.myOutcome === 'DRAW'"
+              v-else-if="recordOutcome(record) === 'DRAW'"
               viewBox="0 0 20 20"
               fill="none"
             >
@@ -625,7 +713,7 @@ async function handleConfirmWithdraw() {
               {{ formatStartedAt(record.playedAt) }}</small
             >
           </p>
-          <strong>{{ record.myRank }}위</strong>
+          <strong>{{ getOutcomeLabel(recordOutcome(record)) }}</strong>
           <span class="profile-page__record-arrow" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none">
               <path
@@ -754,11 +842,11 @@ async function handleConfirmWithdraw() {
           </header>
           <div class="game-result-modal__outcome">
             <span
-              :class="`profile-page__record-icon--${selectedMyOutcome.toLowerCase()}`"
+              :class="`profile-page__record-icon--${detailOutcome.toLowerCase()}`"
               aria-hidden="true"
             >
               <svg
-                v-if="selectedMyOutcome === 'WIN'"
+                v-if="detailOutcome === 'WIN'"
                 viewBox="0 0 20 20"
                 fill="none"
               >
@@ -783,7 +871,7 @@ async function handleConfirmWithdraw() {
                 />
               </svg>
               <svg
-                v-else-if="selectedMyOutcome === 'LOSE'"
+                v-else-if="detailOutcome === 'LOSE'"
                 viewBox="0 0 20 20"
                 fill="none"
               >
@@ -802,7 +890,7 @@ async function handleConfirmWithdraw() {
                 />
               </svg>
               <svg
-                v-else-if="selectedMyOutcome === 'DRAW'"
+                v-else-if="detailOutcome === 'DRAW'"
                 viewBox="0 0 20 20"
                 fill="none"
               >
@@ -838,17 +926,12 @@ async function handleConfirmWithdraw() {
                 />
               </svg>
             </span>
-            <strong
-              >{{ getOutcomeLabel(selectedMyOutcome) }} ·
-              {{ selectedMyRank }}위</strong
-            >
+            <strong>{{ getOutcomeLabel(detailOutcome) }}</strong>
           </div>
           <div class="game-result-modal__stats">
-            <article v-if="survivalTimeMs(selectedRecord) !== null">
-              <span>생존 시간</span
-              ><strong>{{
-                formatDuration(survivalTimeMs(selectedRecord) ?? 0)
-              }}</strong>
+            <article v-if="myRankingScore">
+              <span>{{ myRankingScore.label }}</span
+              ><strong>{{ myRankingScore.value }}</strong>
             </article>
             <article>
               <span>플레이 시간</span
@@ -857,15 +940,17 @@ async function handleConfirmWithdraw() {
               }}</strong>
             </article>
           </div>
-          <div class="game-result-modal__participants">
-            <div><span>플레이어</span><span>결과</span><span>순위</span></div>
+          <div
+            v-if="isSharedMatch && otherParticipants.length"
+            class="game-result-modal__participants"
+          >
+            <div><span>함께한 플레이어</span><span>결과</span></div>
             <div
-              v-for="participant in selectedRecord.participants"
+              v-for="participant in otherParticipants"
               :key="participant.slotNo"
             >
               <b>{{ participant.displayName }}</b
-              ><span>{{ getOutcomeLabel(participant.outcome) }}</span
-              ><span>{{ participant.rank }}위</span>
+              ><span>{{ getOutcomeLabel(participant.outcome) }}</span>
             </div>
           </div>
           <button
@@ -1492,7 +1577,7 @@ async function handleConfirmWithdraw() {
 }
 .game-result-modal__participants > div {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(2, 0.7fr);
+  grid-template-columns: minmax(0, 1.6fr) 0.9fr;
   gap: 8px;
   padding: 11px 4px;
   border-bottom: 1px solid var(--color-line);

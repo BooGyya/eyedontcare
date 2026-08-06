@@ -92,9 +92,11 @@ class GameResultQueryControllerTest {
 			.andExpect(jsonPath("$.message").value("경기 기록을 조회했습니다."))
 			.andExpect(jsonPath("$.data.resultId").value(RESULT_ID))
 			.andExpect(jsonPath("$.data.gameName").value("HOCKEY"))
+			.andExpect(jsonPath("$.data.mySlotNo").value(1))
 			.andExpect(jsonPath("$.data.participants[0].slotNo").value(1))
 			.andExpect(jsonPath("$.data.participants[0].participantType").value("USER"))
 			.andExpect(jsonPath("$.data.participants[0].displayName").value("A"))
+			.andExpect(jsonPath("$.data.participants[0].score").value(5))
 			.andExpect(jsonPath("$.data.gameResult.durationMs").value(60000));
 	}
 
@@ -177,9 +179,10 @@ class GameResultQueryControllerTest {
 				null,
 				Instant.parse("2026-07-28T09:00:00Z"),
 				PLAYED_AT,
+				1,
 				List.of(
-					new ParticipantResultResponse(1, ParticipantType.USER, "A", Outcome.WIN, 1),
-					new ParticipantResultResponse(2, ParticipantType.USER, "B", Outcome.LOSE, 2)
+					new ParticipantResultResponse(1, ParticipantType.USER, "A", Outcome.WIN, 1, 5L),
+					new ParticipantResultResponse(2, ParticipantType.USER, "B", Outcome.LOSE, 2, 3L)
 				),
 				Map.of("durationMs", 60000)
 			);

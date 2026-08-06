@@ -23,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.ssafy.b102.backend.global.error.BusinessException;
 import org.ssafy.b102.backend.group.dto.request.GroupCreateRequest;
 import org.ssafy.b102.backend.group.dto.response.GroupDetailResponse;
@@ -189,7 +190,9 @@ class GroupServiceTest {
 			4
 		);
 		when(groupRepository.findByNameContaining(
-			eq("모임"), eq(PageRequest.of(1, 2))
+			eq("모임"),
+			eq(PageRequest.of(
+				1, 2, Sort.by(Sort.Direction.DESC, "createdAt")))
 		)).thenReturn(page);
 		when(groupMemberRepository.findByUserIdOrderByJoinedAtAsc(MEMBER_ID))
 			.thenReturn(List.of());
