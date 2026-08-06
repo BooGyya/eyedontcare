@@ -241,12 +241,6 @@ const showPreparationUi = computed(
   () => !isFriendRoom.value || isInviteJoined.value,
 )
 
-// 서버 ROOM_STATE 기준 준비 현황(가이드의 "N/2명 준비 완료" 표시에 사용).
-const readyCount = computed(
-  () =>
-    waitingSocket.roomState.value?.participants.filter((p) => p.isReady)
-      .length ?? 0,
-)
 const participantCount = computed(
   () => waitingSocket.roomState.value?.participants.length ?? 2,
 )
@@ -373,27 +367,6 @@ const actionDisabled = computed(() => {
   if (isHost.value) return !canStartGame.value
   return !canMarkReady.value || isReady.value
 })
-const actionReason = computed(() => {
-  if (!isCameraConnected.value)
-    return '카메라 연결 후 다음 단계를 진행할 수 있어요.'
-  if (!isCalibrated.value)
-    return isHost.value
-      ? '게임을 시작하려면 캘리브레이션을 완료해 주세요.'
-      : '캘리브레이션을 완료하면 준비할 수 있어요.'
-  if (isHost.value)
-    return canStartGame.value
-      ? '모든 참가자가 준비되었어요.'
-      : `다른 참가자의 준비를 기다리고 있어요. ${readyCount.value}/${participantCount.value}명 준비 완료`
-  if (isRandomRoom.value && isReady.value)
-    return isOpponentReady.value
-      ? '모든 참가자가 준비되었어요. 잠시 후 게임이 시작됩니다.'
-      : '상대방의 준비를 기다리고 있어요.'
-  if (isFriendRoom.value && !isHost.value && isReady.value)
-    return '방장이 게임을 시작할 때까지 기다려 주세요.'
-  if (!isMultiplayer.value && isReady.value) return '준비가 완료되었습니다.'
-  return ''
-})
-
 function stopCameraStream() {
   // cameraStream은 eyeTracking.stream과 같은 MediaStream을 가리키므로, 트랙만 따로 멈추지 않고
   // eyeTracking.stop()으로 감지 루프까지 함께 정리한다(안 그러면 requestAnimationFrame 루프가
@@ -1853,7 +1826,6 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>{{ actionLabel }}</template>
         </button>
-        <p v-if="actionReason" class="action-reason">{{ actionReason }}</p>
       </article>
 
       <article
@@ -2575,7 +2547,6 @@ onBeforeUnmount(() => {
     transform: rotate(360deg);
   }
 }
-.action-reason,
 .ready-dialog-backdrop {
   position: fixed;
   z-index: 30;
