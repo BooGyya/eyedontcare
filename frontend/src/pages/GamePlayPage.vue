@@ -61,6 +61,7 @@ import {
   startDrawRound,
   tickDrawRoundTimer,
   type DrawStroke,
+  type VisionRecognition,
 } from '../lib/games/draw-core'
 import { recognizeDrawing } from '../api/draw'
 import {
@@ -1922,6 +1923,27 @@ function createDrawSubmissionImage(): string {
 
 async function submitDrawRound(source: string) {
   if (drawGameState.value.phase !== 'running') return
+
+  // 캔버스에 그려진 게 거의 없으면(스트로크가 없거나 점 하나뿐인 등) AI 호출 자체를 하지 않고
+  // 즉시 오답(0점) 처리한다 — 거의 빈 이미지를 GMS에 보내면 모델이 그래도 후보 중 하나를
+  // 억지로 골라 "정답"이라고 답하는 경우가 있어서(빈 캔버스인데 정답 처리되는 버그의 원인),
+  // 애초에 판정을 안 시키고 프론트에서 확정한다.
+  const hasEnoughInk = drawStrokes.some((stroke) => stroke.points.length >= 2)
+  if (!hasEnoughInk) {
+    beginJudging(drawGameState.value)
+    const emptyRecognition: VisionRecognition = {
+      label: '',
+      confidence: 0,
+      isTarget: false,
+      reason: '그림이 그려지지 않았어요.',
+      candidates: [...DRAWING_ALL_WORDS],
+    }
+    applyDrawRoundResult(drawGameState.value, emptyRecognition, '')
+    drawScoreOpen.value = true
+    void source
+    return
+  }
+
   // 제출은 스페이스 일시정지 상태(isDrawingActive)를 건드리지 않는다. 채점 중 그리기 입력은
   // phase가 'running'이 아니게 되어(beginJudging) 자연히 막힌다.
   beginJudging(drawGameState.value)
@@ -3099,7 +3121,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
                   {{
                     currentDrawResult.success
                       ? `정답입니다! ${currentDrawResult.prompt}을 맞혔어요!`
-                      : `AI는 "${currentDrawResult.aiGuess}"로 인식했어요. 다음엔 더 또렷하게 그려보세요!`
+                      : currentDrawResult.aiGuess
+                        ? `AI는 "${currentDrawResult.aiGuess}"로 인식했어요. 다음엔 더 또렷하게 그려보세요!`
+                        : '그림을 그리지 않고 제출했어요. 다음엔 그림을 그려서 제출해보세요!'
                   }}
                 </p>
               </section>
