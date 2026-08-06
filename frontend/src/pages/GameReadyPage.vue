@@ -410,15 +410,6 @@ function clearGameStartCountdown() {
 
 function openGameStartDialog() {
   clearGameStartCountdown()
-  // 리듬 게임은 게임 화면 안에서 자체 3·2·1 카운트다운을 하므로, 준비방에서는 카운트다운 없이 바로 이동한다.
-  if (game.value?.id === 'rhythm') {
-    router.push({
-      name: 'game-play',
-      params: { gameId: game.value.id },
-      query: route.query,
-    })
-    return
-  }
   countdown.value = 3
   isGameStartDialogOpen.value = true
 

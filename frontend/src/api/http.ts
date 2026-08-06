@@ -73,27 +73,11 @@ function buildHeaders(accessToken: string | null): Record<string, string> {
   return headers
 }
 
-// 진행 중인 재발급 하나를 공유한다. 부팅 시 여러 요청이 동시에 401을 받아도 재발급은 한 번만
-// 일어나게 해, refresh 토큰 회전(단일 사용) 중 옛 토큰으로 재발급을 시도하다 세션이 풀리는
-// 레이스를 막는다.
-let reissueInFlight: Promise<boolean> | null = null
-
 /**
- * refresh 토큰으로 access 토큰을 재발급한다. 이미 진행 중인 재발급이 있으면 그 결과를 공유한다
- * (single-flight). 성공하면 새 토큰이 저장돼 있다.
+ * refresh 토큰으로 access 토큰을 재발급한다. 성공하면 저장하고 true를 반환한다.
+ * 재발급 자체는 apiRequest를 다시 타지 않도록 fetch를 직접 쓴다(무한 재시도 방지).
  */
-function tryReissue(): Promise<boolean> {
-  if (reissueInFlight) return reissueInFlight
-  reissueInFlight = performReissue().finally(() => {
-    reissueInFlight = null
-  })
-  return reissueInFlight
-}
-
-/**
- * 실제 재발급. apiRequest를 다시 타지 않도록 fetch를 직접 쓴다(무한 재시도 방지).
- */
-async function performReissue(): Promise<boolean> {
+async function tryReissue(): Promise<boolean> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) return false
   try {
