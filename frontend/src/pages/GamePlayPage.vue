@@ -515,7 +515,8 @@ let unsubscribeRhythmEvents: (() => void) | undefined
 const RHYTHM_LEAD_IN_MS = 2000
 const isRhythmStartCountdownOpen = ref(false)
 const rhythmStartCountdown = ref(3)
-let rhythmStartCountdownTimer: ReturnType<typeof globalThis.setInterval> | undefined
+let rhythmStartCountdownTimer:
+  ReturnType<typeof globalThis.setInterval> | undefined
 let rhythmAudioStartTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 const rhythmStageRef = ref<globalThis.HTMLElement | null>(null)
 // vue-tsc가 템플릿 ref를 '사용'으로 인식하지 못해 noUnusedLocals에 걸리는 것을 막는다.
