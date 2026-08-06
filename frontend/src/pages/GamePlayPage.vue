@@ -510,6 +510,17 @@ const rhythmRightNotes = computed(() =>
 let rhythmRafHandle: number | undefined
 let unsubscribeRhythmEvents: (() => void) | undefined
 
+// 라운드 시작 후 첫 비트가 판정선에 닿기까지의 도입 시간(ms). 이 동안 비트가 오른쪽에서
+// 밀려 들어와 갑자기 생성되지 않는다. 음악 모드는 비트맵을 이만큼 미루고 오디오도 이만큼 늦게 재생한다.
+const RHYTHM_LEAD_IN_MS = 2000
+const isRhythmStartCountdownOpen = ref(false)
+const rhythmStartCountdown = ref(3)
+let rhythmStartCountdownTimer: ReturnType<typeof globalThis.setInterval> | undefined
+let rhythmAudioStartTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+const rhythmStageRef = ref<globalThis.HTMLElement | null>(null)
+// vue-tsc가 템플릿 ref를 '사용'으로 인식하지 못해 noUnusedLocals에 걸리는 것을 막는다.
+void rhythmStageRef
+
 function rhythmInputToLanes(input: RhythmInput | 'NONE'): RhythmLane[] {
   if (input === 'BOTH_EYES') return ['LEFT_EYE', 'RIGHT_EYE']
   if (input === 'LEFT_EYE' || input === 'RIGHT_EYE') return [input]
@@ -565,7 +576,7 @@ function noteLeftPercent(note: RhythmNote): number {
 const RHYTHM_AUDIO_URL = '/audio/ssafy.mp3'
 const rhythmIsAnalyzingAudio = ref(false)
 /** 오디오 재생이 실제로 성공했을 때만 true — true면 게임 시계를 audio.currentTime 기준으로 돌린다. */
-const rhythmUsesMusicClock = ref(false)
+const rhythmHasMusic = ref(false)
 let rhythmAudio: globalThis.HTMLAudioElement | undefined
 
 async function prepareRhythmBeatmap(): Promise<void> {
@@ -574,22 +585,28 @@ async function prepareRhythmBeatmap(): Promise<void> {
     const beatmap = await analyzeAudioUrlToBeatmap(RHYTHM_AUDIO_URL)
     if (beatmap.notes.length === 0) return // 분석은 됐지만 쓸 만한 비트가 없으면 랜덤 생성 폴백
 
+    // 모든 비트를 lead-in만큼 뒤로 밀어 곡 시작 직후 비트도 오른쪽에서 온전히 밀려 들어오게 한다.
+    // 오디오 재생도 라운드 시작 후 lead-in만큼 늦춰(beginRhythmRound) 소리와 비트를 맞춘다.
+    const shiftedEntries = beatmap.notes.map((entry) => ({
+      ...entry,
+      timeMs: entry.timeMs + RHYTHM_LEAD_IN_MS,
+    }))
     rhythmGameState.value = makeInitialRhythmState({
       // 기획 확정본 기준 제한 시간(30초)은 그대로 지킨다 — 곡이 더 길어도 30초를 넘는 노트는
       // rhythm-core의 generateBeatmapRhythmNotes가 자동으로 건너뛴다.
       durationMs: rhythmGameState.value.durationMs,
       bpm: beatmap.bpmEstimate || undefined,
-      beatmapEntries: beatmap.notes,
+      beatmapEntries: shiftedEntries,
     })
 
+    // 오디오는 여기서 만들되 재생은 카운트다운 뒤 lead-in에 맞춰 시작한다.
     const audio = new globalThis.Audio(RHYTHM_AUDIO_URL)
     audio.volume = 0.6
-    await audio.play()
     rhythmAudio = audio
-    rhythmUsesMusicClock.value = true
+    rhythmHasMusic.value = true
   } catch {
-    // 네트워크 실패, 디코딩 실패, 자동재생 차단(NotAllowedError) 등 — 조용히 랜덤 노트로 진행한다.
-    rhythmUsesMusicClock.value = false
+    // 네트워크 실패, 디코딩 실패 등 — 조용히 랜덤 노트로 진행한다.
+    rhythmHasMusic.value = false
   } finally {
     rhythmIsAnalyzingAudio.value = false
   }
@@ -641,9 +658,8 @@ async function initRhythmGame() {
     }
     if (!input) return
 
-    const now = rhythmUsesMusicClock.value
-      ? (rhythmAudio?.currentTime ?? 0) * 1000
-      : event.occurredAt
+    // 노트 hitAt·게임 시계가 모두 performance.now() 도메인이므로 판정도 같은 도메인(occurredAt)을 쓴다.
+    const now = event.occurredAt
     const inputResult = applyRhythmInput(rhythmGameState.value, input, now)
     if (inputResult.hit) {
       showRhythmFeedback(
@@ -656,13 +672,51 @@ async function initRhythmGame() {
   })
 
   await prepareRhythmBeatmap()
-  startRhythmRound(
-    rhythmGameState.value,
-    rhythmUsesMusicClock.value ? 0 : globalThis.performance.now(),
-    // 랜덤 생성(음악 미사용) 모드에선 시작 2초 뒤부터 노트가 내려오도록 여유를 둔다.
-    // 음악 모드는 비트맵이 곡과 동기화돼야 하므로 지연을 넣지 않는다.
-    { startDelayMs: rhythmUsesMusicClock.value ? 0 : 2000 },
-  )
+  // 게임 화면을 먼저 보이게 스크롤한 뒤 3·2·1 카운트다운, 그 다음에 라운드를 시작한다.
+  await runRhythmStartCountdown()
+  beginRhythmRound()
+}
+
+/** 3·2·1 카운트다운을 띄우고 끝나면 resolve한다. */
+function runRhythmStartCountdown(): Promise<void> {
+  return new Promise((resolve) => {
+    scrollRhythmStageIntoView()
+    rhythmStartCountdown.value = 3
+    isRhythmStartCountdownOpen.value = true
+    rhythmStartCountdownTimer = globalThis.setInterval(() => {
+      if (rhythmStartCountdown.value <= 1) {
+        globalThis.clearInterval(rhythmStartCountdownTimer)
+        rhythmStartCountdownTimer = undefined
+        isRhythmStartCountdownOpen.value = false
+        resolve()
+        return
+      }
+      rhythmStartCountdown.value -= 1
+    }, 1000)
+  })
+}
+
+/** 리듬 게임 영역이 한눈에 보이도록 스크롤한다(스크롤해야 보이던 문제 해결). */
+function scrollRhythmStageIntoView(): void {
+  const stage = rhythmStageRef.value
+  // jsdom 등 scrollIntoView 미구현 환경 대비로 함수 존재를 확인한다.
+  if (stage && typeof stage.scrollIntoView === 'function') {
+    stage.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+function beginRhythmRound() {
+  scrollRhythmStageIntoView()
+  // 벽시계(performance.now)로 시작한다. lead-in만큼 첫 비트가 오른쪽에서 들어온다.
+  startRhythmRound(rhythmGameState.value, globalThis.performance.now(), {
+    startDelayMs: RHYTHM_LEAD_IN_MS,
+  })
+  // 음악 모드는 비트맵을 lead-in만큼 밀어 뒀으므로, 오디오도 그만큼 늦게 재생해 소리와 비트를 맞춘다.
+  if (rhythmHasMusic.value && rhythmAudio) {
+    rhythmAudioStartTimer = globalThis.setTimeout(() => {
+      rhythmAudio?.play().catch(() => {})
+    }, RHYTHM_LEAD_IN_MS)
+  }
   runRhythmLoop()
 }
 
@@ -676,11 +730,9 @@ function sendRhythmState() {
 
 function runRhythmLoop() {
   const tick = (rafNow: number) => {
-    // 음악이 실제로 재생 중이면 오디오 재생 위치를 게임 시계로 쓴다 — rAF 타이밍과 오디오 재생은
-    // 미세하게 어긋날 수 있어서, 판정 기준은 항상 "지금 들리는 소리"와 맞춰야 한다.
-    const now = rhythmUsesMusicClock.value
-      ? (rhythmAudio?.currentTime ?? 0) * 1000
-      : rafNow
+    // 게임 시계는 벽시계(performance.now = rAF 타임스탬프)로 통일한다. 노트 hitAt·입력 판정(occurredAt)이
+    // 모두 같은 도메인이라 판정이 일관되고, 음악은 lead-in만큼 늦게 재생해 소리와 비트를 맞춘다.
+    const now = rafNow
     rhythmNow.value = now
     const previousNoteStatuses = new Map(
       rhythmGameState.value.notes.map((note) => [note.id, note.status]),
@@ -712,9 +764,7 @@ function runRhythmLoop() {
 /** 상대가 먼저 체력을 다 잃었을 때 내 라운드도 정식으로 종료 처리하고 결과 화면으로 넘어간다. */
 function finishRhythmDuelEarly() {
   if (rhythmGameState.value.phase === 'finished') return
-  const now = rhythmUsesMusicClock.value
-    ? (rhythmAudio?.currentTime ?? 0) * 1000
-    : globalThis.performance.now()
+  const now = globalThis.performance.now()
   finishRhythmRound(rhythmGameState.value, now, 'MANUAL')
   stopRhythmAudio()
   toResult()
@@ -725,6 +775,15 @@ function stopRhythmGame() {
     globalThis.cancelAnimationFrame(rhythmRafHandle)
     rhythmRafHandle = undefined
   }
+  if (rhythmStartCountdownTimer !== undefined) {
+    globalThis.clearInterval(rhythmStartCountdownTimer)
+    rhythmStartCountdownTimer = undefined
+  }
+  if (rhythmAudioStartTimer !== undefined) {
+    globalThis.clearTimeout(rhythmAudioStartTimer)
+    rhythmAudioStartTimer = undefined
+  }
+  isRhythmStartCountdownOpen.value = false
   unsubscribeRhythmEvents?.()
   unsubscribeRhythmEvents = undefined
   clearRhythmFeedback()
@@ -2025,6 +2084,13 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     :dismissible="false"
   />
 
+  <GameStartCountdownModal
+    :open="isRhythmStartCountdownOpen"
+    :countdown="rhythmStartCountdown"
+    countdown-label="리듬 게임 시작 카운트다운"
+    :dismissible="false"
+  />
+
   <GamePlayShell
     v-if="game && session"
     :title="game.id === 'draw' ? '눈으로 그리기' : displayTitle"
@@ -2362,6 +2428,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             ><progress :value="rhythmProgressPercent" max="100" />
           </div>
           <div
+            ref="rhythmStageRef"
             class="rhythm-stage"
             :class="{
               'rhythm-stage--feedback': rhythmFeedback !== null,
@@ -2475,7 +2542,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             </span>
             <span class="rhythm-accuracy-badge"
               >정확도 {{ rhythmAccuracyPercent }}%</span
-            ><span v-if="rhythmUsesMusicClock" class="rhythm-music-badge"
+            ><span v-if="rhythmHasMusic" class="rhythm-music-badge"
               >🎵 실제 음악</span
             >
           </div>
