@@ -26,9 +26,10 @@ import {
   updateBlinkTimer,
 } from '../lib/games/blink-core'
 import {
-  finishStareRoundAsWinner,
   formatDuration as formatStareDuration,
   makeInitialStareState,
+  resolveOpponentLoss,
+  SIMULTANEOUS_LOSE_TOLERANCE_MS,
   STARE_AI_DURATIONS_MS,
   startStareRound,
   updateStareRound,
@@ -336,12 +337,14 @@ const stareWarningTone = computed(() =>
   stareGameState.value.warning === '정상' ? 'ok' : 'warn',
 )
 let stareRafHandle: number | undefined
+/** 내가 졌다는 소식을 상대에게 이미 보냈는지 — 매 프레임 중복으로 다시 보내지 않기 위함. */
+let stareLoseNotifiedToOpponent = false
 
 // 친구/랜덤 대결 실시간 동기화 — 상대 생존 시간을 보여주고, 상대가 먼저 눈을 감으면 내 라운드도
 // 즉시 승리로 종료한다(눈싸움은 "먼저 감는 쪽이 패배"라 상대 패배 = 내 승리가 바로 확정된다).
+// 두 사람이 거의 동시에 감았을 때는 무승부로 처리한다 — resolveOpponentLoss()가 담당한다.
 const stareOpponentElapsedMs = ref(0)
 const stareOpponentSynced = ref(false)
-const opponentStareLostFirst = ref(false)
 const stareGameSession = useGameSessionSocket({
   onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
@@ -353,9 +356,10 @@ const stareGameSession = useGameSessionSocket({
     const elapsedMs = Number(event.payload?.elapsedMs)
     if (Number.isFinite(elapsedMs)) stareOpponentElapsedMs.value = elapsedMs
     stareOpponentSynced.value = true
-    if (event.payload?.lost === true && !opponentStareLostFirst.value) {
-      opponentStareLostFirst.value = true
-      finishStareDuelEarly()
+    if (event.payload?.lost === true) {
+      // resolveOpponentLoss는 이미 끝난 라운드에 다시 호출돼도 안전하다(멱등) — 아직 안
+      // 끝났으면 승리로, 이미 내가 거의 동시에 졌으면 무승부로 승격시키고, 그 외엔 그대로 둔다.
+      resolveOpponentLoss(stareGameState.value, globalThis.performance.now())
     }
   },
   onParticipantLeft: handleOpponentLeft,
@@ -394,6 +398,7 @@ async function initStareGame() {
   }
 
   stareGameState.value = makeInitialStareState(stareTargetMs.value)
+  stareLoseNotifiedToOpponent = false
   startStareRound(stareGameState.value, globalThis.performance.now())
   runStareLoop()
 }
@@ -403,6 +408,8 @@ function runStareLoop() {
     updateStareRound(stareGameState.value, now, {
       faceDetected: stareTracking.faceDetected.value,
       combinedState: stareTracking.combinedState.value,
+      leftEyeState: stareTracking.leftEyeState.value,
+      rightEyeState: stareTracking.rightEyeState.value,
     })
 
     if (isStareDuel.value && stareGameState.value.phase === 'running') {
@@ -413,10 +420,24 @@ function runStareLoop() {
     }
 
     if (stareGameState.value.phase === 'finished') {
-      // 내가 눈을 감아 패배한 경우에만 즉시 알린다 — finishStareDuelEarly()로 이미 승리 처리된
-      // 경우(상대가 먼저 짐)까지 다시 "내가 졌다"고 잘못 알리면 안 되므로 outcome을 확인한다.
       if (isStareDuel.value && stareGameState.value.outcome === 'LOSE') {
-        sendStareState(true)
+        // 내가 졌다고 상대에게 알린다(한 번만 — 매 프레임 다시 보내지 않는다).
+        if (!stareLoseNotifiedToOpponent) {
+          stareLoseNotifiedToOpponent = true
+          sendStareState(true)
+        }
+        // 동시 감김 무승부 판정을 위한 유예: 상대도 거의 동시에 졌다면, 그 소식이 도착해
+        // resolveOpponentLoss()가 outcome을 DRAW로 승격시킬 시간을 준다(네트워크 중계 지연
+        // 감안). 이 유예 없이 바로 결과 화면으로 넘어가면, 뒤늦게 도착한 상대 소식을 반영할
+        // 방법이 없다 — 실제 배포에서 발견된 "동시에 감았는데 둘 다 패배로 나오는" 버그의
+        // 원인이었다.
+        if (
+          now - stareGameState.value.lostAt <
+          SIMULTANEOUS_LOSE_TOLERANCE_MS
+        ) {
+          stareRafHandle = globalThis.requestAnimationFrame(tick)
+          return
+        }
       }
       toResult()
       return
@@ -424,13 +445,6 @@ function runStareLoop() {
     stareRafHandle = globalThis.requestAnimationFrame(tick)
   }
   stareRafHandle = globalThis.requestAnimationFrame(tick)
-}
-
-/** 상대가 먼저 눈을 감았을 때 내 라운드도 승리로 종료 처리하고 결과 화면으로 넘어간다. */
-function finishStareDuelEarly() {
-  if (stareGameState.value.phase === 'finished') return
-  finishStareRoundAsWinner(stareGameState.value, globalThis.performance.now())
-  toResult()
 }
 
 function stopStareGame() {
@@ -1613,13 +1627,17 @@ function recordStareResult() {
         ? 'AI보다 오래 버텼어요!'
         : outcome === 'LOSE'
           ? '아쉽게 눈을 감았어요'
-          : '기록 갱신!',
+          : outcome === 'DRAW'
+            ? '거의 동시에 감았어요!'
+            : '기록 갱신!',
     summary:
       outcome === 'WIN'
         ? '눈을 뜬 채로 목표 시간을 버텨냈어요!'
         : outcome === 'LOSE'
           ? '다음엔 더 오래 버텨보세요!'
-          : '시선을 끝까지 유지하며 기록을 만들었어요.',
+          : outcome === 'DRAW'
+            ? '두 사람 다 거의 같은 순간에 눈을 감아 무승부예요.'
+            : '시선을 끝까지 유지하며 기록을 만들었어요.',
     stats: [
       {
         label: '생존 시간',
@@ -1634,9 +1652,13 @@ function recordStareResult() {
         value:
           stareGameState.value.loseReason === 'FACE_LOST'
             ? '얼굴 인식 끊김'
-            : stareGameState.value.loseReason === 'NONE'
-              ? '-'
-              : '눈 감음',
+            : stareGameState.value.loseReason === 'LEFT_NOT_DETECTED'
+              ? '왼쪽 눈 인식 끊김'
+              : stareGameState.value.loseReason === 'RIGHT_NOT_DETECTED'
+                ? '오른쪽 눈 인식 끊김'
+                : stareGameState.value.loseReason === 'NONE'
+                  ? '-'
+                  : '눈 감음',
         // 상대가 왜 졌는지(혹은 안 졌는지)는 전송받지 않으므로 좌우 미러링하지 않는다.
         opponentValue: '-',
       },
