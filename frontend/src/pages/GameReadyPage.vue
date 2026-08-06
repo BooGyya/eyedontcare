@@ -241,12 +241,6 @@ const showPreparationUi = computed(
   () => !isFriendRoom.value || isInviteJoined.value,
 )
 
-// 서버 ROOM_STATE 기준 준비 현황(가이드의 "N/2명 준비 완료" 표시에 사용).
-const readyCount = computed(
-  () =>
-    waitingSocket.roomState.value?.participants.filter((p) => p.isReady)
-      .length ?? 0,
-)
 const participantCount = computed(
   () => waitingSocket.roomState.value?.participants.length ?? 2,
 )
@@ -373,27 +367,6 @@ const actionDisabled = computed(() => {
   if (isHost.value) return !canStartGame.value
   return !canMarkReady.value || isReady.value
 })
-const actionReason = computed(() => {
-  if (!isCameraConnected.value)
-    return '카메라 연결 후 다음 단계를 진행할 수 있어요.'
-  if (!isCalibrated.value)
-    return isHost.value
-      ? '게임을 시작하려면 캘리브레이션을 완료해 주세요.'
-      : '캘리브레이션을 완료하면 준비할 수 있어요.'
-  if (isHost.value)
-    return canStartGame.value
-      ? '모든 참가자가 준비되었어요.'
-      : `다른 참가자의 준비를 기다리고 있어요. ${readyCount.value}/${participantCount.value}명 준비 완료`
-  if (isRandomRoom.value && isReady.value)
-    return isOpponentReady.value
-      ? '모든 참가자가 준비되었어요. 잠시 후 게임이 시작됩니다.'
-      : '상대방의 준비를 기다리고 있어요.'
-  if (isFriendRoom.value && !isHost.value && isReady.value)
-    return '방장이 게임을 시작할 때까지 기다려 주세요.'
-  if (!isMultiplayer.value && isReady.value) return '준비가 완료되었습니다.'
-  return ''
-})
-
 function stopCameraStream() {
   // cameraStream은 eyeTracking.stream과 같은 MediaStream을 가리키므로, 트랙만 따로 멈추지 않고
   // eyeTracking.stop()으로 감지 루프까지 함께 정리한다(안 그러면 requestAnimationFrame 루프가
@@ -1853,7 +1826,6 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>{{ actionLabel }}</template>
         </button>
-        <p v-if="actionReason" class="action-reason">{{ actionReason }}</p>
       </article>
 
       <article
@@ -1903,14 +1875,17 @@ onBeforeUnmount(() => {
                 : '상대 접속됨'
               : '상대 준비 대기'
           }}</span>
+          <p
+            class="opponent-ready-note"
+            :class="{ 'opponent-ready-note--waiting': !isOpponentReady }"
+          >
+            {{
+              isOpponentReady
+                ? `${opponentName}의 준비가 완료되었습니다.`
+                : `${opponentName}의 준비 상태를 기다리고 있어요.`
+            }}
+          </p>
         </div>
-        <p class="opponent-note">
-          {{
-            isOpponentReady
-              ? `${opponentName}의 준비가 완료되었습니다.`
-              : `${opponentName}의 준비 상태를 기다리고 있어요.`
-          }}
-        </p>
       </article>
     </section>
   </section>
@@ -2412,6 +2387,11 @@ onBeforeUnmount(() => {
   width: 12px;
   height: 12px;
 }
+/* 상대 카드의 완료 배지는 내 카드(초록)와 구분되게 연한 빨간색으로 보여준다. */
+.participant-card--opponent .complete-badge {
+  color: #d64545;
+  background: #fdecec;
+}
 .participant-visual {
   position: relative;
   display: grid;
@@ -2452,6 +2432,23 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.9);
   font-size: 11px;
   font-weight: 800;
+}
+/* 상대 준비 상태 안내: 시각 영역 오른쪽 위(완료 배지 바로 아래)에 겹쳐 보여준다.
+   대기 중엔 연두색, 준비 완료면 빨간색으로 바뀐다. */
+.opponent-ready-note {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 99px;
+  color: #d64545;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 800;
+}
+.opponent-ready-note--waiting {
+  color: #35a968;
 }
 .my-progress {
   display: grid;
@@ -2549,14 +2546,6 @@ onBeforeUnmount(() => {
   to {
     transform: rotate(360deg);
   }
-}
-.action-reason,
-.opponent-note {
-  min-height: 19px;
-  margin: 9px 0 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  line-height: 1.45;
 }
 .ready-dialog-backdrop {
   position: fixed;
