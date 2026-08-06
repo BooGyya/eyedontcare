@@ -6,6 +6,7 @@
 *.cmd text eol=crlf
 
 # Keep common binary assets untouched.
+*.mp3 binary
 *.png binary
 *.jpg binary
 *.jpeg binary
