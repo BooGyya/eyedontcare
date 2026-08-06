@@ -882,7 +882,6 @@ async function handleConfirmWithdraw() {
       <div
         v-if="selectedRecord"
         class="game-result-modal"
-        @click.self="handleCloseRecord"
         @keydown.esc="handleCloseRecord"
       >
         <section
@@ -1019,10 +1018,7 @@ async function handleConfirmWithdraw() {
               }}</strong>
             </article>
           </div>
-          <div
-            v-if="playerRows.length"
-            class="game-result-modal__participants"
-          >
+          <div v-if="playerRows.length" class="game-result-modal__participants">
             <div><span>플레이어</span><span>점수</span><span>결과</span></div>
             <div
               v-for="row in playerRows"

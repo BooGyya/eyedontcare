@@ -1,37 +1,24 @@
 <script setup lang="ts">
-const props = withDefaults(
+// 카운트다운은 사용자가 닫을 수 없다 — 백드롭 클릭 등으로 닫히면
+// 시작 타이머까지 취소돼 게임이 시작되지 않는 문제가 있었다.
+withDefaults(
   defineProps<{
     open: boolean
     countdown: number
     title?: string
     countdownLabel?: string
-    dismissible?: boolean
   }>(),
   {
     title: '게임이 시작됩니다',
     countdownLabel: '게임 시작 예정 카운트다운',
-    dismissible: true,
   },
 )
-
-const emit = defineEmits<{
-  close: []
-}>()
-
-function handleBackdrop(event: globalThis.MouseEvent) {
-  if (!props.dismissible || event.target !== event.currentTarget) return
-  emit('close')
-}
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop">
-      <div
-        v-if="open"
-        class="game-start-countdown-backdrop"
-        @click="handleBackdrop"
-      >
+      <div v-if="open" class="game-start-countdown-backdrop">
         <section
           class="game-start-countdown-dialog"
           role="dialog"

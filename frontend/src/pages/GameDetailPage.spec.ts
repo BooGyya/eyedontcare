@@ -64,7 +64,7 @@ describe('GameDetailPage', () => {
     expect(router.currentRoute.value.params.gameId).toBe('blink')
   })
 
-  it('opens the 게임 설명 dialog and closes it with the close button and backdrop', async () => {
+  it('opens the 게임 설명 dialog, closes with the close button, and ignores backdrop clicks', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/games/blink')
     await router.isReady()
@@ -80,9 +80,10 @@ describe('GameDetailPage', () => {
     await wrapper.find('.game-detail-page__dialog-close').trigger('click')
     expect(wrapper.find('.game-detail-page__dialog').exists()).toBe(false)
 
+    // 백드롭(팝업 밖) 클릭으로는 닫히지 않는다.
     await wrapper.find('.game-detail-page__description-button').trigger('click')
     await wrapper.find('.game-detail-page__dialog-backdrop').trigger('click')
-    expect(wrapper.find('.game-detail-page__dialog').exists()).toBe(false)
+    expect(wrapper.find('.game-detail-page__dialog').exists()).toBe(true)
   })
 
   it('renders the rich 게임 설명 layout for games with a guide and closes with the X button', async () => {

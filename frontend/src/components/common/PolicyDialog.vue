@@ -12,15 +12,6 @@ const emit = defineEmits<{
 
 let previousBodyOverflow = ''
 
-function handleBackdropClick(event: {
-  target: unknown
-  currentTarget: unknown
-}) {
-  if (event.target === event.currentTarget) {
-    emit('close')
-  }
-}
-
 function handleKeydown(event: globalThis.KeyboardEvent) {
   if (event.key === 'Escape') emit('close')
 }
@@ -49,11 +40,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop" appear>
-      <div
-        v-if="document"
-        class="policy-dialog-backdrop"
-        @click="handleBackdropClick"
-      >
+      <div v-if="document" class="policy-dialog-backdrop">
         <section
           class="policy-dialog"
           role="dialog"
