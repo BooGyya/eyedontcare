@@ -1903,14 +1903,17 @@ onBeforeUnmount(() => {
                 : '상대 접속됨'
               : '상대 준비 대기'
           }}</span>
+          <p
+            class="opponent-ready-note"
+            :class="{ 'opponent-ready-note--waiting': !isOpponentReady }"
+          >
+            {{
+              isOpponentReady
+                ? `${opponentName}의 준비가 완료되었습니다.`
+                : `${opponentName}의 준비 상태를 기다리고 있어요.`
+            }}
+          </p>
         </div>
-        <p class="opponent-note">
-          {{
-            isOpponentReady
-              ? `${opponentName}의 준비가 완료되었습니다.`
-              : `${opponentName}의 준비 상태를 기다리고 있어요.`
-          }}
-        </p>
       </article>
     </section>
   </section>
@@ -2412,6 +2415,11 @@ onBeforeUnmount(() => {
   width: 12px;
   height: 12px;
 }
+/* 상대 카드의 완료 배지는 내 카드(초록)와 구분되게 연한 빨간색으로 보여준다. */
+.participant-card--opponent .complete-badge {
+  color: #d64545;
+  background: #fdecec;
+}
 .participant-visual {
   position: relative;
   display: grid;
@@ -2452,6 +2460,23 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.9);
   font-size: 11px;
   font-weight: 800;
+}
+/* 상대 준비 상태 안내: 시각 영역 오른쪽 위(완료 배지 바로 아래)에 겹쳐 보여준다.
+   대기 중엔 연두색, 준비 완료면 빨간색으로 바뀐다. */
+.opponent-ready-note {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 99px;
+  color: #d64545;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 800;
+}
+.opponent-ready-note--waiting {
+  color: #35a968;
 }
 .my-progress {
   display: grid;
@@ -2551,13 +2576,6 @@ onBeforeUnmount(() => {
   }
 }
 .action-reason,
-.opponent-note {
-  min-height: 19px;
-  margin: 9px 0 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
 .ready-dialog-backdrop {
   position: fixed;
   z-index: 30;
