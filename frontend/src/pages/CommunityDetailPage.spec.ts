@@ -22,6 +22,16 @@ const joinGroupById = vi.fn<() => Promise<unknown>>()
 const getGroupPosts = vi.fn<() => Promise<GroupPostListResponse>>()
 const createGroupPost =
   vi.fn<(groupId: string, content: string) => Promise<GroupPostResponse>>()
+const updateGroupPost =
+  vi.fn<
+    (
+      groupId: string,
+      postId: string,
+      content: string,
+    ) => Promise<GroupPostResponse>
+  >()
+const deleteGroupPost =
+  vi.fn<(groupId: string, postId: string) => Promise<void>>()
 const createGroupComment =
   vi.fn<
     (
@@ -54,6 +64,10 @@ vi.mock('../api/group', async (importOriginal) => {
     getGroupPosts: () => getGroupPosts(),
     createGroupPost: (groupId: string, content: string) =>
       createGroupPost(groupId, content),
+    updateGroupPost: (groupId: string, postId: string, content: string) =>
+      updateGroupPost(groupId, postId, content),
+    deleteGroupPost: (groupId: string, postId: string) =>
+      deleteGroupPost(groupId, postId),
     createGroupComment: (groupId: string, postId: string, content: string) =>
       createGroupComment(groupId, postId, content),
     updateGroupComment: (
@@ -109,6 +123,7 @@ function postList(): GroupPostListResponse {
         isLeader: true,
         content: '기존 후기',
         createdAt: '2026-08-01T00:00:00Z',
+        mine: false,
         comments: [
           {
             commentId: 1,
@@ -125,6 +140,15 @@ function postList(): GroupPostListResponse {
             mine: false,
           },
         ],
+      },
+      {
+        postId: 200,
+        author: '나',
+        isLeader: false,
+        content: '내가 쓴 후기',
+        createdAt: '2026-08-01T00:00:00Z',
+        mine: true,
+        comments: [],
       },
     ],
   }
@@ -179,6 +203,8 @@ describe('CommunityDetailPage', () => {
     joinGroupById.mockReset()
     getGroupPosts.mockReset()
     createGroupPost.mockReset()
+    updateGroupPost.mockReset()
+    deleteGroupPost.mockReset()
     createGroupComment.mockReset()
     updateGroupComment.mockReset()
     deleteGroupComment.mockReset()
@@ -187,6 +213,7 @@ describe('CommunityDetailPage', () => {
     leaveGroup.mockResolvedValue()
     getGroupPosts.mockResolvedValue(postList())
     deleteGroupComment.mockResolvedValue()
+    deleteGroupPost.mockResolvedValue()
 
     let commentSeq = 0
     createGroupComment.mockImplementation((_groupId, _postId, content) =>
@@ -215,6 +242,18 @@ describe('CommunityDetailPage', () => {
         isLeader: false,
         content,
         createdAt: '2026-08-05T00:00:00Z',
+        mine: true,
+        comments: [],
+      }),
+    )
+    updateGroupPost.mockImplementation((_groupId, postId, content) =>
+      Promise.resolve({
+        postId: Number(postId),
+        author: '나',
+        isLeader: false,
+        content,
+        createdAt: '2026-08-05T00:00:00Z',
+        mine: true,
         comments: [],
       }),
     )
@@ -466,6 +505,42 @@ describe('CommunityDetailPage', () => {
 
     expect(deleteGroupComment).toHaveBeenCalledWith('5', '100', '1')
     expect(wrapper.text()).not.toContain('내 댓글')
+    confirmSpy.mockRestore()
+  })
+
+  it('본인 글은 수정 버튼으로 인라인 수정해 저장할 수 있다', async () => {
+    const { wrapper } = await mountDetail()
+    expect(wrapper.text()).toContain('내가 쓴 후기')
+
+    const editButton = wrapper.find('.community-detail__post-edit')
+    expect(editButton.exists()).toBe(true)
+    await editButton.trigger('click')
+
+    const editTextarea = wrapper.find('.community-detail__post-edit-textarea')
+    expect(editTextarea.exists()).toBe(true)
+    await editTextarea.setValue('수정한 후기')
+    await wrapper
+      .find('.community-detail__post-edit-actions button:last-child')
+      .trigger('click')
+    await flushPromises()
+
+    expect(updateGroupPost).toHaveBeenCalledWith('5', '200', '수정한 후기')
+    expect(wrapper.text()).toContain('수정한 후기')
+    expect(wrapper.find('.community-detail__post-edit-textarea').exists()).toBe(
+      false,
+    )
+  })
+
+  it('본인 글은 삭제 확인 후 목록에서 제거된다', async () => {
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+    const { wrapper } = await mountDetail()
+    expect(wrapper.text()).toContain('내가 쓴 후기')
+
+    await wrapper.find('.community-detail__post-delete').trigger('click')
+    await flushPromises()
+
+    expect(deleteGroupPost).toHaveBeenCalledWith('5', '200')
+    expect(wrapper.text()).not.toContain('내가 쓴 후기')
     confirmSpy.mockRestore()
   })
 })
