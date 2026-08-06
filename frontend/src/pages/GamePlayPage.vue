@@ -2119,7 +2119,7 @@ function recordForfeitWin() {
     headline: '상대방이 나갔어요',
     summary: '상대방이 게임을 나가 승리했어요.',
     scoreLabel: '결과',
-    score: '상대 이탈 승리',
+    score: '상대 이탈',
     stats: [],
   })
 }
