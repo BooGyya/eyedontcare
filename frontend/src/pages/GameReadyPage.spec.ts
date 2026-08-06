@@ -19,8 +19,12 @@ class MockWebSocket {
   onmessage: ((event: { data: string }) => void) | null = null
   onerror: (() => void) | null = null
   onclose: (() => void) | null = null
+  url: string
 
-  constructor(readonly url: string) {
+  constructor(url: string) {
+    // 파라미터 프로퍼티(readonly url)는 erasableSyntaxOnly에서 금지돼 prod 빌드가 실패한다.
+    // 명시 필드 + 대입으로 바꿔 지울 수 있는 문법만 사용한다.
+    this.url = url
     MockWebSocket.instances.push(this)
   }
 
