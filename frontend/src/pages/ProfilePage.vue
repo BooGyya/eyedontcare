@@ -237,23 +237,83 @@ const myRankingScore = computed<{ label: string; value: string } | null>(() => {
   if (!record || isDetailAirHockey.value) return null
   const score = myDetailParticipant.value?.score
   if (score === null || score === undefined) return null
-  if (record.gameName === 'EYEFIGHT') {
-    return { label: '생존 시간', value: formatDuration(score * 1000) }
+  return {
+    label: record.gameName === 'EYEFIGHT' ? '생존 시간' : '점수',
+    value: formatScore(record.gameName, score),
   }
-  return { label: '점수', value: `${score}점` }
 })
 
-// 나와 함께 플레이한 상대 목록(친구 초대·랜덤 매칭에서만, 나 자신 제외).
+/** 게임별 점수 표기. 눈싸움은 생존 시간(mm:ss), 그 외는 'N점'. 점수 없으면 '—'. */
+function formatScore(gameName: GameName, score: number | null): string {
+  if (score === null) return '—'
+  if (gameName === 'EYEFIGHT') return formatDuration(score * 1000)
+  return `${score}점`
+}
+
+/** 1:1 상대 결과는 내 결과의 반대다(무승부·완료는 그대로). */
+function invertOutcome(outcome: GameOutcome): GameOutcome {
+  if (outcome === 'WIN') return 'LOSE'
+  if (outcome === 'LOSE') return 'WIN'
+  return outcome
+}
+
+// 내 슬롯의 gameResult JSONB(점수·상대 정보가 담긴 객체).
+const myResultData = computed<Record<string, unknown> | null>(() => {
+  const record = selectedRecord.value
+  const slotNo = myDetailParticipant.value?.slotNo
+  if (!record || slotNo === undefined) return null
+  const slot = record.gameResult[String(slotNo)]
+  return slot && typeof slot === 'object'
+    ? (slot as Record<string, unknown>)
+    : null
+})
+
 const isSharedMatch = computed(
   () =>
     selectedRecord.value?.playMode === 'INVITE' ||
     selectedRecord.value?.playMode === 'RANDOM',
 )
-const otherParticipants = computed<ParticipantResult[]>(() => {
+
+interface OpponentRow {
+  key: string
+  name: string
+  score: string
+  outcome: GameOutcome
+}
+
+// 나와 함께 플레이한 상대 목록(친구 초대·랜덤 매칭에서만). 참가자 배열에 상대가 있으면
+// 그것을, 없으면(현재 멀티는 본인만 참가자로 저장) JSONB의 상대 정보로 1행을 구성한다.
+const opponentRows = computed<OpponentRow[]>(() => {
   const record = selectedRecord.value
-  if (!record) return []
+  if (!record || !isSharedMatch.value) return []
+
   const mySlot = myDetailParticipant.value?.slotNo
-  return record.participants.filter((p) => p.slotNo !== mySlot)
+  const others = record.participants.filter((p) => p.slotNo !== mySlot)
+  if (others.length) {
+    return others.map((p) => ({
+      key: `slot-${p.slotNo}`,
+      name: p.displayName,
+      score: formatScore(record.gameName, p.score),
+      outcome: p.outcome,
+    }))
+  }
+
+  const data = myResultData.value
+  const name =
+    typeof data?.opponentNickname === 'string' ? data.opponentNickname : null
+  if (!name) return []
+  const rawScore = data?.opponentScore
+  return [
+    {
+      key: 'opponent',
+      name,
+      score: formatScore(
+        record.gameName,
+        typeof rawScore === 'number' ? rawScore : null,
+      ),
+      outcome: invertOutcome(detailOutcome.value),
+    },
+  ]
 })
 
 async function loadRecords() {
@@ -941,16 +1001,14 @@ async function handleConfirmWithdraw() {
             </article>
           </div>
           <div
-            v-if="isSharedMatch && otherParticipants.length"
+            v-if="opponentRows.length"
             class="game-result-modal__participants"
           >
-            <div><span>함께한 플레이어</span><span>결과</span></div>
-            <div
-              v-for="participant in otherParticipants"
-              :key="participant.slotNo"
-            >
-              <b>{{ participant.displayName }}</b
-              ><span>{{ getOutcomeLabel(participant.outcome) }}</span>
+            <div><span>함께한 상대</span><span>점수</span><span>결과</span></div>
+            <div v-for="row in opponentRows" :key="row.key">
+              <b>{{ row.name }}</b
+              ><span>{{ row.score }}</span
+              ><span>{{ getOutcomeLabel(row.outcome) }}</span>
             </div>
           </div>
           <button
@@ -1577,7 +1635,7 @@ async function handleConfirmWithdraw() {
 }
 .game-result-modal__participants > div {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 0.9fr;
+  grid-template-columns: minmax(0, 1.6fr) 0.8fr 0.8fr;
   gap: 8px;
   padding: 11px 4px;
   border-bottom: 1px solid var(--color-line);
