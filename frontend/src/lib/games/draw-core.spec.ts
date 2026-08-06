@@ -183,6 +183,28 @@ describe('draw-core', () => {
     expect(active?.points).toHaveLength(2)
   })
 
+  it('addPointToStroke: 펜 색이 바뀌면 진행 중인 획을 끊고 새 색의 획을 시작한다', () => {
+    const list: Parameters<typeof addPointToStroke>[0] = []
+    let active = addPointToStroke(
+      list,
+      null,
+      { x: 0.5, y: 0.5 },
+      { color: '#000', width: 4 },
+    )
+    // 같은 색이면 이어질 거리(0.22 미만)지만, 색이 다르므로 새 획이 생겨야 한다.
+    active = addPointToStroke(
+      list,
+      active,
+      { x: 0.52, y: 0.52 },
+      { color: '#f00', width: 4 },
+    )
+
+    expect(list).toHaveLength(2)
+    expect(list[0]?.color).toBe('#000')
+    expect(active?.color).toBe('#f00')
+    expect(active?.points).toHaveLength(1)
+  })
+
   it('addPointToStroke: 손떨림 수준으로 가까운 점은 무시한다', () => {
     const list: Parameters<typeof addPointToStroke>[0] = []
     let active = addPointToStroke(
