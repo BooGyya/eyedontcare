@@ -2943,21 +2943,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             aria-modal="true"
             aria-labelledby="draw-score-title"
           >
-            <button
-              class="dialog-close"
-              type="button"
-              aria-label="채점 결과 닫기"
-              @click="advanceDrawRound"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M6 6l12 12M18 6L6 18"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
             <header class="draw-score-heading">
               <div>
                 <p class="eyebrow">AI 채점 결과</p>
@@ -5585,29 +5570,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 .dialog-action svg {
   width: 18px;
   height: 18px;
-}
-.dialog-close {
-  position: absolute;
-  top: 18px;
-  right: 20px;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 50%;
-  color: #27345e;
-  background: transparent;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color var(--duration-fast) ease;
-}
-.dialog-close svg {
-  width: 20px;
-  height: 20px;
-}
-.dialog-close:hover {
-  background: var(--color-surface-soft);
 }
 .missing {
   padding: 60px;
