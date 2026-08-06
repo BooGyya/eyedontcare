@@ -255,6 +255,9 @@ const title = computed(() =>
     ? '눈으로 그리기'
     : (game.value?.title.replace(/\s*\([^)]*\)\s*$/, '') ?? ''),
 )
+// 게임 도중 상대 이탈로 끝난 결과인지. opponentLeft는 결과 화면에서 상대가 나가도 true가
+// 되므로(그때 점수는 정상 숫자) 몰수승 표시에는 도착 시점의 값을 따로 쓴다.
+const arrivedByOpponentLeft = route.query.result === 'opponent-left'
 const isCompetitive = computed(
   () =>
     game.value?.id !== 'draw' &&
@@ -263,9 +266,12 @@ const isCompetitive = computed(
 const hasKnownOutcome = computed(() =>
   ['WIN', 'LOSE', 'DRAW'].includes(outcome.value),
 )
+// 리듬은 평소 duel-loss 레이아웃을 쓰지만, 상대 이탈 몰수승은 네 게임이 같은
+// 쇼케이스 스코어보드(마스코트·승리 원·'상대 이탈' 문구)로 통일해 보여준다.
 const isShowcaseCompetitiveResult = computed(
   () =>
-    ['air', 'hold', 'blink'].includes(game.value?.id ?? '') &&
+    (['air', 'hold', 'blink'].includes(game.value?.id ?? '') ||
+      (game.value?.id === 'rhythm' && arrivedByOpponentLeft)) &&
     isCompetitive.value &&
     hasKnownOutcome.value,
 )
@@ -422,7 +428,7 @@ const isMultiplayerBattle = computed(
   () => mode.value === 'friends' || mode.value === 'random',
 )
 const battleRoomId = computed(() => String(route.query.roomId ?? ''))
-const opponentLeft = ref(route.query.result === 'opponent-left')
+const opponentLeft = ref(arrivedByOpponentLeft)
 const isReplayUnavailable = computed(
   () => isMultiplayerBattle.value && opponentLeft.value,
 )
@@ -556,15 +562,17 @@ function goToGames() {
               </h2>
               <strong>
                 {{
-                  isDrawOutcome
-                    ? '마지막까지 팽팽한 승부였어요!'
-                    : isCompetitiveLoss
-                      ? game.id === 'blink'
-                        ? '다음엔 더 빠르게 눈을 깜빡여 승리를 가져와 보세요!'
-                        : '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
-                      : game.id === 'blink'
-                        ? '상대보다 더 많이 깜빡이며 이번 대결을 이겼어요!'
-                        : '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
+                  arrivedByOpponentLeft
+                    ? '상대방이 게임을 나가 승리했어요!'
+                    : isDrawOutcome
+                      ? '마지막까지 팽팽한 승부였어요!'
+                      : isCompetitiveLoss
+                        ? game.id === 'blink'
+                          ? '다음엔 더 빠르게 눈을 깜빡여 승리를 가져와 보세요!'
+                          : '다음엔 더 정확한 시선 컨트롤로 승리를 가져와 보세요!'
+                        : game.id === 'blink'
+                          ? '상대보다 더 많이 깜빡이며 이번 대결을 이겼어요!'
+                          : '멋진 시선 컨트롤로 이번 대결을 이겼어요!'
                 }}
               </strong>
             </div>
@@ -588,7 +596,10 @@ function goToGames() {
           </header>
           <section
             class="air-duel-scoreboard"
-            :class="{ 'air-duel-scoreboard--no-score': game.id === 'hold' }"
+            :class="{
+              'air-duel-scoreboard--no-score':
+                game.id === 'hold' && !arrivedByOpponentLeft,
+            }"
           >
             <article
               class="air-duel-scoreboard__player air-duel-scoreboard__player--mine"
@@ -614,7 +625,12 @@ function goToGames() {
                 "
                 draggable="false"
               />
-              <b v-if="game.id === 'air'">{{ airMyScore }}</b>
+              <b
+                v-if="arrivedByOpponentLeft"
+                class="air-duel-scoreboard__score--text"
+                >{{ result.score }}</b
+              >
+              <b v-else-if="game.id === 'air'">{{ airMyScore }}</b>
               <b v-else-if="game.id === 'blink'">{{ result.score }}</b>
             </article>
             <div
@@ -657,7 +673,8 @@ function goToGames() {
                 "
                 draggable="false"
               />
-              <b v-if="game.id === 'air'">{{ airOpponentScore }}</b>
+              <b v-if="arrivedByOpponentLeft">-</b>
+              <b v-else-if="game.id === 'air'">{{ airOpponentScore }}</b>
               <b v-else-if="game.id === 'blink'">{{
                 result.opponentScore ?? '-'
               }}</b>
@@ -1717,6 +1734,13 @@ function goToGames() {
   font-size: clamp(58px, 7vw, 86px);
   line-height: 0.9;
 }
+/* 상대 이탈 몰수승은 점수 대신 텍스트라, 다른 결과 화면 숫자 크기에 맞춰 줄이고
+   글자 중간("상대 이/탈")이 아닌 단어 사이에서만 줄바꿈되게 한다. */
+.air-duel-scoreboard__player b.air-duel-scoreboard__score--text {
+  font-size: 39px;
+  line-height: 1.2;
+  word-break: keep-all;
+}
 .air-duel-scoreboard--no-score .air-duel-scoreboard__player {
   grid-template-columns: 1fr;
 }
@@ -2013,6 +2037,8 @@ function goToGames() {
 .duel-loss__score-row strong {
   color: #6147ed;
   font-size: clamp(28px, 3.6vw, 42px);
+  /* 몰수승 텍스트("상대 이탈")가 글자 중간에서 꺾이지 않게 한다. 숫자 점수에는 영향 없음. */
+  word-break: keep-all;
 }
 .duel-loss__score-row strong:last-child,
 .duel-loss__stats dd:last-child {
