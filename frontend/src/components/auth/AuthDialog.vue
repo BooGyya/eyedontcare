@@ -40,13 +40,6 @@ function handleKeydown(event: { key: string }) {
   if (event.key === 'Escape') closeDialog()
 }
 
-function handleBackdropClick(event: {
-  target: unknown
-  currentTarget: unknown
-}) {
-  if (event.target === event.currentTarget) closeDialog()
-}
-
 function isValidEmail(email: string) {
   // 백엔드 EmailPolicy와 동일 규칙: 최상위 도메인(TLD)을 알파벳 2자 이상으로 강제해
   // 321@321.321 처럼 문법상 유효하지만 실사용 불가한 형식을 막는다.
@@ -165,11 +158,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop" appear>
-      <div
-        v-if="auth.isDialogOpen"
-        class="auth-dialog-backdrop"
-        @click="handleBackdropClick"
-      >
+      <div v-if="auth.isDialogOpen" class="auth-dialog-backdrop">
         <section
           ref="dialogRef"
           class="auth-dialog"

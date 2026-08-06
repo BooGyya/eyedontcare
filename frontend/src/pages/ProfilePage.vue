@@ -882,7 +882,6 @@ async function handleConfirmWithdraw() {
       <div
         v-if="selectedRecord"
         class="game-result-modal"
-        @click.self="handleCloseRecord"
         @keydown.esc="handleCloseRecord"
       >
         <section

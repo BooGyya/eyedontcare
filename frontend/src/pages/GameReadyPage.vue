@@ -1384,10 +1384,6 @@ function initRandomSession() {
   }
 }
 
-function handleDialogBackdrop(event: globalThis.MouseEvent, close: () => void) {
-  if (event.target === event.currentTarget) close()
-}
-
 async function handleCopyRoomCode() {
   if (!isHost.value || !displayRoomCode.value) return
   try {
@@ -1400,8 +1396,9 @@ async function handleCopyRoomCode() {
 
 function handleKeydown(event: globalThis.KeyboardEvent) {
   if (event.key !== 'Escape') return
-  if (isGameStartDialogOpen.value) closeGameStartDialog()
-  else if (isCalibrationOpen.value) isCalibrationOpen.value = false
+  // 시작 카운트다운은 ESC로도 닫지 않는다 — 닫히면 시작 타이머까지 취소된다.
+  if (isGameStartDialogOpen.value) return
+  if (isCalibrationOpen.value) isCalibrationOpen.value = false
   else if (isCameraErrorOpen.value) isCameraErrorOpen.value = false
 }
 
@@ -1975,11 +1972,7 @@ onBeforeUnmount(() => {
     </Transition>
 
     <Transition name="dialog-pop">
-      <div
-        v-if="isCameraErrorOpen"
-        class="ready-dialog-backdrop"
-        @click="handleDialogBackdrop($event, () => (isCameraErrorOpen = false))"
-      >
+      <div v-if="isCameraErrorOpen" class="ready-dialog-backdrop">
         <section
           ref="dialogRef"
           class="ready-dialog"
@@ -2032,7 +2025,6 @@ onBeforeUnmount(() => {
       <div
         v-if="isCalibrationOpen"
         class="ready-dialog-backdrop ready-dialog-backdrop--calibration"
-        @click="handleDialogBackdrop($event, () => (isCalibrationOpen = false))"
       >
         <section
           ref="dialogRef"
@@ -2178,7 +2170,6 @@ onBeforeUnmount(() => {
     <GameStartCountdownModal
       :open="isGameStartDialogOpen"
       :countdown="countdown"
-      @close="closeGameStartDialog"
     />
   </Teleport>
 </template>

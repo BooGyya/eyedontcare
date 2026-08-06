@@ -2209,14 +2209,12 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     :open="isReplayCountdownOpen"
     :countdown="replayCountdown"
     countdown-label="게임 다시 시작 카운트다운"
-    :dismissible="false"
   />
 
   <GameStartCountdownModal
     :open="isRhythmStartCountdownOpen"
     :countdown="rhythmStartCountdown"
     countdown-label="리듬 게임 시작 카운트다운"
-    :dismissible="false"
   />
 
   <GamePlayShell
