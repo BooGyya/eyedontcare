@@ -101,12 +101,10 @@ function loadGroups(): Promise<void> {
 const filteredGroups = computed(() => {
   const normalizedQuery = searchQuery.value.trim().toLocaleLowerCase()
   const visibleGroups = groups.value.filter((group) => {
+    // 길드 찾기는 제목(이름)으로만 검색한다.
     const matchesSearch =
       !normalizedQuery ||
-      [group.name, group.description, group.leader]
-        .join(' ')
-        .toLocaleLowerCase()
-        .includes(normalizedQuery)
+      group.name.toLocaleLowerCase().includes(normalizedQuery)
     const matchesFilter =
       selectedFilter.value === 'all' ||
       (selectedFilter.value === 'owned' && group.isOwner) ||
