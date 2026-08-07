@@ -522,6 +522,20 @@ describe('CommunityDetailPage', () => {
     const saveButton = wrapper.find('.community-detail__comment-save')
     expect(saveButton.attributes('disabled')).toBeDefined()
 
+    await editInput.trigger('compositionstart')
+    const composingValue = '내 댓글ㅎ'
+    ;(editInput.element as HTMLInputElement).value = composingValue
+    await editInput.trigger('input', {
+      data: 'ㅎ',
+      inputType: 'insertCompositionText',
+      isComposing: true,
+    })
+    expect(saveButton.attributes('disabled')).toBeUndefined()
+    expect((editInput.element as HTMLInputElement).value).toBe(composingValue)
+
+    await editInput.trigger('compositionend')
+    expect((editInput.element as HTMLInputElement).value).toBe(composingValue)
+
     await editInput.setValue('변경된 댓글')
     expect(saveButton.attributes('disabled')).toBeUndefined()
 
@@ -536,9 +550,14 @@ describe('CommunityDetailPage', () => {
 
     await editInput.setValue('내 댓글')
     await editInput.trigger('keyup', { key: 'Enter' })
-    await saveButton.trigger('click')
+    const nativeSaveButton = saveButton.element as HTMLButtonElement
+    const clickListener = vi.fn()
+    nativeSaveButton.addEventListener('click', clickListener)
+    expect(nativeSaveButton.disabled).toBe(true)
+    nativeSaveButton.click()
     await flushPromises()
 
+    expect(clickListener).not.toHaveBeenCalled()
     expect(updateGroupComment).not.toHaveBeenCalled()
     expect(showToast).not.toHaveBeenCalledWith('댓글을 수정했어요.')
     expect(wrapper.find('.community-detail__comment-edit-input').exists()).toBe(
@@ -613,6 +632,24 @@ describe('CommunityDetailPage', () => {
       '.community-detail__post-edit-actions .community-detail__primary',
     )
     expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editTextarea.trigger('compositionstart')
+    const composingValue = '내가 쓴 후기ㅎ'
+    ;(editTextarea.element as HTMLTextAreaElement).value = composingValue
+    await editTextarea.trigger('input', {
+      data: 'ㅎ',
+      inputType: 'insertCompositionText',
+      isComposing: true,
+    })
+    expect(saveButton.attributes('disabled')).toBeUndefined()
+    expect((editTextarea.element as HTMLTextAreaElement).value).toBe(
+      composingValue,
+    )
+
+    await editTextarea.trigger('compositionend')
+    expect((editTextarea.element as HTMLTextAreaElement).value).toBe(
+      composingValue,
+    )
 
     await editTextarea.setValue('변경된 후기')
     expect(saveButton.attributes('disabled')).toBeUndefined()
