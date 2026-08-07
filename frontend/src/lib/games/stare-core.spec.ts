@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { CombinedEyeState, EyeState } from '../eye-tracking/eye-engine'
+import type { CombinedEyeState } from '../eye-tracking/eye-engine'
 import {
   canStartStareRound,
-  EYE_NOT_DETECTED_LOSE_MS,
   FACE_LOST_LOSE_MS,
   formatDuration,
   getStateWarning,
@@ -12,45 +11,12 @@ import {
   SIMULTANEOUS_LOSE_TOLERANCE_MS,
   STARE_AI_DURATIONS_MS,
   startStareRound,
+  UNCLEAR_EYE_STATE_LOSE_MS,
   updateStareRound,
 } from './stare-core'
 
-/**
- * combinedState만으로 대부분의 기존 테스트를 그대로 쓸 수 있게, 왼쪽/오른쪽 눈 상태를
- * combinedState로부터 자동으로 유추해 준다. "한쪽 눈만 인식 안 됨" 같은 새 시나리오는
- * overrides로 직접 지정한다.
- */
-function frame(
-  faceDetected: boolean,
-  combinedState: CombinedEyeState,
-  overrides: Partial<{ leftEyeState: EyeState; rightEyeState: EyeState }> = {},
-) {
-  const [defaultLeft, defaultRight] = combinedStateToEyeStates(combinedState)
-  return {
-    faceDetected,
-    combinedState,
-    leftEyeState: overrides.leftEyeState ?? defaultLeft,
-    rightEyeState: overrides.rightEyeState ?? defaultRight,
-  }
-}
-
-function combinedStateToEyeStates(
-  combinedState: CombinedEyeState,
-): [EyeState, EyeState] {
-  switch (combinedState) {
-    case 'BOTH_OPEN':
-      return ['OPEN', 'OPEN']
-    case 'BOTH_CLOSED':
-      return ['CLOSED', 'CLOSED']
-    case 'BOTH_HALF_CLOSED':
-      return ['HALF_CLOSED', 'HALF_CLOSED']
-    case 'LEFT_CLOSED':
-      return ['CLOSED', 'OPEN']
-    case 'RIGHT_CLOSED':
-      return ['OPEN', 'CLOSED']
-    case 'UNKNOWN':
-      return ['NOT_DETECTED', 'NOT_DETECTED']
-  }
+function frame(faceDetected: boolean, combinedState: CombinedEyeState) {
+  return { faceDetected, combinedState }
 }
 
 describe('stare-core', () => {
@@ -78,7 +44,7 @@ describe('stare-core', () => {
     expect(state.outcome).toBe('LOSE')
   })
 
-  it('여전히 BOTH_CLOSED로도 패배한다', () => {
+  it('여전히 BOTH_CLOSED로도 즉시 패배한다', () => {
     const state = makeInitialStareState()
     startStareRound(state, 1000)
     updateStareRound(state, 1800, frame(true, 'BOTH_OPEN'))
@@ -89,17 +55,6 @@ describe('stare-core', () => {
     expect(state.phase).toBe('finished')
     expect(state.loseReason).toBe('BOTH_CLOSED')
     expect(state.elapsedMs).toBe(1000)
-  })
-
-  it('BOTH_HALF_CLOSED는 경고만 주고 라운드를 끝내지 않는다', () => {
-    const state = makeInitialStareState()
-    startStareRound(state, 1000)
-
-    expect(updateStareRound(state, 1500, frame(true, 'BOTH_HALF_CLOSED'))).toBe(
-      'NONE',
-    )
-    expect(state.phase).toBe('running')
-    expect(state.warning).toBe('경고: 눈이 작게 감김')
   })
 
   it('얼굴 인식이 1초 이상 끊기면 패배로 종료한다', () => {
@@ -125,96 +80,83 @@ describe('stare-core', () => {
     expect(state.loseReason).toBe('FACE_LOST')
   })
 
-  describe('버그 수정: 한쪽 눈 가리기 편법', () => {
-    it('왼쪽 눈만 계속 NOT_DETECTED면(가림/얼굴 회전) 2초 후 패배로 종료한다', () => {
+  describe('버그 수정: 한쪽 눈 가리기 편법 (BOTH_OPEN이 아니면 전부 유예 타이머 대상)', () => {
+    it('BOTH_HALF_CLOSED가 2초 넘게 지속되면 패배로 종료한다(예전엔 경고만 주고 안 끝났음)', () => {
       const state = makeInitialStareState()
       startStareRound(state, 0)
 
-      const notDetected = frame(true, 'UNKNOWN', {
-        leftEyeState: 'NOT_DETECTED',
-        rightEyeState: 'OPEN',
-      })
-
-      // 10ms 시점에 처음 감지가 끊긴다(leftNotDetectedStartedAt = 10).
-      expect(updateStareRound(state, 10, notDetected)).toBe('NONE')
+      // 10ms 시점에 처음 애매한 상태가 시작된다(unclearStateStartedAt = 10).
+      expect(updateStareRound(state, 10, frame(true, 'BOTH_HALF_CLOSED'))).toBe(
+        'NONE',
+      )
 
       // 2초가 되기 전까지는 경고만 주고 계속 진행되어야 한다(순간적 흔들림 오탐 방지).
       expect(
         updateStareRound(
           state,
-          10 + EYE_NOT_DETECTED_LOSE_MS - 100,
-          notDetected,
+          10 + UNCLEAR_EYE_STATE_LOSE_MS - 100,
+          frame(true, 'BOTH_HALF_CLOSED'),
         ),
       ).toBe('NONE')
       expect(state.phase).toBe('running')
-      expect(state.warning).toContain('왼쪽 눈 인식 끊김')
+      expect(state.warning).toContain('경고: 눈이 작게 감김')
 
       // 2초를 채우면 패배로 종료된다.
       expect(
         updateStareRound(
           state,
-          10 + EYE_NOT_DETECTED_LOSE_MS + 50,
-          notDetected,
+          10 + UNCLEAR_EYE_STATE_LOSE_MS + 50,
+          frame(true, 'BOTH_HALF_CLOSED'),
         ),
-      ).toBe('LEFT_NOT_DETECTED')
+      ).toBe('UNCLEAR_EYE_STATE')
       expect(state.phase).toBe('finished')
-      expect(state.loseReason).toBe('LEFT_NOT_DETECTED')
+      expect(state.loseReason).toBe('UNCLEAR_EYE_STATE')
       expect(state.outcome).toBe('LOSE')
     })
 
-    it('오른쪽 눈만 계속 NOT_DETECTED여도 동일하게 2초 후 패배 처리한다', () => {
+    it('한쪽 눈 가리기로 combinedState가 UNKNOWN이 되는 경우도 2초 후 패배 처리한다', () => {
+      // 실제 카메라 테스트에서 확인된 문제: 한쪽 눈을 손으로 가려도 MediaPipe가 그 눈을
+      // NOT_DETECTED가 아니라 애매하게 OPEN/HALF_CLOSED로 잘못 추정해서, combineEyeStates가
+      // "한쪽만 애매한" 조합을 UNKNOWN으로 뭉뚱그린다 — 특정 상태를 콕 집어 체크하는 대신
+      // "BOTH_OPEN이 아니면 전부"로 잡아야 이런 경우도 놓치지 않는다.
       const state = makeInitialStareState()
       startStareRound(state, 0)
 
-      const notDetected = frame(true, 'UNKNOWN', {
-        leftEyeState: 'OPEN',
-        rightEyeState: 'NOT_DETECTED',
-      })
-
-      updateStareRound(state, 10, notDetected)
-      updateStareRound(state, 10 + EYE_NOT_DETECTED_LOSE_MS - 100, notDetected)
-      expect(state.phase).toBe('running')
-
-      expect(
-        updateStareRound(
-          state,
-          10 + EYE_NOT_DETECTED_LOSE_MS + 50,
-          notDetected,
-        ),
-      ).toBe('RIGHT_NOT_DETECTED')
-      expect(state.loseReason).toBe('RIGHT_NOT_DETECTED')
-    })
-
-    it('2초를 채우기 전에 다시 눈이 인식되면 타이머가 리셋된다', () => {
-      const state = makeInitialStareState()
-      startStareRound(state, 0)
-
+      updateStareRound(state, 10, frame(true, 'UNKNOWN'))
       updateStareRound(
         state,
-        10,
-        frame(true, 'UNKNOWN', {
-          leftEyeState: 'NOT_DETECTED',
-          rightEyeState: 'OPEN',
-        }),
+        10 + UNCLEAR_EYE_STATE_LOSE_MS - 100,
+        frame(true, 'UNKNOWN'),
       )
-      expect(state.leftNotDetectedStartedAt).not.toBe(0)
-
-      // 다시 정상적으로 보이면 타이머가 리셋된다.
-      updateStareRound(state, 500, frame(true, 'BOTH_OPEN'))
-      expect(state.leftNotDetectedStartedAt).toBe(0)
       expect(state.phase).toBe('running')
 
-      // 리셋된 뒤 새로 끊긴 시점(500)부터 다시 2초를 채워야 한다 — 리셋 전 경과 시간과
-      // 합산되지 않는다(예: 리셋 후 100ms만 지나면 아직 패배하지 않아야 함).
       expect(
         updateStareRound(
           state,
-          600,
-          frame(true, 'UNKNOWN', {
-            leftEyeState: 'NOT_DETECTED',
-            rightEyeState: 'OPEN',
-          }),
+          10 + UNCLEAR_EYE_STATE_LOSE_MS + 50,
+          frame(true, 'UNKNOWN'),
         ),
+      ).toBe('UNCLEAR_EYE_STATE')
+      expect(state.loseReason).toBe('UNCLEAR_EYE_STATE')
+    })
+
+    it('BOTH_OPEN으로 돌아오면 타이머가 리셋된다', () => {
+      const state = makeInitialStareState()
+      startStareRound(state, 0)
+
+      updateStareRound(state, 10, frame(true, 'BOTH_HALF_CLOSED'))
+      expect(state.unclearStateStartedAt).not.toBe(0)
+
+      // 명확히 양쪽 다 뜬 상태로 돌아오면 즉시 리셋된다 — 정상적으로 눈을 뜨고 있는데도
+      // 패배 타이머가 남아 있으면 오탐이 된다.
+      updateStareRound(state, 500, frame(true, 'BOTH_OPEN'))
+      expect(state.unclearStateStartedAt).toBe(0)
+      expect(state.phase).toBe('running')
+
+      // 리셋된 뒤 새로 애매해진 시점부터 다시 2초를 채워야 한다 — 리셋 전 경과 시간과
+      // 합산되지 않는다.
+      expect(
+        updateStareRound(state, 600, frame(true, 'BOTH_HALF_CLOSED')),
       ).toBe('NONE')
       expect(state.phase).toBe('running')
     })

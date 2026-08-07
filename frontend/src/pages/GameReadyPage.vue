@@ -2097,14 +2097,18 @@ onBeforeUnmount(() => {
               </div>
             </template>
 
-            <!-- 시선 좌표 보정 단계: 9개 지점을 순서대로 응시하며 진행한다 -->
+            <!-- 시선 좌표 보정 단계: 9개 지점을 순서대로 응시하며 진행한다.
+                 점들은 카메라 프리뷰 위에 겹쳐진 별도 영역(.calibration-target-field)에 찍힌다.
+                 이 영역은 실제 게임에서 시선을 쓰는 그림 캔버스와 같은 가로세로 비율이라,
+                 캘리브레이션 중 눈이 움직이는 범위가 실제 플레이 범위와 일치한다. -->
             <template v-else-if="calibrationStage === 'gaze'">
-              <i
-                v-if="isCameraConnected"
-                class="calibration-target"
-                :style="gazeCalibrationTargetStyle"
-                aria-hidden="true"
-              />
+              <div v-if="isCameraConnected" class="calibration-target-field">
+                <i
+                  class="calibration-target"
+                  :style="gazeCalibrationTargetStyle"
+                  aria-hidden="true"
+                />
+              </div>
             </template>
           </div>
           <div class="calibration-controls">
@@ -2710,6 +2714,23 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
+}
+/**
+ * 9점이 찍히는 영역. 실제 게임에서 시선을 쓰는 그림 캔버스와 같은 가로세로 비율(1000:640)로
+ * 잡고, 스테이지 안에서 가능한 한 크게 채운다 — 캘리브레이션 중 시선이 움직이는 범위를 실제
+ * 플레이 범위와 맞춰 정확도를 높이기 위함이다. 카메라 프리뷰 위에 겹쳐 놓기만 하므로 프리뷰
+ * 레이아웃(크기·확대율)에는 전혀 영향을 주지 않는다.
+ */
+.calibration-target-field {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 96%;
+  max-height: 96%;
+  aspect-ratio: 1000 / 640;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 .calibration-target {
   position: absolute;

@@ -151,8 +151,12 @@ let drawShouldBridge = false
  * 펜 속도 = 프레임당 커서가 시선을 따라 이동하는 최대 거리(0~1 정규화). 낮을수록 펜이 천천히
  * 따라오고(느림·안정), 높을수록 즉각 따라온다. 지수평활 계수와 달리 '지연'이 아니라 실제 '이동
  * 속도'를 제한하므로 슬라이더 조절이 눈에 띄게 반영된다.
+ *
+ * ⚠️ "가장 느리게 해도 아직 너무 빠르다"는 피드백으로 슬라이더 범위 전체를 낮췄다(아래
+ * `draw-pen-speed` 슬라이더의 min/max 참고) — 기존 범위의 최솟값(0.01)이 새 범위의
+ * 최댓값이 되고, 그보다 훨씬 느린 값들이 새로 추가됐다.
  */
-const drawPenSpeed = ref(0.03)
+const drawPenSpeed = ref(0.002)
 /** 커서 위치. 추적이 끊기면 null로 리셋해 다음 점부터 새로 시작(튐 방지). */
 let drawSmoothedCursor: { x: number; y: number } | null = null
 
@@ -408,8 +412,6 @@ function runStareLoop() {
     updateStareRound(stareGameState.value, now, {
       faceDetected: stareTracking.faceDetected.value,
       combinedState: stareTracking.combinedState.value,
-      leftEyeState: stareTracking.leftEyeState.value,
-      rightEyeState: stareTracking.rightEyeState.value,
     })
 
     if (isStareDuel.value && stareGameState.value.phase === 'running') {
@@ -1652,13 +1654,11 @@ function recordStareResult() {
         value:
           stareGameState.value.loseReason === 'FACE_LOST'
             ? '얼굴 인식 끊김'
-            : stareGameState.value.loseReason === 'LEFT_NOT_DETECTED'
-              ? '왼쪽 눈 인식 끊김'
-              : stareGameState.value.loseReason === 'RIGHT_NOT_DETECTED'
-                ? '오른쪽 눈 인식 끊김'
-                : stareGameState.value.loseReason === 'NONE'
-                  ? '-'
-                  : '눈 감음',
+            : stareGameState.value.loseReason === 'UNCLEAR_EYE_STATE'
+              ? '눈 상태 불안정(가림/회전 등)'
+              : stareGameState.value.loseReason === 'NONE'
+                ? '-'
+                : '눈 감음',
         // 상대가 왜 졌는지(혹은 안 졌는지)는 전송받지 않으므로 좌우 미러링하지 않는다.
         opponentValue: '-',
       },
@@ -2297,6 +2297,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           ? `${rhythmMine.score.toLocaleString()}점`
           : `${session.score}${game.id === 'draw' ? '점' : ''}`
     "
+    :wide="game.id === 'draw'"
     @leave="leaveGame"
   >
     <section
@@ -2588,9 +2589,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
               <input
                 v-model.number="drawPenSpeed"
                 type="range"
-                min="0.01"
-                max="0.08"
-                step="0.005"
+                min="0.0004"
+                max="0.006"
+                step="0.0002"
                 aria-label="펜 반응 속도"
               />
             </label>
@@ -4412,6 +4413,19 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   font-weight: 700;
   line-height: 1.65;
   text-align: center;
+}
+/**
+ * 그림그리기는 "캔버스가 너무 작아서 그리기 어렵다"는 피드백으로, 좌우 정보/웹캠 패널을
+ * 줄이고 중앙 캔버스 컬럼을 훨씬 넓게 잡는다(공통 .gameplay-layout의 230px/1fr/230px보다
+ * 캔버스 쪽에 더 많은 공간을 준다).
+ */
+.gameplay-layout--draw {
+  grid-template-columns: 170px minmax(0, 1fr) 180px;
+  gap: 12px;
+}
+/* 캔버스가 최대한 커지도록 보드 자체의 안쪽 여백도 줄인다. */
+.gameplay-layout--draw .gameplay-board {
+  padding: 12px;
 }
 .gameplay-layout--draw .webcam-panel .video-placeholder {
   width: 100%;

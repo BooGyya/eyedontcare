@@ -335,6 +335,20 @@ export class EyeInteractionEngine {
     return events
   }
 
+  /**
+   * ⚠️ "리듬게임 판정이 너무 어렵다"는 피드백으로 여기서 이벤트 시각을 바꿨다.
+   *
+   * 원래는 이벤트의 `occurredAt`을 `timestampMs`(=지금, 눈을 **다시 뜬** 시점)로 기록했다.
+   * 그런데 리듬게임은 `event.occurredAt`을 그대로 판정 시각(`now`)으로 쓰므로("판정도 같은
+   * 도메인을 쓴다"는 GamePlayPage.vue의 주석 참고), 사용자가 노트 타이밍에 맞춰 눈을 감기
+   * *시작*해도, 실제 판정은 최소 `minBlinkDurationMs`(70ms) + 다시 눈을 뜨는 시간만큼
+   * 구조적으로 늦게 이루어졌다 — 판정 범위(HIT_WINDOWS)를 아무리 넓혀도 이 지연은 그대로
+   * 남아 있어서 "여전히 어렵다"고 느껴졌다.
+   *
+   * 그래서 이벤트 시각을 `this.currentClosure.startedAt`(눈을 **감기 시작한** 시점)으로
+   * 당겼다 — 사용자가 실제로 "지금 감았다"고 느끼는 순간과 판정 시각이 일치하게 된다.
+   * `durationMs`(실제 감은 시간)는 그대로 `timestampMs - startedAt`으로 정확히 유지한다.
+   */
   private finalizeClosure(
     timestampMs: number,
     confidence: number,
@@ -343,7 +357,8 @@ export class EyeInteractionEngine {
       return null
     }
 
-    const durationMs = timestampMs - this.currentClosure.startedAt
+    const startedAt = this.currentClosure.startedAt
+    const durationMs = timestampMs - startedAt
     const closureConfidence = Math.min(
       confidence,
       this.currentClosure.confidence,
@@ -361,6 +376,9 @@ export class EyeInteractionEngine {
     }
 
     if (this.currentClosure.sawBothClosed) {
+      // 더블블링크 "간격"은 프로토타입과 동일하게 눈을 다시 뜬 시점(timestampMs) 기준으로
+      // 잰다 — 아래 이벤트 시각(occurredAt)만 startedAt으로 당기고, 판정 규칙 자체는 검증된
+      // 프로토타입 동작을 그대로 보존하기 위함이다.
       const gapFromLastBlink = timestampMs - this.lastBlinkAt
       this.lastBlinkAt = timestampMs
       if (
@@ -369,7 +387,7 @@ export class EyeInteractionEngine {
       ) {
         return this.createEvent(
           'DOUBLE_BLINK',
-          timestampMs,
+          startedAt,
           closureConfidence,
           durationMs,
         )
@@ -377,17 +395,12 @@ export class EyeInteractionEngine {
       if (durationMs <= this.config.fastBlinkThresholdMs) {
         return this.createEvent(
           'FAST_BLINK',
-          timestampMs,
+          startedAt,
           closureConfidence,
           durationMs,
         )
       }
-      return this.createEvent(
-        'BLINK',
-        timestampMs,
-        closureConfidence,
-        durationMs,
-      )
+      return this.createEvent('BLINK', startedAt, closureConfidence, durationMs)
     }
 
     if (
@@ -396,7 +409,7 @@ export class EyeInteractionEngine {
     ) {
       return this.createEvent(
         'LEFT_WINK',
-        timestampMs,
+        startedAt,
         closureConfidence,
         durationMs,
       )
@@ -408,7 +421,7 @@ export class EyeInteractionEngine {
     ) {
       return this.createEvent(
         'RIGHT_WINK',
-        timestampMs,
+        startedAt,
         closureConfidence,
         durationMs,
       )
