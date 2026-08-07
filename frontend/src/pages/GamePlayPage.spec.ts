@@ -9,6 +9,7 @@ import { recognizeDrawing } from '../api/draw'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
 import type { GameDetailId } from '../types/game-detail'
+import { issueSoloPlayEntry, SOLO_PLAY_ENTRY_KEY } from '../utils/soloPlayEntry'
 
 const GUEST_STORAGE_KEY = 'eye-dont-care.guestSessionId'
 
@@ -85,9 +86,9 @@ async function simulateDrawingSomething() {
   draw.faceDetected.value = true
   draw.combinedState.value = 'BOTH_OPEN'
   draw.screenGaze.value = { x: 0.3, y: 0.3 }
-  await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 100))
   draw.screenGaze.value = { x: 0.6, y: 0.55 }
-  await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 100))
 }
 
 /** useWaitingRoomSocket.spec.ts / useGameSessionSocket이 쓰는 것과 동일한 WebSocket mock. */
@@ -145,8 +146,18 @@ function createGameRouter() {
         name: 'game-result',
         component: GameResultPage,
       },
+      {
+        path: '/games/:gameId',
+        name: 'game-detail',
+        component: { template: '<div>game detail</div>' },
+      },
     ],
   })
+}
+
+function issueGuestSoloEntry(gameId: string): void {
+  globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+  expect(issueSoloPlayEntry(gameId)).toBe(true)
 }
 
 function createResultPinia(
@@ -287,11 +298,13 @@ describe('gameplay routes', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.mocked(recognizeDrawing).mockReset()
+    globalThis.sessionStorage.clear()
   })
 
   it.each(['air', 'hold', 'draw', 'rhythm', 'blink'])(
     'renders the %s play route from mock data',
     async (gameId) => {
+      issueGuestSoloEntry(gameId)
       const router = createGameRouter()
       await router.push(`/games/${gameId}/play?mode=solo`)
       await router.isReady()
@@ -300,6 +313,7 @@ describe('gameplay routes', () => {
       })
       expect(wrapper.find('.play-shell').exists()).toBe(true)
       expect(wrapper.find('button.finish').exists()).toBe(false)
+      expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
       wrapper.unmount()
     },
   )
@@ -307,6 +321,7 @@ describe('gameplay routes', () => {
   it('shows a countdown before starting a replay', async () => {
     vi.useFakeTimers()
 
+    issueGuestSoloEntry('blink')
     const router = createGameRouter()
     await router.push('/games/blink/play?mode=solo&replay=1')
     await router.isReady()
@@ -420,6 +435,7 @@ describe('gameplay routes', () => {
   })
 
   it('shows a leave confirmation dialog before emitting leave', async () => {
+    issueGuestSoloEntry('air')
     const router = createGameRouter()
     await router.push('/games/air/play?mode=solo')
     await router.isReady()
@@ -612,18 +628,20 @@ describe('gameplay routes', () => {
   )
 
   it('passes a replay flag when starting again from the result screen', async () => {
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
     const router = createGameRouter()
     await router.push('/games/blink/result?mode=solo&result=completed')
     await router.isReady()
     const wrapper = mount(GameResultPage, {
       global: { plugins: [router, createResultPinia('blink')] },
     })
+    await flushPromises()
+    await nextTick()
 
     const replayButton = wrapper
       .findAll('button')
       .find((button) => button.text() === '다시 플레이')
     expect(replayButton).toBeTruthy()
-
     await replayButton?.trigger('click')
     await flushPromises()
     await nextTick()
@@ -631,6 +649,111 @@ describe('gameplay routes', () => {
     expect(router.currentRoute.value.name).toBe('game-play')
     expect(router.currentRoute.value.query.replay).toBe('1')
     expect(router.currentRoute.value.query.result).toBeUndefined()
+    expect(
+      globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY),
+    ).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('does not enter SOLO replay when no participant identity is available', async () => {
+    const router = createGameRouter()
+    await router.push('/games/blink/result?mode=solo&result=completed')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: { plugins: [router, createResultPinia('blink')] },
+    })
+    await flushPromises()
+    await nextTick()
+
+    const replayButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === '다시 플레이')
+    await replayButton?.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('game-result')
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('redirects a SOLO play URL without a ticket before starting the game', async () => {
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=solo')
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+    await nextTick()
+
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem('edc-game-in-progress')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('rejects a replay URL without a ticket', async () => {
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=solo&replay=1')
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+    await nextTick()
+
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem('edc-game-in-progress')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('rejects a ticket issued for another game', async () => {
+    issueGuestSoloEntry('blink')
+    const router = createGameRouter()
+    await router.push('/games/rhythm/play?mode=solo')
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('rejects a ticket after the participant identity changes', async () => {
+    issueGuestSoloEntry('blink')
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-2')
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=solo')
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('clears a stale progress marker when the SOLO ticket is missing', async () => {
+    globalThis.sessionStorage.setItem('edc-game-in-progress', 'blink')
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=solo')
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem('edc-game-in-progress')).toBeNull()
     wrapper.unmount()
   })
 
