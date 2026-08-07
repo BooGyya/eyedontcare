@@ -11,6 +11,12 @@ import { useGameResultSubmission } from '../composables/useGameResultSubmission'
 import { useMediaSessionStore } from '../stores/mediaSession'
 import { useToast } from '../composables/useToast'
 import { useEyeTracking } from '../composables/useEyeTracking'
+import { viewportPointToElement } from '../lib/eye-tracking/gaze-calibration'
+import {
+  SEESO_MARGIN_AFTER_CALIBRATION,
+  SEESO_MARGIN_BEFORE_CALIBRATION,
+  useSeeSoGaze,
+} from '../composables/useSeeSoGaze'
 import { useCalibrationStore } from '../stores/calibration'
 import { useGameSessionSocket } from '../composables/useGameSessionSocket'
 import { currentParticipantKey, resolveIdentity } from '../api/identity'
@@ -122,6 +128,21 @@ function scrollToAirGameStart() {
 // AI 채점(recognizeDrawing)은 아직 없는 백엔드 엔드포인트를 호출한다 — 실패하면 재시도할 수
 // 있게 라운드를 계속 진행 상태로 되돌린다(조용히 가짜 성공으로 넘기지 않는다).
 const drawTracking = useEyeTracking()
+/** 그림그리기 전용 시선 공급원. 라이선스 키가 없으면 아무 일도 하지 않는다. */
+const seesoGaze = useSeeSoGaze()
+
+// --- 개발 모드 진단 표시 ---
+// 시선이 SeeSo에서 오는지 MediaPipe에서 오는지는 화면만 봐서는 구분이 안 되므로, 개발 중에는
+// 캔버스 위에 현재 공급원과 좌표를 띄워 확인할 수 있게 한다.
+const isDev = import.meta.env.DEV
+const gazeSourceLabel = computed(() =>
+  seesoGaze.isRunning.value ? 'SeeSo' : 'MediaPipe',
+)
+const gazeDebugCoords = computed(() => {
+  const point = drawCursor.value
+  if (!point) return '좌표 없음'
+  return `x ${point.x.toFixed(3)} · y ${point.y.toFixed(3)}`
+})
 const drawVideoRef = drawTracking.videoRef
 const drawCameraActive = drawTracking.isActive
 // vue-tsc가 문자열 템플릿 ref(ref="drawVideoRef")를 '사용'으로 인식하지 못해 noUnusedLocals가
@@ -1014,7 +1035,11 @@ function updateAirMalletFromGaze() {
   // 두 눈이 모두 뜬 프레임에서만 목표 위치를 갱신하고, 그 외(깜빡임·윙크·미검출)엔 직전 위치를
   // 유지한다. 서브용 깜빡임(applyStrike)은 별도 이벤트라 그대로 동작한다.
   if (airTracking.combinedState.value !== 'BOTH_OPEN') return
-  const gaze = airTracking.screenGaze.value
+  // 보정된 시선은 뷰포트 기준이므로 에어하키 판 기준으로 옮긴다(그림그리기와 동일한 이유).
+  const viewportGaze = airTracking.screenGaze.value
+  const gaze = viewportGaze
+    ? viewportPointToElement(viewportGaze, airCanvasRef.value)
+    : null
   if (!gaze) return
   const desired = Math.min(1, Math.max(0, gaze.x)) * AIR_HOCKEY_WIDTH
   // 깜빡임 직전 반쯤 감긴 프레임의 튄 시선이 목표를 한 번에 확 옮겨(퍽까지) 튀게 하지 않도록
@@ -1434,6 +1459,9 @@ onUnmounted(() => {
   if (game.value?.id === 'rhythm') stopRhythmGame()
   if (game.value?.id === 'air') stopAirHockeyGame()
   if (game.value?.id === 'draw') stopDrawGame()
+  // SeeSo는 자체 카메라와 라이선스 heartbeat를 돌리므로, 어떤 경로로 화면을 떠나든(초기화 도중
+  // 이탈 포함) 반드시 정리한다. 이미 정리됐으면 아무 일도 하지 않는다.
+  seesoGaze.stop()
 })
 
 const game = computed(() => {
@@ -1856,6 +1884,14 @@ async function initDrawGame() {
     return
   }
 
+  // SeeSo(전용 시선 추적 SDK)가 쓸 수 있으면 원시 시선을 그쪽에서 받는다 — MediaPipe의 홍채
+  // 기반 추정보다 훨씬 정확하다. 그 뒤의 9점 개인 보정·커서 평활은 동일하게 이어진다.
+  //
+  // ⚠️ 여기서 await하면 안 된다. SeeSo 초기화는 WASM 로딩과 라이선스 검증 때문에 몇 초가 걸리는데,
+  // 라운드 시작을 그 뒤로 미루면 게임 초반에 시선이 아예 없는 상태가 된다. 백그라운드로 붙이고
+  // 준비되는 순간 공급원을 갈아끼운다 — 그전까지는 MediaPipe가 시선을 담당하므로 공백이 없다.
+  void attachSeeSoWhenReady()
+
   drawWords.value = pickWordsForGame()
   drawStrokes = []
   drawActiveStroke = null
@@ -1865,6 +1901,33 @@ async function initDrawGame() {
 
   unsubscribeDrawKeydown = onDrawKeydown()
   runDrawLoop()
+}
+
+/**
+ * SeeSo를 백그라운드로 준비시키고, 성공하면 시선 공급원을 SeeSo로 교체한다.
+ *
+ * 라이선스 키가 없거나 도메인 미등록 등으로 실패하면 아무것도 바꾸지 않는다 — 기존 MediaPipe
+ * 방식 그대로 동작하며 앱이 깨지지 않는다.
+ */
+async function attachSeeSoWhenReady(): Promise<void> {
+  if (!seesoGaze.isConfigured) return
+  const seesoStarted = await seesoGaze.start()
+  if (!seesoStarted) return
+  // 준비되는 동안 사용자가 화면을 떠났으면 붙이지 않는다.
+  if (!isDrawingActive.value) return
+
+  // 9점 보정도 SeeSo와 같은 뷰포트 좌표계에서 학습되므로 그대로 적용한다 — 이게 2단계 보정이다
+  // (1단계는 준비 화면에서 끝낸 SeeSo 자체 5점 보정).
+  seesoGaze.setMargin(
+    calibrationStore.gazeProfile
+      ? SEESO_MARGIN_AFTER_CALIBRATION
+      : SEESO_MARGIN_BEFORE_CALIBRATION,
+  )
+  drawTracking.setExternalGazeSource(() => seesoGaze.viewportGaze.value)
+  // SeeSo가 시선을 담당하므로 MediaPipe 추론은 멈춘다. 그림그리기는 눈 이벤트를 쓰지 않아
+  // MediaPipe가 할 일이 없는데, 그대로 두면 SeeSo 추론과 겹쳐 CPU를 두 배로 먹고 페이지가
+  // 응답 없음 상태에 빠진다. 카메라 스트림은 살아 있어 웹캠 프리뷰는 그대로 나온다.
+  drawTracking.setDetectionEnabled(false)
 }
 
 /** Space 키로 그리기를 일시정지/재개한다(기획 확정본 조작 방식). */
@@ -1905,7 +1968,13 @@ function runDrawLoop() {
 }
 
 function updateDrawCursorFromGaze() {
-  const gaze = drawTracking.screenGaze.value
+  // 보정된 시선은 **뷰포트 기준** 0~1이다. 그림 캔버스는 화면 일부만 차지하므로, 캔버스 기준
+  // 좌표로 한 번 옮겨야 한다. 이 변환 덕분에 보정 화면과 캔버스의 크기·위치가 달라도 같은
+  // 보정값을 그대로 쓸 수 있다.
+  const viewportGaze = drawTracking.screenGaze.value
+  const gaze = viewportGaze
+    ? viewportPointToElement(viewportGaze, drawCanvasRef.value)
+    : null
   const faceOk =
     drawTracking.faceDetected.value &&
     drawTracking.combinedState.value === 'BOTH_OPEN'
@@ -2068,6 +2137,11 @@ function stopDrawGame() {
   }
   unsubscribeDrawKeydown?.()
   unsubscribeDrawKeydown = undefined
+  // SeeSo는 자체 카메라 스트림을 열므로 반드시 함께 정리한다 — 안 그러면 다른 게임에서
+  // 카메라를 못 잡을 수 있다.
+  drawTracking.setExternalGazeSource(null)
+  drawTracking.setDetectionEnabled(true)
+  seesoGaze.stop()
   drawTracking.stop()
 }
 
@@ -2603,6 +2677,15 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             ><b>{{ drawTimeLabel }} 남음</b>
           </div>
           <div class="draw-canvas-wrap">
+            <!-- 개발 모드에서만 보이는 진단 표시. 지금 시선을 어느 엔진이 주고 있는지, 좌표가
+                 실제로 흐르고 있는지 눈으로 확인하기 위한 것이다(프로덕션 빌드에서는 제거됨). -->
+            <div v-if="isDev" class="draw-gaze-debug" aria-hidden="true">
+              <strong>{{ gazeSourceLabel }}</strong>
+              <span>{{ gazeDebugCoords }}</span>
+              <span v-if="seesoGaze.error.value" class="draw-gaze-debug__error">
+                {{ seesoGaze.error.value }}
+              </span>
+            </div>
             <canvas
               ref="drawCanvasRef"
               class="draw-canvas-real"
@@ -3612,6 +3695,26 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   border: 1px solid #e2e4f3;
   border-radius: 16px;
   background: #fff;
+}
+/* 개발 모드 진단 표시 — 현재 시선 공급원과 좌표. 프로덕션 빌드에는 렌더링되지 않는다. */
+.draw-gaze-debug {
+  position: absolute;
+  z-index: 5;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(13, 26, 56, 0.72);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.draw-gaze-debug__error {
+  color: #ffb4b4;
+  max-width: 260px;
 }
 .draw-canvas-real {
   display: block;
