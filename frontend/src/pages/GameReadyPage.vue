@@ -1986,15 +1986,13 @@ onBeforeUnmount(() => {
                 : '카메라를 사용할 수 없어요. 연결된 카메라와 브라우저 지원 여부를 확인해 주세요.'
             }}
           </p>
-          <div class="ready-dialog__actions">
+          <div class="ready-dialog__actions ready-dialog__actions--single">
             <button
               type="button"
               class="primary"
               data-dialog-initial-focus
-              @click="handleRequestCamera"
+              @click="handleLeaveRoom"
             >
-              다시 요청</button
-            ><button type="button" class="secondary" @click="handleLeaveRoom">
               게임 상세로 돌아가기
             </button>
           </div>
@@ -2618,6 +2616,11 @@ onBeforeUnmount(() => {
 }
 .ready-dialog__actions button {
   width: 100%;
+}
+/* 버튼이 하나뿐인 팝업(카메라 권한 오류)은 버튼을 가운데에 둔다. */
+.ready-dialog__actions--single {
+  grid-template-columns: minmax(0, 220px);
+  justify-content: center;
 }
 .calibration-dialog {
   width: min(96vw, 1400px);
