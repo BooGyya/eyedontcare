@@ -26,9 +26,10 @@ import {
   updateBlinkTimer,
 } from '../lib/games/blink-core'
 import {
-  finishStareRoundAsWinner,
   formatDuration as formatStareDuration,
   makeInitialStareState,
+  resolveOpponentLoss,
+  SIMULTANEOUS_LOSE_TOLERANCE_MS,
   STARE_AI_DURATIONS_MS,
   startStareRound,
   updateStareRound,
@@ -61,6 +62,7 @@ import {
   startDrawRound,
   tickDrawRoundTimer,
   type DrawStroke,
+  type VisionRecognition,
 } from '../lib/games/draw-core'
 import { recognizeDrawing } from '../api/draw'
 import {
@@ -132,14 +134,29 @@ const isDrawingActive = ref(true)
 const drawCursor = ref<{ x: number; y: number } | null>(null)
 const drawBrushWidth = 5
 let drawRafHandle: number | undefined
+/**
+ * 시간 초과 자동 제출이 라운드당 딱 한 번만 일어나게 막는 플래그.
+ *
+ * ⚠️ 실제 배포에서 발견된 버그를 고친 부분: 시간이 다 돼서 자동 제출한 게 실패하면
+ * `reportDrawJudgingError`가 phase를 다시 'running'으로 되돌리는데, 남은 시간은 이미 0이라
+ * 그대로면 바로 다음 애니메이션 프레임(1/60초 후)에 "시간이 다 됐다"고 또 판단해서 자동 제출을
+ * 또 시도 → 또 실패 → 또 되돌림 ⟳ 이 반복되며 초당 60번씩 AI 채점 API를 호출하는 무한 루프가
+ * 됐었다. 이 플래그로 "이미 시간 초과로 한 번 시도했다"를 기억해 두면, 실패해서 running으로
+ * 되돌아가도 자동 재시도는 멈추고 — 사용자가 '제출하기' 버튼을 직접 눌러야만 재시도된다.
+ */
+let drawTimeUpSubmitted = false
 let unsubscribeDrawKeydown: (() => void) | undefined
 let drawShouldBridge = false
 /**
  * 펜 속도 = 프레임당 커서가 시선을 따라 이동하는 최대 거리(0~1 정규화). 낮을수록 펜이 천천히
  * 따라오고(느림·안정), 높을수록 즉각 따라온다. 지수평활 계수와 달리 '지연'이 아니라 실제 '이동
  * 속도'를 제한하므로 슬라이더 조절이 눈에 띄게 반영된다.
+ *
+ * ⚠️ "가장 느리게 해도 아직 너무 빠르다"는 피드백으로 슬라이더 범위 전체를 낮췄다(아래
+ * `draw-pen-speed` 슬라이더의 min/max 참고) — 기존 범위의 최솟값(0.01)이 새 범위의
+ * 최댓값이 되고, 그보다 훨씬 느린 값들이 새로 추가됐다.
  */
-const drawPenSpeed = ref(0.03)
+const drawPenSpeed = ref(0.002)
 /** 커서 위치. 추적이 끊기면 null로 리셋해 다음 점부터 새로 시작(튐 방지). */
 let drawSmoothedCursor: { x: number; y: number } | null = null
 
@@ -324,12 +341,14 @@ const stareWarningTone = computed(() =>
   stareGameState.value.warning === '정상' ? 'ok' : 'warn',
 )
 let stareRafHandle: number | undefined
+/** 내가 졌다는 소식을 상대에게 이미 보냈는지 — 매 프레임 중복으로 다시 보내지 않기 위함. */
+let stareLoseNotifiedToOpponent = false
 
 // 친구/랜덤 대결 실시간 동기화 — 상대 생존 시간을 보여주고, 상대가 먼저 눈을 감으면 내 라운드도
 // 즉시 승리로 종료한다(눈싸움은 "먼저 감는 쪽이 패배"라 상대 패배 = 내 승리가 바로 확정된다).
+// 두 사람이 거의 동시에 감았을 때는 무승부로 처리한다 — resolveOpponentLoss()가 담당한다.
 const stareOpponentElapsedMs = ref(0)
 const stareOpponentSynced = ref(false)
-const opponentStareLostFirst = ref(false)
 const stareGameSession = useGameSessionSocket({
   onSessionState: updateOpponentNickname,
   onPlayerEvent: (event) => {
@@ -341,9 +360,10 @@ const stareGameSession = useGameSessionSocket({
     const elapsedMs = Number(event.payload?.elapsedMs)
     if (Number.isFinite(elapsedMs)) stareOpponentElapsedMs.value = elapsedMs
     stareOpponentSynced.value = true
-    if (event.payload?.lost === true && !opponentStareLostFirst.value) {
-      opponentStareLostFirst.value = true
-      finishStareDuelEarly()
+    if (event.payload?.lost === true) {
+      // resolveOpponentLoss는 이미 끝난 라운드에 다시 호출돼도 안전하다(멱등) — 아직 안
+      // 끝났으면 승리로, 이미 내가 거의 동시에 졌으면 무승부로 승격시키고, 그 외엔 그대로 둔다.
+      resolveOpponentLoss(stareGameState.value, globalThis.performance.now())
     }
   },
   onParticipantLeft: handleOpponentLeft,
@@ -382,6 +402,7 @@ async function initStareGame() {
   }
 
   stareGameState.value = makeInitialStareState(stareTargetMs.value)
+  stareLoseNotifiedToOpponent = false
   startStareRound(stareGameState.value, globalThis.performance.now())
   runStareLoop()
 }
@@ -401,10 +422,24 @@ function runStareLoop() {
     }
 
     if (stareGameState.value.phase === 'finished') {
-      // 내가 눈을 감아 패배한 경우에만 즉시 알린다 — finishStareDuelEarly()로 이미 승리 처리된
-      // 경우(상대가 먼저 짐)까지 다시 "내가 졌다"고 잘못 알리면 안 되므로 outcome을 확인한다.
       if (isStareDuel.value && stareGameState.value.outcome === 'LOSE') {
-        sendStareState(true)
+        // 내가 졌다고 상대에게 알린다(한 번만 — 매 프레임 다시 보내지 않는다).
+        if (!stareLoseNotifiedToOpponent) {
+          stareLoseNotifiedToOpponent = true
+          sendStareState(true)
+        }
+        // 동시 감김 무승부 판정을 위한 유예: 상대도 거의 동시에 졌다면, 그 소식이 도착해
+        // resolveOpponentLoss()가 outcome을 DRAW로 승격시킬 시간을 준다(네트워크 중계 지연
+        // 감안). 이 유예 없이 바로 결과 화면으로 넘어가면, 뒤늦게 도착한 상대 소식을 반영할
+        // 방법이 없다 — 실제 배포에서 발견된 "동시에 감았는데 둘 다 패배로 나오는" 버그의
+        // 원인이었다.
+        if (
+          now - stareGameState.value.lostAt <
+          SIMULTANEOUS_LOSE_TOLERANCE_MS
+        ) {
+          stareRafHandle = globalThis.requestAnimationFrame(tick)
+          return
+        }
       }
       toResult()
       return
@@ -412,13 +447,6 @@ function runStareLoop() {
     stareRafHandle = globalThis.requestAnimationFrame(tick)
   }
   stareRafHandle = globalThis.requestAnimationFrame(tick)
-}
-
-/** 상대가 먼저 눈을 감았을 때 내 라운드도 승리로 종료 처리하고 결과 화면으로 넘어간다. */
-function finishStareDuelEarly() {
-  if (stareGameState.value.phase === 'finished') return
-  finishStareRoundAsWinner(stareGameState.value, globalThis.performance.now())
-  toResult()
 }
 
 function stopStareGame() {
@@ -515,7 +543,8 @@ let unsubscribeRhythmEvents: (() => void) | undefined
 const RHYTHM_LEAD_IN_MS = 2000
 const isRhythmStartCountdownOpen = ref(false)
 const rhythmStartCountdown = ref(3)
-let rhythmStartCountdownTimer: ReturnType<typeof globalThis.setInterval> | undefined
+let rhythmStartCountdownTimer:
+  ReturnType<typeof globalThis.setInterval> | undefined
 let rhythmAudioStartTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 const rhythmStageRef = ref<globalThis.HTMLElement | null>(null)
 // vue-tsc가 템플릿 ref를 '사용'으로 인식하지 못해 noUnusedLocals에 걸리는 것을 막는다.
@@ -1239,6 +1268,41 @@ function clearReplayCountdown() {
   replayCountdownTimer = undefined
 }
 
+// --- 게임플레이 배경음악(BGM) ---
+// 게임 종류별 배경음악. 리듬은 음원 자체가 게임 요소(rhythmAudio)이므로 매핑에 넣지 않는다.
+const GAME_BGM_URLS: Record<string, string> = {
+  air: '/audio/bgm-air.mp3',
+  draw: '/audio/bgm-draw.mp3',
+  hold: '/audio/bgm-hold.mp3',
+  blink: '/audio/bgm-blink.mp3',
+}
+let gameBgmAudio: globalThis.HTMLAudioElement | undefined
+
+/** 게임 시작 시 해당 게임의 BGM을 반복 재생한다. 매핑에 없는 게임(rhythm 포함)은 아무 것도 하지 않는다. */
+function playGameBgm(gameId: string): void {
+  // startGame()이 중복 호출되어도 이미 재생 중인 오디오를 또 만들지 않는다.
+  if (gameBgmAudio) return
+  const url = GAME_BGM_URLS[gameId]
+  if (!url) return
+
+  const audio = new globalThis.Audio(url)
+  audio.loop = true
+  audio.volume = 0.5
+  gameBgmAudio = audio
+  // 브라우저 자동재생 정책으로 재생이 거부될 수 있어 실패는 조용히 무시한다. 테스트 환경(jsdom)처럼
+  // play()가 Promise를 반환하지 않는 경우도 있어 옵셔널 체이닝으로 방어한다.
+  audio.play()?.catch(() => {})
+}
+
+/** 게임 BGM을 멈추고 처음으로 되감는다. 결과 화면 전환·상대 이탈·게임 나가기 등
+ * 여러 종료 경로에서 각각 호출되므로 중복 호출에도 안전해야 한다. */
+function stopGameBgm(): void {
+  if (!gameBgmAudio) return
+  gameBgmAudio.pause()
+  gameBgmAudio.currentTime = 0
+  gameBgmAudio = undefined
+}
+
 function startGame() {
   if (!game.value) return
   playStartedAt = new Date().toISOString()
@@ -1260,6 +1324,7 @@ function startGame() {
   if (game.value.id === 'draw') {
     void initDrawGame()
   }
+  playGameBgm(game.value.id)
   globalThis.window.addEventListener('beforeunload', handleBeforeUnload)
   cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
 }
@@ -1308,6 +1373,8 @@ onUnmounted(() => {
   // 언마운트를 트리거하지 않으므로 표시가 남아, 재진입 시 새로고침으로 감지된다.
   clearGameInProgress()
   globalThis.window.removeEventListener('beforeunload', handleBeforeUnload)
+  // 게임 종류와 무관하게(rhythm 제외) BGM이 재생 중일 수 있으므로 언마운트 시 항상 정지를 시도한다.
+  stopGameBgm()
   if (game.value?.id === 'hold') stopStareGame()
   if (game.value?.id === 'blink') stopBlinkGame()
   if (game.value?.id === 'rhythm') stopRhythmGame()
@@ -1388,6 +1455,9 @@ async function toResult() {
   if (!game.value) return
   exiting = true
   clearGameInProgress()
+  // 결과 제출(submitPlayedResult)이 끝날 때까지 화면 전환이 지연될 수 있으므로, 언마운트를
+  // 기다리지 않고 결과 화면으로 넘어가기로 결정된 이 시점에 BGM을 바로 멈춘다.
+  stopGameBgm()
   // 정상 종료를 상대에게 알린다(이후 소켓 종료를 상대가 이탈로 오인해 몰수 처리하지 않게).
   sendActiveGameOver()
   const score =
@@ -1559,13 +1629,17 @@ function recordStareResult() {
         ? 'AI보다 오래 버텼어요!'
         : outcome === 'LOSE'
           ? '아쉽게 눈을 감았어요'
-          : '기록 갱신!',
+          : outcome === 'DRAW'
+            ? '거의 동시에 감았어요!'
+            : '기록 갱신!',
     summary:
       outcome === 'WIN'
         ? '눈을 뜬 채로 목표 시간을 버텨냈어요!'
         : outcome === 'LOSE'
           ? '다음엔 더 오래 버텨보세요!'
-          : '시선을 끝까지 유지하며 기록을 만들었어요.',
+          : outcome === 'DRAW'
+            ? '두 사람 다 거의 같은 순간에 눈을 감아 무승부예요.'
+            : '시선을 끝까지 유지하며 기록을 만들었어요.',
     stats: [
       {
         label: '생존 시간',
@@ -1580,9 +1654,11 @@ function recordStareResult() {
         value:
           stareGameState.value.loseReason === 'FACE_LOST'
             ? '얼굴 인식 끊김'
-            : stareGameState.value.loseReason === 'NONE'
-              ? '-'
-              : '눈 감음',
+            : stareGameState.value.loseReason === 'UNCLEAR_EYE_STATE'
+              ? '눈 상태 불안정(가림/회전 등)'
+              : stareGameState.value.loseReason === 'NONE'
+                ? '-'
+                : '눈 감음',
         // 상대가 왜 졌는지(혹은 안 졌는지)는 전송받지 않으므로 좌우 미러링하지 않는다.
         opponentValue: '-',
       },
@@ -1730,6 +1806,7 @@ async function initDrawGame() {
   drawStrokes = []
   drawActiveStroke = null
   isDrawingActive.value = true
+  drawTimeUpSubmitted = false
   startDrawRound(drawGameState.value, drawWords.value)
 
   unsubscribeDrawKeydown = onDrawKeydown()
@@ -1758,7 +1835,11 @@ function runDrawLoop() {
     updateDrawCursorFromGaze()
 
     if (drawGameState.value.phase === 'running') {
-      if (tickDrawRoundTimer(drawGameState.value, deltaMs)) {
+      if (
+        tickDrawRoundTimer(drawGameState.value, deltaMs) &&
+        !drawTimeUpSubmitted
+      ) {
+        drawTimeUpSubmitted = true
         void submitDrawRound('시간 종료')
       }
     }
@@ -1864,6 +1945,27 @@ function createDrawSubmissionImage(): string {
 
 async function submitDrawRound(source: string) {
   if (drawGameState.value.phase !== 'running') return
+
+  // 캔버스에 그려진 게 거의 없으면(스트로크가 없거나 점 하나뿐인 등) AI 호출 자체를 하지 않고
+  // 즉시 오답(0점) 처리한다 — 거의 빈 이미지를 GMS에 보내면 모델이 그래도 후보 중 하나를
+  // 억지로 골라 "정답"이라고 답하는 경우가 있어서(빈 캔버스인데 정답 처리되는 버그의 원인),
+  // 애초에 판정을 안 시키고 프론트에서 확정한다.
+  const hasEnoughInk = drawStrokes.some((stroke) => stroke.points.length >= 2)
+  if (!hasEnoughInk) {
+    beginJudging(drawGameState.value)
+    const emptyRecognition: VisionRecognition = {
+      label: '',
+      confidence: 0,
+      isTarget: false,
+      reason: '그림이 그려지지 않았어요.',
+      candidates: [...DRAWING_ALL_WORDS],
+    }
+    applyDrawRoundResult(drawGameState.value, emptyRecognition, '')
+    drawScoreOpen.value = true
+    void source
+    return
+  }
+
   // 제출은 스페이스 일시정지 상태(isDrawingActive)를 건드리지 않는다. 채점 중 그리기 입력은
   // phase가 'running'이 아니게 되어(beginJudging) 자연히 막힌다.
   beginJudging(drawGameState.value)
@@ -1901,6 +2003,7 @@ function advanceDrawRound() {
   clearDrawCanvas()
   selectedColor.value = '#161c2d'
   isDrawingActive.value = true
+  drawTimeUpSubmitted = false
   startDrawRound(drawGameState.value, drawWords.value)
 }
 
@@ -2054,6 +2157,8 @@ function handleOpponentLeft() {
   if (exiting || opponentFinished) return
   exiting = true
   clearGameInProgress()
+  // game-result로 바로 이동하는 경로라 toResult()를 거치지 않으므로 여기서 별도로 멈춰야 한다.
+  stopGameBgm()
   showToast('상대방이 나가 승리했어요.')
   recordForfeitWin()
   if (game.value) {
@@ -2075,7 +2180,7 @@ function recordForfeitWin() {
     headline: '상대방이 나갔어요',
     summary: '상대방이 게임을 나가 승리했어요.',
     scoreLabel: '결과',
-    score: '상대 이탈 승리',
+    score: '상대 이탈',
     stats: [],
   })
 }
@@ -2165,14 +2270,12 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     :open="isReplayCountdownOpen"
     :countdown="replayCountdown"
     countdown-label="게임 다시 시작 카운트다운"
-    :dismissible="false"
   />
 
   <GameStartCountdownModal
     :open="isRhythmStartCountdownOpen"
     :countdown="rhythmStartCountdown"
     countdown-label="리듬 게임 시작 카운트다운"
-    :dismissible="false"
   />
 
   <GamePlayShell
@@ -2194,6 +2297,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           ? `${rhythmMine.score.toLocaleString()}점`
           : `${session.score}${game.id === 'draw' ? '점' : ''}`
     "
+    :wide="game.id === 'draw'"
     @leave="leaveGame"
   >
     <section
@@ -2485,9 +2589,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
               <input
                 v-model.number="drawPenSpeed"
                 type="range"
-                min="0.01"
-                max="0.08"
-                step="0.005"
+                min="0.0004"
+                max="0.006"
+                step="0.0002"
                 aria-label="펜 반응 속도"
               />
             </label>
@@ -3006,13 +3110,10 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         </template>
       </aside>
     </section>
+    <!-- 라운드 진행은 버튼으로만 — 백드롭 클릭이 다음 라운드/최종 결과로 넘겨버리지 않게 한다. -->
     <Teleport to="body"
       ><Transition name="dialog-pop"
-        ><div
-          v-if="drawScoreOpen"
-          class="score-backdrop"
-          @click.self="advanceDrawRound"
-        >
+        ><div v-if="drawScoreOpen" class="score-backdrop">
           <section
             role="dialog"
             aria-modal="true"
@@ -3043,7 +3144,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
                   {{
                     currentDrawResult.success
                       ? `정답입니다! ${currentDrawResult.prompt}을 맞혔어요!`
-                      : `AI는 "${currentDrawResult.aiGuess}"로 인식했어요. 다음엔 더 또렷하게 그려보세요!`
+                      : currentDrawResult.aiGuess
+                        ? `AI는 "${currentDrawResult.aiGuess}"로 인식했어요. 다음엔 더 또렷하게 그려보세요!`
+                        : '그림을 그리지 않고 제출했어요. 다음엔 그림을 그려서 제출해보세요!'
                   }}
                 </p>
               </section>
@@ -4310,6 +4413,19 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   font-weight: 700;
   line-height: 1.65;
   text-align: center;
+}
+/**
+ * 그림그리기는 "캔버스가 너무 작아서 그리기 어렵다"는 피드백으로, 좌우 정보/웹캠 패널을
+ * 줄이고 중앙 캔버스 컬럼을 훨씬 넓게 잡는다(공통 .gameplay-layout의 230px/1fr/230px보다
+ * 캔버스 쪽에 더 많은 공간을 준다).
+ */
+.gameplay-layout--draw {
+  grid-template-columns: 170px minmax(0, 1fr) 180px;
+  gap: 12px;
+}
+/* 캔버스가 최대한 커지도록 보드 자체의 안쪽 여백도 줄인다. */
+.gameplay-layout--draw .gameplay-board {
+  padding: 12px;
 }
 .gameplay-layout--draw .webcam-panel .video-placeholder {
   width: 100%;

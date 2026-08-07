@@ -438,11 +438,7 @@ onBeforeUnmount(() => {
     </section>
 
     <Transition name="dialog-pop">
-      <div
-        v-if="isDescriptionOpen"
-        class="game-detail-page__dialog-backdrop"
-        @click.self="isDescriptionOpen = false"
-      >
+      <div v-if="isDescriptionOpen" class="game-detail-page__dialog-backdrop">
         <div
           v-if="game.guide"
           class="game-detail-page__dialog game-detail-page__dialog--guide"
@@ -1398,7 +1394,6 @@ onBeforeUnmount(() => {
       <div
         v-if="isDifficultyDialogOpen"
         class="game-detail-page__dialog-backdrop"
-        @click.self="isDifficultyDialogOpen = false"
       >
         <div
           class="game-detail-page__dialog game-detail-page__difficulty-dialog"

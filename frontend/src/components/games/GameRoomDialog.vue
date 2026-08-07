@@ -124,12 +124,6 @@ async function startMatching() {
     clearMatching()
   }
 }
-function handleBackdropClick(event: globalThis.MouseEvent) {
-  // 랜덤 매칭 중에는 바깥(배경)을 눌러도 닫히지 않게 한다 — 실수로 매칭이 취소되는 것을 막고,
-  // 닫기는 X 버튼이나 '매칭 취소'로만 하게 한다.
-  if (props.flow === 'random') return
-  if (event.target === event.currentTarget) closeDialog()
-}
 function handleKeydown(event: globalThis.KeyboardEvent) {
   if (event.key === 'Escape') closeDialog()
 }
@@ -180,11 +174,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body"
     ><Transition name="dialog-pop"
-      ><div
-        v-if="open"
-        class="game-room-dialog-backdrop"
-        @click="handleBackdropClick"
-      >
+      ><div v-if="open" class="game-room-dialog-backdrop">
         <section
           ref="dialogRef"
           class="game-room-dialog"

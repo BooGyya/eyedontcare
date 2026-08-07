@@ -22,39 +22,73 @@ vi.mock('../api/draw', () => ({
 // GamePlayPage는 카메라 시작이 성공해야 그 다음(대결 상대와의 게임 세션 소켓 연결 등)으로 진행하므로,
 // 카메라·시선 인식 부분만 성공한 것처럼 목업 처리한다 — 이 파일이 마운트하는 모든 게임(blink/hold/
 // rhythm)이 각자 자기 인스턴스를 만들지만, 어차피 값 자체는 안 쓰고 "성공 여부"만 필요하다.
+//
+// eyeTrackingMockInstances: 생성된 순서대로 인스턴스를 담아 둔다 — GamePlayPage.vue는
+// drawTracking을 제일 먼저 선언하므로(다른 4개 게임보다 앞), 그림그리기 테스트에서 실제로
+// "시선으로 그리는" 상황을 흉내낼 때 `eyeTrackingMockInstances[0]`으로 그 인스턴스를 찾아
+// screenGaze/combinedState를 직접 조작한다.
+const eyeTrackingMockInstances: Array<{
+  screenGaze: ReturnType<typeof ref<{ x: number; y: number } | null>>
+  combinedState: ReturnType<typeof ref<string>>
+  faceDetected: ReturnType<typeof ref<boolean>>
+}> = []
+
 vi.mock('../composables/useEyeTracking', () => ({
-  useEyeTracking: () => ({
-    videoRef: ref(null),
-    stream: ref(null),
-    isActive: ref(true),
-    isLoadingModel: ref(false),
-    modelError: ref(null),
-    faceDetected: ref(false),
-    leftEyeState: ref('NOT_DETECTED'),
-    rightEyeState: ref('NOT_DETECTED'),
-    combinedState: ref('UNKNOWN'),
-    leftRatio: ref(0),
-    rightRatio: ref(0),
-    confidence: ref(0),
-    fps: ref(0),
-    rawGaze: ref(null),
-    screenGaze: ref(null),
-    lastEvent: ref(null),
-    eventSequence: ref(0),
-    onEyeEvent: () => () => {},
-    start: async () => true,
-    stop: () => {},
-    recordEyeSample: async () => ({ success: true, sampleCount: 10 }),
-    resetEyeBaseline: () => {},
-    applyEyeProfile: () => {},
-    eyeProfile: ref({}),
-    beginGazeCalibration: () => {},
-    addGazeCalibrationSample: () => true,
-    finishGazeCalibration: () => null,
-    applyGazeProfile: () => {},
-    gazeCalibrationTargets: [],
-  }),
+  useEyeTracking: () => {
+    const instance = {
+      videoRef: ref(null),
+      stream: ref(null),
+      isActive: ref(true),
+      isLoadingModel: ref(false),
+      modelError: ref(null),
+      faceDetected: ref(false),
+      leftEyeState: ref('NOT_DETECTED'),
+      rightEyeState: ref('NOT_DETECTED'),
+      combinedState: ref('UNKNOWN'),
+      leftRatio: ref(0),
+      rightRatio: ref(0),
+      confidence: ref(0),
+      fps: ref(0),
+      rawGaze: ref(null),
+      screenGaze: ref<{ x: number; y: number } | null>(null),
+      lastEvent: ref(null),
+      eventSequence: ref(0),
+      onEyeEvent: () => () => {},
+      start: async () => true,
+      stop: () => {},
+      recordEyeSample: async () => ({ success: true, sampleCount: 10 }),
+      resetEyeBaseline: () => {},
+      applyEyeProfile: () => {},
+      eyeProfile: ref({}),
+      beginGazeCalibration: () => {},
+      addGazeCalibrationSample: () => true,
+      finishGazeCalibration: () => null,
+      applyGazeProfile: () => {},
+      gazeCalibrationTargets: [],
+    }
+    eyeTrackingMockInstances.push(instance)
+    return instance
+  },
 }))
+
+/**
+ * 그림그리기 테스트용: 실제로 시선을 움직여 그림을 그린 것처럼 만든다. 서로 다른 두 좌표를
+ * 순서대로 넣고 실제 애니메이션 프레임이 몇 번 지나가길 기다려서, addPointToStroke가 최소
+ * 두 점을 가진 스트로크를 만들게 한다(제출 시 "빈 캔버스" 안전장치를 통과하기 위함).
+ *
+ * 반드시 마운트 + `flushPromises()`(initDrawGame 완료) 이후에 호출해야 한다 — 그래야
+ * `eyeTrackingMockInstances[0]`(drawTracking, GamePlayPage.vue에서 제일 먼저 선언됨)이
+ * 이미 채워져 있다.
+ */
+async function simulateDrawingSomething() {
+  const draw = eyeTrackingMockInstances[0]
+  draw.faceDetected.value = true
+  draw.combinedState.value = 'BOTH_OPEN'
+  draw.screenGaze.value = { x: 0.3, y: 0.3 }
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
+  draw.screenGaze.value = { x: 0.6, y: 0.55 }
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
+}
 
 /** useWaitingRoomSocket.spec.ts / useGameSessionSocket이 쓰는 것과 동일한 WebSocket mock. */
 class MockWebSocket {
@@ -303,6 +337,7 @@ describe('gameplay routes', () => {
   })
 
   it('shows the round score dialog and advances to the next round after AI judging succeeds', async () => {
+    eyeTrackingMockInstances.length = 0
     vi.mocked(recognizeDrawing).mockResolvedValue({
       label: '하트',
       confidence: 0.8,
@@ -319,6 +354,7 @@ describe('gameplay routes', () => {
       global: { plugins: [router, createPinia()] },
     })
     await flushPromises() // initDrawGame()의 카메라 시작 등 비동기 초기화 완료 대기
+    await simulateDrawingSomething() // 빈 캔버스 안전장치를 통과할 만큼 실제로 그림을 그려 둔다
 
     await wrapper.get('.draw-tools .primary').trigger('click')
     await flushPromises()
@@ -335,6 +371,7 @@ describe('gameplay routes', () => {
   })
 
   it('shows a retryable error(대신 성공으로 조용히 넘어가지 않음) when AI judging fails', async () => {
+    eyeTrackingMockInstances.length = 0
     vi.mocked(recognizeDrawing).mockRejectedValue(
       new Error('AI 채점 서버에 연결하지 못했어요.'),
     )
@@ -346,6 +383,7 @@ describe('gameplay routes', () => {
       global: { plugins: [router, createPinia()] },
     })
     await flushPromises() // initDrawGame()의 카메라 시작 등 비동기 초기화 완료 대기
+    await simulateDrawingSomething() // 빈 캔버스 안전장치를 통과할 만큼 실제로 그림을 그려 둔다
 
     await wrapper.get('.draw-tools .primary').trigger('click')
     await flushPromises()
@@ -357,6 +395,27 @@ describe('gameplay routes', () => {
     expect(
       wrapper.get<HTMLButtonElement>('.draw-tools .primary').element.disabled,
     ).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('rejects an empty canvas submission as wrong without calling the AI', async () => {
+    eyeTrackingMockInstances.length = 0
+    const router = createGameRouter()
+    await router.push('/games/draw/play?mode=ai')
+    await router.isReady()
+    const wrapper = mount(GamePlayPage, {
+      attachTo: document.body,
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+
+    // 시선을 전혀 움직이지 않은 채(즉 아무것도 그리지 않은 채) 곧바로 제출한다.
+    await wrapper.get('.draw-tools .primary').trigger('click')
+    await flushPromises()
+
+    expect(recognizeDrawing).not.toHaveBeenCalled()
+    // 결과 다이얼로그는 Teleport로 document.body에 렌더링되므로 wrapper.text()로는 못 잡는다.
+    expect(document.body.textContent).toContain('그림을 그리지 않고 제출했어요')
     wrapper.unmount()
   })
 

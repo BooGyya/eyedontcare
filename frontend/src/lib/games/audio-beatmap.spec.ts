@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { RhythmBeatmapEntry } from './rhythm-core'
 import {
   calculateEnergyFrames,
   createBeatmapEntries,
   estimateBpmFromOnsets,
+  filterByDensity,
+  filterBeatmapByDensity,
   pickEnergyOnsets,
   pickTopEnergyFrames,
 } from './audio-beatmap'
@@ -60,8 +63,9 @@ describe('audio-beatmap', () => {
   })
 
   it('createBeatmapEntries는 강한 온셋은 양쪽 눈, 나머지는 좌우 번갈아 배정한다', () => {
+    // 난이도 완화로 듀얼 노트 임계값이 0.9로 올라갔다 — 0.96처럼 확실히 그 위인 값을 쓴다.
     const entries = createBeatmapEntries([
-      { timeMs: 0, strength: 0.9 },
+      { timeMs: 0, strength: 0.96 },
       { timeMs: 500, strength: 0.1 },
       { timeMs: 1000, strength: 0.1 },
     ])
@@ -70,6 +74,11 @@ describe('audio-beatmap', () => {
     // index % 2 === 0(짝수)이면 LEFT_EYE, 홀수면 RIGHT_EYE.
     expect(entries[1].lanes).toEqual(['RIGHT_EYE'])
     expect(entries[2].lanes).toEqual(['LEFT_EYE'])
+  })
+
+  it('createBeatmapEntries: 임계값(0.9) 미만이면 듀얼 노트가 아니다(난이도 완화 확인)', () => {
+    const entries = createBeatmapEntries([{ timeMs: 0, strength: 0.85 }])
+    expect(entries[0].lanes).toEqual(['LEFT_EYE'])
   })
 
   it('estimateBpmFromOnsets는 온셋 간격의 중앙값으로 BPM을 추정한다', () => {
@@ -81,5 +90,87 @@ describe('audio-beatmap', () => {
   it('estimateBpmFromOnsets는 온셋이 2개 미만이면 0을 반환한다', () => {
     expect(estimateBpmFromOnsets([{ timeMs: 0 }])).toBe(0)
     expect(estimateBpmFromOnsets([])).toBe(0)
+  })
+
+  describe('filterByDensity (난이도 완화: 노트 개수 줄이기)', () => {
+    it('keepRatio가 1 이상이면 그대로 반환한다', () => {
+      const items = [1, 2, 3, 4]
+      expect(filterByDensity(items, 1)).toEqual(items)
+      expect(filterByDensity(items, 1.5)).toEqual(items)
+    })
+
+    it('keepRatio가 0 이하이면 전부 제거한다', () => {
+      expect(filterByDensity([1, 2, 3], 0)).toEqual([])
+    })
+
+    it('keepRatio=0.5면 절반을 균등하게(Bresenham 방식) 남긴다', () => {
+      const items = Array.from({ length: 10 }, (_, index) => index)
+      const kept = filterByDensity(items, 0.5)
+      expect(kept.length).toBe(5)
+      // 균등하게 분산되어야 한다 — 앞부분에만 몰리거나 뒷부분만 비어선 안 된다.
+      expect(kept).toEqual([1, 3, 5, 7, 9])
+    })
+
+    it('keepRatio=0.72(기본값)면 대략 그 비율만큼만 남고 순서는 유지된다', () => {
+      const items = Array.from({ length: 100 }, (_, index) => index)
+      const kept = filterByDensity(items, 0.72)
+      expect(kept.length).toBeGreaterThanOrEqual(70)
+      expect(kept.length).toBeLessThanOrEqual(74)
+      // 원래 순서를 그대로 유지해야 한다(순서가 뒤바뀌면 리듬이 깨진다).
+      expect(kept).toEqual([...kept].sort((a, b) => a - b))
+    })
+  })
+
+  describe('filterBeatmapByDensity (강도 기반 완화 — 위치가 아니라 약한 비트부터 제거)', () => {
+    it('약한 비트(strength가 낮은 것)부터 제거하고 강한 비트를 남긴다', () => {
+      const entries: RhythmBeatmapEntry[] = [
+        { timeMs: 0, lanes: ['LEFT_EYE'], strength: 0.9 },
+        { timeMs: 100, lanes: ['LEFT_EYE'], strength: 0.1 }, // 가장 약함 → 제거 대상
+        { timeMs: 200, lanes: ['LEFT_EYE'], strength: 0.8 },
+        { timeMs: 300, lanes: ['LEFT_EYE'], strength: 0.2 }, // 두 번째로 약함 → 제거 대상
+      ]
+
+      const kept = filterBeatmapByDensity(entries, 0.5) // 4개 중 2개만 남김
+
+      expect(kept.map((entry) => entry.timeMs)).toEqual([0, 200])
+    })
+
+    it('시간 순서(원래 순서)를 그대로 유지한다', () => {
+      const entries: RhythmBeatmapEntry[] = [
+        { timeMs: 0, lanes: ['LEFT_EYE'], strength: 0.3 },
+        { timeMs: 100, lanes: ['LEFT_EYE'], strength: 0.9 },
+        { timeMs: 200, lanes: ['LEFT_EYE'], strength: 0.5 },
+        { timeMs: 300, lanes: ['LEFT_EYE'], strength: 0.8 },
+      ]
+
+      const kept = filterBeatmapByDensity(entries, 0.75) // 가장 약한 1개(timeMs=0)만 제거
+
+      expect(kept.map((entry) => entry.timeMs)).toEqual([100, 200, 300])
+    })
+
+    it('keepRatio가 1 이상이면 그대로 반환한다', () => {
+      const entries: RhythmBeatmapEntry[] = [
+        { timeMs: 0, lanes: ['LEFT_EYE'], strength: 0.5 },
+      ]
+      expect(filterBeatmapByDensity(entries, 1)).toEqual(entries)
+    })
+
+    it('keepRatio가 0 이하이면 전부 제거한다', () => {
+      const entries: RhythmBeatmapEntry[] = [
+        { timeMs: 0, lanes: ['LEFT_EYE'], strength: 0.5 },
+      ]
+      expect(filterBeatmapByDensity(entries, 0)).toEqual([])
+    })
+
+    it('strength가 없는 항목은 0으로 취급해 우선 제거된다', () => {
+      const entries: RhythmBeatmapEntry[] = [
+        { timeMs: 0, lanes: ['LEFT_EYE'] }, // strength 없음 → 0으로 취급, 먼저 제거
+        { timeMs: 100, lanes: ['LEFT_EYE'], strength: 0.5 },
+      ]
+
+      const kept = filterBeatmapByDensity(entries, 0.5)
+
+      expect(kept.map((entry) => entry.timeMs)).toEqual([100])
+    })
   })
 })

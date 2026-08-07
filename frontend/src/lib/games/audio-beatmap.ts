@@ -8,6 +8,16 @@
  *
  * 순수 계산 함수 위주라 대부분 유닛 테스트 가능하다(`analyzeAudioUrlToBeatmap`만 fetch/디코딩이
  * 필요해 실제 오디오 없이는 테스트하기 어렵다).
+ *
+ * ⚠️ "너무 어렵다"는 피드백이 계속 나와서 두 가지를 완화했다.
+ * 1. **노트 개수**: 비트 그리드가 만들어낸 노트 중 강도(strength)가 약한 것부터 걷어내는 필터
+ *    ({@link filterBeatmapByDensity})를 최종 단계에 추가했다 — 처음엔 위치 기준으로 균등하게
+ *    걷어냈는데(여전히 {@link filterByDensity}로 남겨둠), 그러면 규칙적인 박자가 몇 개마다
+ *    뜬금없이 빠져서 노트는 줄어도 오히려 예측하기 어려워진다는 피드백이 있어 강도 기준으로
+ *    바꿨다 — 약한(오프비트) 노트가 먼저 빠지고 강한(사람이 자연스럽게 느끼는) 비트가 남는다.
+ * 2. **동시에 양쪽 눈을 감아야 하는 노트(듀얼 노트) 빈도**: {@link createMelodyAwareBeatmapEntries}/
+ *    {@link createBeatmapEntries}의 듀얼 노트 판정 임계값을 더 엄격하게(더 높게) 올렸다 — 아주
+ *    강한 비트나 큰 음정 도약에서만 듀얼 노트가 나오게 했다.
  */
 import type { RhythmBeatmapEntry, RhythmLane } from './rhythm-core'
 
@@ -19,6 +29,8 @@ const DEFAULT_MIN_BEATS = 8
 const DEFAULT_MIN_BPM = 80
 const DEFAULT_MAX_BPM = 180
 const DEFAULT_MELODY_WINDOW_MS = 185
+/** 최종 노트 중 이 비율만 남긴다(나머지는 균등하게 걷어낸다) — 난이도 완화용. */
+const DEFAULT_NOTE_DENSITY = 0.72
 const MELODY_FREQUENCIES: readonly number[] = Object.freeze([
   110, 130.81, 155.56, 196, 246.94, 293.66, 349.23, 392, 493.88, 587.33, 698.46,
   783.99, 987.77, 1174.66, 1396.91, 1567.98, 1975.53,
@@ -59,6 +71,8 @@ export interface BeatmapOptions {
   minBpm?: number
   maxBpm?: number
   melodyWindowMs?: number
+  /** 최종 노트 중 남길 비율(0~1). 기본값 {@link DEFAULT_NOTE_DENSITY} — 난이도 완화용. */
+  noteDensity?: number
 }
 
 interface EnergyFrame {
@@ -129,6 +143,10 @@ export function analyzeAudioBufferToBeatmap(
     Math.round(options.melodyWindowMs ?? DEFAULT_MELODY_WINDOW_MS),
     60,
   )
+  const noteDensity = Math.min(
+    Math.max(options.noteDensity ?? DEFAULT_NOTE_DENSITY, 0.1),
+    1,
+  )
   const energies = calculateEnergyFrames(
     channelData,
     audioBuffer.sampleRate,
@@ -183,6 +201,17 @@ export function analyzeAudioBufferToBeatmap(
     mode = 'onset'
     phaseOffsetMs = 0
   }
+
+  // 난이도 완화: minBeats 하한 판정이 끝난 뒤(=게임 진행에 필요한 최소 노트 수는 이미
+  // 확보된 뒤) 최종 노트에만 밀도 필터를 적용한다. 판정 전에 걷어내면 엉뚱한 fallback(onset
+  // 모드)로 잘못 넘어갈 수 있어서 순서가 중요하다.
+  //
+  // ⚠️ 강도(strength) 기반으로 바꿨다 — 처음엔 위치 기준으로 균등하게 걷어냈는데(filterByDensity),
+  // 이러면 원래 규칙적으로 오던 노트가 "몇 개마다 하나씩 빠지는" 낯선 패턴이 되어, 노트 수는
+  // 줄어도 오히려 예측하기 더 어려워진다는 피드백이 있었다. 대신 약한(예측하기 힘든 오프비트)
+  // 노트를 먼저 없애고 강한(사람이 자연스럽게 느끼는) 비트를 남기면 노트가 줄어도 리듬 패턴
+  // 자체는 더 익숙하고 자연스럽게 유지된다.
+  notes = filterBeatmapByDensity(notes, noteDensity)
 
   return {
     durationMs: Math.round(audioBuffer.duration * 1000),
@@ -321,8 +350,9 @@ export function createBeatmapEntries(
   onsets: OnsetCandidate[],
 ): RhythmBeatmapEntry[] {
   return onsets.map((onset, index) => {
+    // 난이도 완화: 듀얼 노트(양쪽 눈 동시)는 아주 강한 비트에서만 나오게 임계값을 올렸다.
     const lanes: RhythmLane[] =
-      onset.strength >= 0.82
+      onset.strength >= 0.9
         ? ['LEFT_EYE', 'RIGHT_EYE']
         : index % 2 === 0
           ? ['LEFT_EYE']
@@ -499,9 +529,11 @@ export function createMelodyAwareBeatmapEntries(
         ? Math.abs(Math.log2(melody.frequencyHz / previousFrequency))
         : 0
     let lanes: RhythmLane[]
+    // 난이도 완화: 듀얼 노트(양쪽 눈 동시)는 아주 강한 비트나 훨씬 큰 음정 도약에서만
+    // 나오게 임계값을 올렸다(기존 0.92/0.42+0.48 → 0.95/0.55+0.62).
     if (
-      beat.strength >= 0.92 ||
-      (jumpOctaves >= 0.42 && beat.strength >= 0.48)
+      beat.strength >= 0.95 ||
+      (jumpOctaves >= 0.55 && beat.strength >= 0.62)
     ) {
       lanes = ['LEFT_EYE', 'RIGHT_EYE']
     } else if (hasMelody) {
@@ -694,6 +726,62 @@ function normalizeOnsetStrengths<T extends { strength: number }>(
     ...onset,
     strength: (onset.strength - min) / range,
   }))
+}
+
+/**
+ * 노트를 균등하게 분산해서 `keepRatio`만큼만 남긴다(Bresenham 방식) — 특정 구간만 갑자기
+ * 비거나 몰리지 않고 전체적으로 고르게 줄어든다. 강도 정보가 없는 범용 목록에 쓴다.
+ */
+export function filterByDensity<T>(items: T[], keepRatio: number): T[] {
+  if (keepRatio >= 1) {
+    return items
+  }
+  if (keepRatio <= 0) {
+    return []
+  }
+  const result: T[] = []
+  let accumulator = 0
+  for (const item of items) {
+    accumulator += keepRatio
+    if (accumulator >= 1) {
+      result.push(item)
+      accumulator -= 1
+    }
+  }
+  return result
+}
+
+/**
+ * 비트맵 노트를 강도(strength) 기준으로 줄인다 — 약한 비트(리스너가 예상하기 힘든 오프비트)를
+ * 먼저 걷어내고, 강한 비트(사람이 자연스럽게 느끼는 그 박자)를 남긴다. {@link filterByDensity}
+ * (위치 기준 균등 제거)와 달리 음악적으로 자연스러운 패턴을 유지한다 — 노트 개수를 줄여도
+ * "규칙적인 박자가 뜬금없이 빠져서 오히려 헷갈리는" 문제를 피할 수 있다. 시간 순서는 그대로
+ * 유지한다(게임 로직이 정렬된 노트를 기대한다).
+ */
+export function filterBeatmapByDensity(
+  entries: RhythmBeatmapEntry[],
+  keepRatio: number,
+): RhythmBeatmapEntry[] {
+  if (keepRatio >= 1) {
+    return entries
+  }
+  if (keepRatio <= 0) {
+    return []
+  }
+  const keepCount = Math.round(entries.length * keepRatio)
+  if (keepCount >= entries.length) {
+    return entries
+  }
+  if (keepCount <= 0) {
+    return []
+  }
+  const rankedByStrength = entries
+    .map((entry, index) => ({ index, strength: entry.strength ?? 0 }))
+    .sort((a, b) => b.strength - a.strength)
+  const keptIndices = new Set(
+    rankedByStrength.slice(0, keepCount).map((ranked) => ranked.index),
+  )
+  return entries.filter((_, index) => keptIndices.has(index))
 }
 
 function mean(values: number[]): number {
