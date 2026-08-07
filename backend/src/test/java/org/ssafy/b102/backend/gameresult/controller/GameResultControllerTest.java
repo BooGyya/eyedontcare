@@ -203,7 +203,7 @@ class GameResultControllerTest {
 	private static class StubGameResultService extends GameResultService {
 
 		private StubGameResultService() {
-			super(null, null, null, null);
+			super(null, null, null, null, null);
 		}
 
 		@Override
