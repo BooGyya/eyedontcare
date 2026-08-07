@@ -51,6 +51,11 @@ const updateGroupComment =
   >()
 const deleteGroupComment =
   vi.fn<(groupId: string, postId: string, commentId: string) => Promise<void>>()
+const showToast = vi.hoisted(() => vi.fn())
+
+vi.mock('../composables/useToast', () => ({
+  useToast: () => ({ showToast }),
+}))
 
 // getGroupPosts/createGroupPost/createGroupComment 등만 가짜로 바꾸고, 변환기(toCommunityPost 등
 // 순수 함수)는 실제 구현을 그대로 쓴다.
@@ -208,6 +213,7 @@ describe('CommunityDetailPage', () => {
     createGroupComment.mockReset()
     updateGroupComment.mockReset()
     deleteGroupComment.mockReset()
+    showToast.mockReset()
 
     getGroup.mockResolvedValue(detail())
     leaveGroup.mockResolvedValue()
@@ -478,6 +484,7 @@ describe('CommunityDetailPage', () => {
     await wrapper.find('.community-detail__comment-save').trigger('click')
     await flushPromises()
 
+    expect(updateGroupComment).toHaveBeenCalledTimes(1)
     expect(updateGroupComment).toHaveBeenCalledWith(
       '5',
       '100',
@@ -487,6 +494,55 @@ describe('CommunityDetailPage', () => {
     expect(wrapper.text()).toContain('수정된 댓글')
     expect(wrapper.find('.community-detail__comment-edit-input').exists()).toBe(
       false,
+    )
+    expect(showToast).toHaveBeenCalledWith('댓글을 수정했어요.')
+
+    await wrapper.find('.community-detail__comment-edit').trigger('click')
+    expect(
+      wrapper.find('.community-detail__comment-save').attributes('disabled'),
+    ).toBeDefined()
+    await wrapper
+      .find('.community-detail__comment-edit-input')
+      .setValue('내 댓글')
+    expect(
+      wrapper.find('.community-detail__comment-save').attributes('disabled'),
+    ).toBeUndefined()
+  })
+
+  it('댓글은 실제 내용이 변경된 경우에만 저장할 수 있다', async () => {
+    const { wrapper } = await mountDetail()
+
+    const toggleButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('댓글'))
+    await toggleButton!.trigger('click')
+    await wrapper.find('.community-detail__comment-edit').trigger('click')
+
+    const editInput = wrapper.find('.community-detail__comment-edit-input')
+    const saveButton = wrapper.find('.community-detail__comment-save')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editInput.setValue('변경된 댓글')
+    expect(saveButton.attributes('disabled')).toBeUndefined()
+
+    await editInput.setValue('내 댓글')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editInput.setValue('  내 댓글   ')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editInput.setValue('   ')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editInput.setValue('내 댓글')
+    await editInput.trigger('keyup', { key: 'Enter' })
+    await saveButton.trigger('click')
+    await flushPromises()
+
+    expect(updateGroupComment).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalledWith('댓글을 수정했어요.')
+    expect(wrapper.find('.community-detail__comment-edit-input').exists()).toBe(
+      true,
     )
   })
 
@@ -524,10 +580,60 @@ describe('CommunityDetailPage', () => {
       .trigger('click')
     await flushPromises()
 
+    expect(updateGroupPost).toHaveBeenCalledTimes(1)
     expect(updateGroupPost).toHaveBeenCalledWith('5', '200', '수정한 후기')
     expect(wrapper.text()).toContain('수정한 후기')
     expect(wrapper.find('.community-detail__post-edit-textarea').exists()).toBe(
       false,
+    )
+    expect(showToast).toHaveBeenCalledWith('글을 수정했어요.')
+
+    await wrapper.find('.community-detail__post-edit').trigger('click')
+    expect(
+      wrapper
+        .find('.community-detail__post-edit-actions .community-detail__primary')
+        .attributes('disabled'),
+    ).toBeDefined()
+    await wrapper
+      .find('.community-detail__post-edit-textarea')
+      .setValue('내가 쓴 후기')
+    expect(
+      wrapper
+        .find('.community-detail__post-edit-actions .community-detail__primary')
+        .attributes('disabled'),
+    ).toBeUndefined()
+  })
+
+  it('글은 실제 내용이 변경된 경우에만 저장할 수 있다', async () => {
+    const { wrapper } = await mountDetail()
+    await wrapper.find('.community-detail__post-edit').trigger('click')
+
+    const editTextarea = wrapper.find('.community-detail__post-edit-textarea')
+    const saveButton = wrapper.find(
+      '.community-detail__post-edit-actions .community-detail__primary',
+    )
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editTextarea.setValue('변경된 후기')
+    expect(saveButton.attributes('disabled')).toBeUndefined()
+
+    await editTextarea.setValue('내가 쓴 후기')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editTextarea.setValue('  내가 쓴 후기   ')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editTextarea.setValue('   ')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    await editTextarea.setValue('내가 쓴 후기')
+    await saveButton.trigger('click')
+    await flushPromises()
+
+    expect(updateGroupPost).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalledWith('글을 수정했어요.')
+    expect(wrapper.find('.community-detail__post-edit-textarea').exists()).toBe(
+      true,
     )
   })
 
