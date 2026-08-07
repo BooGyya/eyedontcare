@@ -85,6 +85,10 @@ public class GroupService {
 
 	@Transactional
 	public GroupResponse create(Long userId, GroupCreateRequest request) {
+		if (groupRepository.existsByName(request.name())) {
+			throw new BusinessException(GroupErrorCode.DUPLICATE_GROUP_NAME);
+		}
+
 		int capacity = request.capacity() == null
 			? DEFAULT_CAPACITY
 			: request.capacity();

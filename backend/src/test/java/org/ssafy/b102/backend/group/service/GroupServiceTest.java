@@ -156,6 +156,20 @@ class GroupServiceTest {
 	}
 
 	@Test
+	void 길드_이름이_중복이면_GROUP_017을_던진다() {
+		when(groupRepository.existsByName("모임")).thenReturn(true);
+
+		assertThatThrownBy(() -> groupService.create(
+			OWNER_ID,
+			new GroupCreateRequest("모임", "소개", GroupVisibility.PUBLIC, 10)
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.getErrorCode())
+				.isEqualTo(GroupErrorCode.DUPLICATE_GROUP_NAME));
+
+		verify(groupRepository, never()).save(any());
+	}
+
+	@Test
 	void 공개_목록은_비멤버에게_joinCode를_숨긴다() {
 		Group group = group(GroupVisibility.PUBLIC, 30);
 		Page<Group> page = new PageImpl<>(
