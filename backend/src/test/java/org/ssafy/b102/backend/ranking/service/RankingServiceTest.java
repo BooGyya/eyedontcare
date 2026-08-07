@@ -30,6 +30,7 @@ import org.ssafy.b102.backend.ranking.dto.response.RankingEntry;
 import org.ssafy.b102.backend.ranking.dto.response.RankingListResponse;
 import org.ssafy.b102.backend.ranking.exception.RankingErrorCode;
 import org.ssafy.b102.backend.ranking.repository.RankingRepository;
+import org.ssafy.b102.backend.ranking.repository.RankingTrendRepository;
 import org.ssafy.b102.backend.ranking.support.RankType;
 import org.ssafy.b102.backend.user.entity.User;
 import org.ssafy.b102.backend.user.repository.UserRepository;
@@ -49,6 +50,9 @@ class RankingServiceTest {
 	@Mock
 	private UserRepository userRepository;
 
+	@Mock
+	private RankingTrendRepository rankingTrendRepository;
+
 	private RankingService rankingService;
 
 	@BeforeEach
@@ -56,6 +60,7 @@ class RankingServiceTest {
 		rankingService = new RankingService(
 			rankingRepository,
 			userRepository,
+			rankingTrendRepository,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}
