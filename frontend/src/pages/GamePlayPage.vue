@@ -409,6 +409,7 @@ async function initStareGame() {
   stareGameState.value = makeInitialStareState(stareTargetMs.value)
   stareLoseNotifiedToOpponent = false
   startStareRound(stareGameState.value, globalThis.performance.now())
+  if (terminateHiddenStareGame()) return
   runStareLoop()
 }
 
@@ -461,6 +462,26 @@ function stopStareGame() {
   }
   stareTracking.stop()
   stareGameSession.close()
+}
+
+function terminateHiddenStareGame(): boolean {
+  if (
+    game.value?.id !== 'hold' ||
+    stareGameState.value.phase !== 'running' ||
+    !globalThis.document.hidden ||
+    exiting
+  ) {
+    return false
+  }
+
+  stopStareGame()
+  showToast('화면을 벗어나 게임이 종료되었어요.')
+  leaveGame()
+  return true
+}
+
+function handleVisibilityChange() {
+  terminateHiddenStareGame()
 }
 
 // --- 리듬게임: 실제 시선 인식 연동 ---
@@ -1385,11 +1406,20 @@ onMounted(() => {
   // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
   if (handleMidGameRefresh()) return
 
+  globalThis.document.addEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+
   if (route.query.replay === '1') openReplayCountdown()
   else startGame()
 })
 
 onUnmounted(() => {
+  globalThis.document.removeEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
   clearReplayCountdown()
   if (airGameScrollTimer) globalThis.clearTimeout(airGameScrollTimer)
   if (cameraWatchdog) globalThis.clearInterval(cameraWatchdog)
