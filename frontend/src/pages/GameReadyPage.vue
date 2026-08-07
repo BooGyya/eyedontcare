@@ -23,6 +23,7 @@ import {
   currentParticipantKey,
   resolveIdentity,
 } from '../api/identity'
+import { issueSoloPlayEntry } from '../utils/soloPlayEntry'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
 import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import type {
@@ -381,15 +382,25 @@ function clearGameStartCountdown() {
   countdownTimer = undefined
 }
 
+function navigateToPlay(): void {
+  if (!game.value) return
+  if (mode.value === 'solo' && !issueSoloPlayEntry(game.value.id)) {
+    showToast('게임을 시작할 수 없어요. 잠시 후 다시 시도해 주세요.')
+    return
+  }
+
+  void router.push({
+    name: 'game-play',
+    params: { gameId: game.value.id },
+    query: route.query,
+  })
+}
+
 function openGameStartDialog() {
   clearGameStartCountdown()
   // 리듬 게임은 게임 화면 안에서 자체 3·2·1 카운트다운을 하므로, 준비방에서는 카운트다운 없이 바로 이동한다.
   if (game.value?.id === 'rhythm') {
-    router.push({
-      name: 'game-play',
-      params: { gameId: game.value.id },
-      query: route.query,
-    })
+    navigateToPlay()
     return
   }
   countdown.value = 3
@@ -398,12 +409,7 @@ function openGameStartDialog() {
   countdownTimer = globalThis.setInterval(() => {
     if (countdown.value === 1) {
       clearGameStartCountdown()
-      if (game.value)
-        router.push({
-          name: 'game-play',
-          params: { gameId: game.value.id },
-          query: route.query,
-        })
+      navigateToPlay()
       return
     }
     countdown.value -= 1

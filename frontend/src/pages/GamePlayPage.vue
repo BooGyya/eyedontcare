@@ -14,6 +14,10 @@ import { useEyeTracking } from '../composables/useEyeTracking'
 import { useCalibrationStore } from '../stores/calibration'
 import { useGameSessionSocket } from '../composables/useGameSessionSocket'
 import { currentParticipantKey, resolveIdentity } from '../api/identity'
+import {
+  clearSoloPlayEntry,
+  consumeSoloPlayEntry,
+} from '../utils/soloPlayEntry'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
 import type { GameSessionStateData } from '../types/gameSession'
@@ -1329,6 +1333,23 @@ function startGame() {
   cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
 }
 
+function handleSoloPlayEntry(): boolean {
+  if (mode.value !== 'solo') return true
+
+  const gameId = game.value?.id
+  if (gameId && consumeSoloPlayEntry(gameId)) return true
+
+  clearSoloPlayEntry()
+  clearGameInProgress()
+  if (gameId) {
+    void router.replace({
+      name: 'game-detail',
+      params: { gameId },
+    })
+  }
+  return false
+}
+
 function finishReplayCountdown() {
   clearReplayCountdown()
   isReplayCountdownOpen.value = false
@@ -1358,6 +1379,8 @@ function openReplayCountdown() {
 }
 
 onMounted(() => {
+  if (!handleSoloPlayEntry()) return
+
   // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
   if (handleMidGameRefresh()) return
 
@@ -2062,7 +2085,11 @@ let opponentFinished = false
 const GAME_IN_PROGRESS_KEY = 'edc-game-in-progress'
 
 function clearGameInProgress() {
-  globalThis.sessionStorage?.removeItem(GAME_IN_PROGRESS_KEY)
+  try {
+    globalThis.sessionStorage?.removeItem(GAME_IN_PROGRESS_KEY)
+  } catch {
+    // Storage access failures must not keep an invalid SOLO URL on the game screen.
+  }
 }
 
 /**

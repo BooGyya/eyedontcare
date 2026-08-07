@@ -4,6 +4,7 @@ import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GameReadyPage from './GameReadyPage.vue'
 import { useToast } from '../composables/useToast'
+import { SOLO_PLAY_ENTRY_KEY } from '../utils/soloPlayEntry'
 
 class MockWebSocket {
   static readonly CONNECTING = 0
@@ -159,6 +160,11 @@ function createReadyRouter() {
         name: 'game-detail',
         component: { template: '<div>game detail</div>' },
       },
+      {
+        path: '/games/:gameId/play',
+        name: 'game-play',
+        component: { template: '<div>game play</div>' },
+      },
     ],
   })
 }
@@ -222,6 +228,56 @@ function inviteReadyPageVm(wrapper: VueWrapper): InviteReadyPageTestVm {
 }
 
 describe('GameReadyPage', () => {
+  it.each(['rhythm', 'hold'])(
+    'issues a SOLO entry ticket immediately before %s play navigation',
+    async (gameId) => {
+      globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+      vi.useFakeTimers()
+      const router = createReadyRouter()
+      await router.push(`/games/${gameId}/ready?mode=solo`)
+      await router.isReady()
+
+      const wrapper = mount(GameReadyPage, {
+        global: { plugins: [router, createPinia()] },
+      })
+      const readyPage = wrapper.vm as unknown as {
+        openGameStartDialog: () => void
+      }
+
+      readyPage.openGameStartDialog()
+      if (gameId === 'hold') await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('game-play')
+      expect(
+        globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY),
+      ).not.toBeNull()
+      wrapper.unmount()
+      vi.useRealTimers()
+      globalThis.sessionStorage.clear()
+    },
+  )
+
+  it('does not issue a ticket when calibration only completes', async () => {
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+    const router = createReadyRouter()
+    await router.push('/games/hold/ready?mode=solo')
+    await router.isReady()
+
+    const wrapper = mount(GameReadyPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    const readyPage = wrapper.vm as unknown as {
+      finishCalibration: () => void
+    }
+
+    readyPage.finishCalibration()
+
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+    wrapper.unmount()
+    globalThis.sessionStorage.clear()
+  })
+
   it('opens the webcam guide before requesting a camera for a solo room', async () => {
     const router = createReadyRouter()
     await router.push('/games/hold/ready?mode=solo')
