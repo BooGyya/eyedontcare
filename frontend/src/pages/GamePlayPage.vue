@@ -3108,6 +3108,17 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
               alt="친구 카메라 준비 안내 이미지"
               draggable="false"
             />
+            <div
+              v-if="isStareDuel"
+              class="eye-see-camera__timer eye-see-camera__timer--opponent"
+              aria-live="polite"
+            >
+              <span>상대 생존 시간</span>
+              <strong v-if="stareOpponentSynced">{{
+                formatStareDuration(stareOpponentElapsedMs)
+              }}</strong>
+              <strong v-else>연결 중…</strong>
+            </div>
           </div>
           <p class="camera-state">
             {{
@@ -3115,13 +3126,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
                 ? '친구 카메라가 연결되었습니다.'
                 : '친구 카메라를 기다리고 있어요.'
             }}
-          </p>
-          <p v-if="isStareDuel" class="hold-opponent-status">
-            상대 생존 시간
-            <strong v-if="stareOpponentSynced">{{
-              formatStareDuration(stareOpponentElapsedMs)
-            }}</strong>
-            <strong v-else>연결 중…</strong>
           </p>
         </template>
         <template v-else>
@@ -3654,19 +3658,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   background: var(--color-surface-soft);
   font-size: 13px;
   font-weight: 800;
-}
-.hold-opponent-status {
-  margin: 10px 0 0;
-  color: var(--color-muted);
-  font-size: 13px;
-  text-align: center;
-}
-.hold-opponent-status strong {
-  display: block;
-  margin-top: 2px;
-  color: var(--color-ink);
-  font-size: 16px;
-  font-weight: 900;
 }
 .rhythm-judgement {
   padding: 6px 14px;
@@ -5059,6 +5050,15 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+/* 상대(친구) 캠 위 생존 시간 — 좁은 사이드 패널에 맞춰 내 캠 타이머보다 조금 작게. */
+.eye-see-camera__timer--opponent {
+  top: 10px;
+  min-width: 124px;
+  padding: 8px 14px;
+}
+.eye-see-camera__timer--opponent strong {
+  font-size: 22px;
 }
 .eye-see-camera__self,
 .self-camera {
