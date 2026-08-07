@@ -99,6 +99,12 @@ public enum GroupErrorCode implements ErrorCode {
 		HttpStatus.FORBIDDEN,
 		"GROUP-016",
 		"본인이 작성한 글만 수정·삭제할 수 있습니다."
+	),
+
+	DUPLICATE_GROUP_NAME(
+		HttpStatus.CONFLICT,
+		"GROUP-017",
+		"이미 존재하는 길드 이름입니다. 다른 이름을 사용해 주세요."
 	);
 
 	private final HttpStatus status;
