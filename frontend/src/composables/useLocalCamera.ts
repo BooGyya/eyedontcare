@@ -55,8 +55,20 @@ export function useLocalCamera() {
       return null
     }
     try {
+      // ⚠️ 해상도를 반드시 명시한다. `video: true`만 주면 브라우저가 기본 해상도(보통 640x480)를
+      // 고르는데, 그 정도 화질에서는 눈 주변 랜드마크가 뭉개져 EAR(눈 세로/가로 비율) 계산이
+      // 매우 부정확해진다 — 그 결과 "한쪽 눈만 감김/가림"을 좌우 따로 구분하지 못하고
+      // (눈싸움 편법 감지 실패), 리듬게임의 윙크 입력도 자주 놓치며, 시선 캘리브레이션 정확도도
+      // 떨어진다. 연동 전 프로토타입(`camera.js`)은 1280x720을 요청했는데 이식 과정에서 이 설정이
+      // 누락됐던 것이 실제 원인이었다. `ideal`이라 이 해상도를 지원 못 하는 카메라에서도 실패하지
+      // 않고 가장 가까운 해상도로 대체된다.
       const next = await globalThis.navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user',
+        },
+        audio: false,
       })
       stream.value = next
       isActive.value = true

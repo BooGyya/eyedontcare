@@ -14,6 +14,8 @@ defineProps<{
     current: number
     total: number
   }
+  /** 그림그리기처럼 넓은 작업 공간이 필요한 게임에서 켠다 — 기본 1180px 대신 더 넓게 쓴다. */
+  wide?: boolean
 }>()
 const emit = defineEmits<{ leave: [] }>()
 
@@ -26,7 +28,7 @@ function confirmLeave() {
 </script>
 
 <template>
-  <section class="play-shell">
+  <section class="play-shell" :class="{ 'play-shell--wide': wide }">
     <header
       class="play-shell__header"
       :class="{
@@ -119,6 +121,13 @@ function confirmLeave() {
   width: min(100%, 1180px);
   margin: 0 auto;
   padding: 28px 0 54px;
+}
+/**
+ * 그림그리기처럼 넓은 작업 공간이 필요한 게임용. 캔버스가 작아서 눈으로 그리기 어렵다는
+ * 피드백을 반영해, 화면이 허용하는 만큼(좌우 여백만 남기고) 폭을 넓힌다.
+ */
+.play-shell--wide {
+  width: min(calc(100vw - 48px), 1680px);
 }
 .play-shell__header {
   position: relative;
