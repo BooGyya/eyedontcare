@@ -14,6 +14,10 @@ import { useEyeTracking } from '../composables/useEyeTracking'
 import { useCalibrationStore } from '../stores/calibration'
 import { useGameSessionSocket } from '../composables/useGameSessionSocket'
 import { currentParticipantKey, resolveIdentity } from '../api/identity'
+import {
+  clearSoloPlayEntry,
+  consumeSoloPlayEntry,
+} from '../utils/soloPlayEntry'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
 import type { GameSessionStateData } from '../types/gameSession'
@@ -1329,6 +1333,23 @@ function startGame() {
   cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
 }
 
+function handleSoloPlayEntry(): boolean {
+  if (mode.value !== 'solo') return true
+
+  const gameId = game.value?.id
+  if (gameId && consumeSoloPlayEntry(gameId)) return true
+
+  clearSoloPlayEntry()
+  clearGameInProgress()
+  if (gameId) {
+    void router.replace({
+      name: 'game-detail',
+      params: { gameId },
+    })
+  }
+  return false
+}
+
 function finishReplayCountdown() {
   clearReplayCountdown()
   isReplayCountdownOpen.value = false
@@ -1358,6 +1379,8 @@ function openReplayCountdown() {
 }
 
 onMounted(() => {
+  if (!handleSoloPlayEntry()) return
+
   // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
   if (handleMidGameRefresh()) return
 
@@ -2062,7 +2085,11 @@ let opponentFinished = false
 const GAME_IN_PROGRESS_KEY = 'edc-game-in-progress'
 
 function clearGameInProgress() {
-  globalThis.sessionStorage?.removeItem(GAME_IN_PROGRESS_KEY)
+  try {
+    globalThis.sessionStorage?.removeItem(GAME_IN_PROGRESS_KEY)
+  } catch {
+    // Storage access failures must not keep an invalid SOLO URL on the game screen.
+  }
 }
 
 /**
@@ -3081,6 +3108,17 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
               alt="친구 카메라 준비 안내 이미지"
               draggable="false"
             />
+            <div
+              v-if="isStareDuel"
+              class="eye-see-camera__timer eye-see-camera__timer--opponent"
+              aria-live="polite"
+            >
+              <span>상대 생존 시간</span>
+              <strong v-if="stareOpponentSynced">{{
+                formatStareDuration(stareOpponentElapsedMs)
+              }}</strong>
+              <strong v-else>연결 중…</strong>
+            </div>
           </div>
           <p class="camera-state">
             {{
@@ -3088,13 +3126,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
                 ? '친구 카메라가 연결되었습니다.'
                 : '친구 카메라를 기다리고 있어요.'
             }}
-          </p>
-          <p v-if="isStareDuel" class="hold-opponent-status">
-            상대 생존 시간
-            <strong v-if="stareOpponentSynced">{{
-              formatStareDuration(stareOpponentElapsedMs)
-            }}</strong>
-            <strong v-else>연결 중…</strong>
           </p>
         </template>
         <template v-else>
@@ -3627,19 +3658,6 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   background: var(--color-surface-soft);
   font-size: 13px;
   font-weight: 800;
-}
-.hold-opponent-status {
-  margin: 10px 0 0;
-  color: var(--color-muted);
-  font-size: 13px;
-  text-align: center;
-}
-.hold-opponent-status strong {
-  display: block;
-  margin-top: 2px;
-  color: var(--color-ink);
-  font-size: 16px;
-  font-weight: 900;
 }
 .rhythm-judgement {
   padding: 6px 14px;
@@ -5032,6 +5050,15 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+/* 상대(친구) 캠 위 생존 시간 — 좁은 사이드 패널에 맞춰 내 캠 타이머보다 조금 작게. */
+.eye-see-camera__timer--opponent {
+  top: 10px;
+  min-width: 124px;
+  padding: 8px 14px;
+}
+.eye-see-camera__timer--opponent strong {
+  font-size: 22px;
 }
 .eye-see-camera__self,
 .self-camera {
