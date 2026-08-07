@@ -23,7 +23,7 @@ import {
   currentParticipantKey,
   resolveIdentity,
 } from '../api/identity'
-import { issueSoloPlayEntry } from '../utils/soloPlayEntry'
+import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
 import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import type {
@@ -384,7 +384,10 @@ function clearGameStartCountdown() {
 
 function navigateToPlay(): void {
   if (!game.value) return
-  if (mode.value === 'solo' && !issueSoloPlayEntry(game.value.id)) {
+  if (
+    isPlayEntryMode(mode.value) &&
+    !issuePlayEntry(game.value.id, mode.value)
+  ) {
     showToast('게임을 시작할 수 없어요. 잠시 후 다시 시도해 주세요.')
     return
   }
