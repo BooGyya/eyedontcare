@@ -15,8 +15,9 @@ import { useCalibrationStore } from '../stores/calibration'
 import { useGameSessionSocket } from '../composables/useGameSessionSocket'
 import { currentParticipantKey, resolveIdentity } from '../api/identity'
 import {
-  clearSoloPlayEntry,
-  consumeSoloPlayEntry,
+  clearPlayEntry,
+  consumePlayEntry,
+  isPlayEntryMode,
 } from '../utils/soloPlayEntry'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
@@ -1333,13 +1334,13 @@ function startGame() {
   cameraWatchdog = globalThis.setInterval(pollCameraFrames, 1000)
 }
 
-function handleSoloPlayEntry(): boolean {
-  if (mode.value !== 'solo') return true
+function handlePlayEntry(): boolean {
+  if (!isPlayEntryMode(mode.value)) return true
 
   const gameId = game.value?.id
-  if (gameId && consumeSoloPlayEntry(gameId)) return true
+  if (gameId && consumePlayEntry(gameId, mode.value)) return true
 
-  clearSoloPlayEntry()
+  clearPlayEntry()
   clearGameInProgress()
   if (gameId) {
     void router.replace({
@@ -1379,7 +1380,7 @@ function openReplayCountdown() {
 }
 
 onMounted(() => {
-  if (!handleSoloPlayEntry()) return
+  if (!handlePlayEntry()) return
 
   // 진행 중이던 게임을 새로고침한 경우: 정책대로 재시작하지 않고 종료한다(1라운드부터 다시 시작 방지).
   if (handleMidGameRefresh()) return
