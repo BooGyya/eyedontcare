@@ -29,13 +29,14 @@ import type {
 
 export type RankType = 'WIN_COUNT' | 'BEST_SCORE'
 
-/** 랭킹 한 줄(백엔드 원본). `achievedAt`은 상세 조회에만 채워지고 요약에서는 생략된다. */
+/** 랭킹 한 줄(백엔드 원본). `achievedAt`은 상세 조회에만, `trend`는 변동 기록이 있을 때만 온다. */
 export interface RankingEntryResponse {
   rank: number
   userId: number | null
   nickname: string
   value: number
   achievedAt?: string | null
+  trend?: 'up' | 'down' | 'same' | null
 }
 
 /** 요청자 본인 순위. 이번 주 기록이 없으면 백엔드가 null로 준다. */
@@ -186,6 +187,7 @@ export function toGameRanking(
     score: formatScore(entry.value, response.unit),
     avatar: avatarForUserId(entry.userId),
     isCurrentUser: currentUserId !== null && entry.userId === currentUserId,
+    trend: entry.trend ?? undefined,
   }))
 
   return {

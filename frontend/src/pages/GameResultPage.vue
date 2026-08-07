@@ -31,6 +31,7 @@ import { resolveIdentity } from '../api/identity'
 import { useToast } from '../composables/useToast'
 import { DRAWING_DIFFICULTY_LABEL } from '../lib/games/draw-core'
 import { getResult } from '../api/gameResult'
+import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
 
 const route = useRoute()
 const router = useRouter()
@@ -462,6 +463,13 @@ function stopReplayResend() {
 
 function navigateToReplay() {
   if (!game.value) return
+  if (
+    isPlayEntryMode(mode.value) &&
+    !issuePlayEntry(game.value.id, mode.value)
+  ) {
+    showToast('게임을 다시 시작할 수 없어요. 잠시 후 다시 시도해 주세요.')
+    return
+  }
   const playQuery = { ...route.query }
   delete playQuery.result
   playQuery.replay = '1'

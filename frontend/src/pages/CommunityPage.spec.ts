@@ -177,6 +177,23 @@ describe('CommunityPage', () => {
     expect(wrapper.text()).toContain('찾는 길드가 없어요.')
   })
 
+  it('검색어는 custom X 버튼 하나로 초기화할 수 있다', async () => {
+    const { wrapper } = await mountCommunityPage()
+    const searchInput = wrapper.get('[data-testid="community-search"]')
+
+    expect(searchInput.attributes('type')).toBe('search')
+    expect(wrapper.findAll('.community-page__search-clear')).toHaveLength(0)
+
+    await searchInput.setValue('집중')
+    expect(wrapper.findAll('.community-group-card')).toHaveLength(1)
+    expect(wrapper.findAll('.community-page__search-clear')).toHaveLength(1)
+
+    await wrapper.get('.community-page__search-clear').trigger('click')
+    expect((searchInput.element as HTMLInputElement).value).toBe('')
+    expect(wrapper.findAll('.community-group-card')).toHaveLength(3)
+    expect(wrapper.findAll('.community-page__search-clear')).toHaveLength(0)
+  })
+
   it('공개 길드는 입장하기를 누르면 즉시 가입하지 않고 상세로 이동한다', async () => {
     const { wrapper, router } = await mountCommunityPage()
 

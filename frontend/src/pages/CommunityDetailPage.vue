@@ -130,12 +130,33 @@ function cancelPostEdit() {
   editingPostId.value = null
 }
 
+function handlePostEditInput(postId: string, event: globalThis.Event) {
+  postEditDrafts.value[postId] = (
+    event.target as globalThis.HTMLTextAreaElement
+  ).value
+  autoGrowComposer(event)
+}
+
+function canSavePostEdit(post: CommunityPost) {
+  const content = (postEditDrafts.value[post.id] ?? '').trim()
+  return (
+    content.length > 0 &&
+    content.length <= POST_MAX_LENGTH &&
+    content !== post.content.trim()
+  )
+}
+
 async function savePostEdit(post: CommunityPost) {
   const content = (postEditDrafts.value[post.id] ?? '').trim()
   if (!content) {
     showToast('내용을 입력해 주세요.')
     return
   }
+  if (content.length > POST_MAX_LENGTH) {
+    showToast(`글은 ${POST_MAX_LENGTH}자까지 입력할 수 있어요.`)
+    return
+  }
+  if (!canSavePostEdit(post)) return
   try {
     const saved = await updateGroupPost(groupId.value, post.id, content)
     post.content = saved.content
@@ -218,6 +239,21 @@ function cancelCommentEdit() {
   editingCommentId.value = null
 }
 
+function handleCommentEditInput(commentId: string, event: globalThis.Event) {
+  editDrafts.value[commentId] = (
+    event.target as globalThis.HTMLInputElement
+  ).value
+}
+
+function canSaveCommentEdit(comment: CommunityComment) {
+  const content = (editDrafts.value[comment.id] ?? '').trim()
+  return (
+    content.length > 0 &&
+    content.length <= COMMENT_MAX_LENGTH &&
+    content !== comment.content.trim()
+  )
+}
+
 async function saveCommentEdit(post: CommunityPost) {
   const commentId = editingCommentId.value
   if (!commentId) return
@@ -226,6 +262,12 @@ async function saveCommentEdit(post: CommunityPost) {
     showToast('내용을 입력해 주세요.')
     return
   }
+  if (content.length > COMMENT_MAX_LENGTH) {
+    showToast(`댓글은 ${COMMENT_MAX_LENGTH}자까지 입력할 수 있어요.`)
+    return
+  }
+  const target = findComment(post, commentId)
+  if (!target || !canSaveCommentEdit(target)) return
   try {
     const saved = await updateGroupComment(
       groupId.value,
@@ -233,11 +275,8 @@ async function saveCommentEdit(post: CommunityPost) {
       commentId,
       content,
     )
-    const target = findComment(post, commentId)
-    if (target) {
-      target.content = saved.content
-      target.timeLabel = toTimeLabel(saved.createdAt)
-    }
+    target.content = saved.content
+    target.timeLabel = toTimeLabel(saved.createdAt)
     editingCommentId.value = null
     showToast('댓글을 수정했어요.')
   } catch (error) {
@@ -734,10 +773,10 @@ watch(
             </div>
             <template v-if="editingPostId === post.id">
               <textarea
-                v-model="postEditDrafts[post.id]"
+                :value="postEditDrafts[post.id]"
                 class="community-detail__post-edit-textarea"
                 :maxlength="POST_MAX_LENGTH"
-                @input="autoGrowComposer"
+                @input="handlePostEditInput(post.id, $event)"
               />
               <div class="community-detail__post-edit-actions">
                 <span class="community-detail__composer-count">
@@ -755,6 +794,7 @@ watch(
                 <button
                   type="button"
                   class="community-detail__primary"
+                  :disabled="!canSavePostEdit(post)"
                   @click="savePostEdit(post)"
                 >
                   저장
@@ -805,16 +845,18 @@ watch(
                 <li v-for="comment in post.comments" :key="comment.id">
                   <template v-if="editingCommentId === comment.id">
                     <input
-                      v-model="editDrafts[comment.id]"
+                      :value="editDrafts[comment.id]"
                       type="text"
                       class="community-detail__comment-edit-input"
                       :maxlength="COMMENT_MAX_LENGTH"
+                      @input="handleCommentEditInput(comment.id, $event)"
                       @keyup.enter="saveCommentEdit(post)"
                     />
                     <span class="community-detail__comment-owner-actions">
                       <button
                         type="button"
                         class="community-detail__comment-save"
+                        :disabled="!canSaveCommentEdit(comment)"
                         @click="saveCommentEdit(post)"
                       >
                         저장
@@ -1429,6 +1471,10 @@ watch(
 .community-detail__comment-edit,
 .community-detail__comment-save {
   color: var(--color-accent-blue);
+}
+.community-detail__comment-save:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
 }
 .community-detail__comment-delete {
   color: #c0392b;

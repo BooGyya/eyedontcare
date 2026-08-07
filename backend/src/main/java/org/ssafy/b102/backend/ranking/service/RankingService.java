@@ -2,6 +2,7 @@ package org.ssafy.b102.backend.ranking.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -11,8 +12,12 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.ssafy.b102.backend.game.entity.GameName;
 import org.ssafy.b102.backend.gameresult.entity.Outcome;
 import org.ssafy.b102.backend.gameresult.entity.Participant;
+import org.ssafy.b102.backend.ranking.entity.RankingTrend;
+import org.ssafy.b102.backend.ranking.repository.RankingTrendRepository;
+import org.ssafy.b102.backend.ranking.support.RankTrend;
 import org.ssafy.b102.backend.ranking.dto.response.GameRankingResponse;
 import org.ssafy.b102.backend.ranking.dto.response.GameRankingSummary;
 import org.ssafy.b102.backend.ranking.dto.response.MyRank;
@@ -39,23 +44,27 @@ public class RankingService {
 
 	private final RankingRepository rankingRepository;
 	private final UserRepository userRepository;
+	private final RankingTrendRepository rankingTrendRepository;
 	private final Clock clock;
 
 	@Autowired
 	public RankingService(
 		RankingRepository rankingRepository,
-		UserRepository userRepository
+		UserRepository userRepository,
+		RankingTrendRepository rankingTrendRepository
 	) {
-		this(rankingRepository, userRepository, Clock.systemUTC());
+		this(rankingRepository, userRepository, rankingTrendRepository, Clock.systemUTC());
 	}
 
 	RankingService(
 		RankingRepository rankingRepository,
 		UserRepository userRepository,
+		RankingTrendRepository rankingTrendRepository,
 		Clock clock
 	) {
 		this.rankingRepository = rankingRepository;
 		this.userRepository = userRepository;
+		this.rankingTrendRepository = rankingTrendRepository;
 		this.clock = clock;
 	}
 
@@ -70,6 +79,8 @@ public class RankingService {
 				? ranked.subList(0, limit)
 				: ranked;
 			Map<Long, String> nicknames = nicknamesOf(top);
+			Map<Long, String> trends =
+				trendStringsFor(config.gameName(), top, week.weekStart());
 
 			List<RankingEntry> topEntries = top.stream()
 				.map(user -> new RankingEntry(
@@ -77,7 +88,8 @@ public class RankingService {
 					user.userId(),
 					nicknames.get(user.userId()),
 					user.value(),
-					null
+					null,
+					trends.get(user.userId())
 				))
 				.toList();
 
@@ -111,6 +123,8 @@ public class RankingService {
 			? List.of()
 			: ranked.subList(from, Math.min(from + size, ranked.size()));
 		Map<Long, String> nicknames = nicknamesOf(slice);
+		Map<Long, String> trends =
+			trendStringsFor(config.gameName(), slice, week.weekStart());
 
 		List<RankingEntry> rankings = slice.stream()
 			.map(user -> new RankingEntry(
@@ -118,7 +132,8 @@ public class RankingService {
 				user.userId(),
 				nicknames.get(user.userId()),
 				user.value(),
-				user.achievedAt()
+				user.achievedAt(),
+				trends.get(user.userId())
 			))
 			.toList();
 
@@ -197,6 +212,42 @@ public class RankingService {
 			));
 		}
 		return ranked;
+	}
+
+	/**
+	 * 이번 주 특정 게임 랭킹에서 유저의 현재 순위. 랭킹에 없으면(점수 미달 등) null.
+	 * 게임 종료 시점의 순위 변동 계산({@code RankingTrendService})에 쓴다.
+	 */
+	@Transactional(readOnly = true)
+	public Integer rankOf(GameName gameName, Long userId) {
+		if (userId == null) {
+			return null;
+		}
+		RankingGame config = RankingGame.of(gameName);
+		WeekRange week = WeekRange.current(clock.instant());
+		return compute(config, week).stream()
+			.filter(user -> user.userId().equals(userId))
+			.map(RankedUser::rank)
+			.findFirst()
+			.orElse(null);
+	}
+
+	/** 표시할 유저들의 순위 변동(up/down/same)을 조회한다. 기록이 없으면 맵에서 빠진다. */
+	private Map<Long, String> trendStringsFor(
+		GameName gameName,
+		List<RankedUser> users,
+		LocalDate weekStart
+	) {
+		List<Long> ids = users.stream().map(RankedUser::userId).toList();
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		return rankingTrendRepository
+			.findByGameNameAndWeekStartAndUserIdIn(gameName, weekStart, ids).stream()
+			.collect(Collectors.toMap(
+				RankingTrend::getUserId,
+				trend -> trend.getTrend().name().toLowerCase()
+			));
 	}
 
 	private MyRank findMyRank(List<RankedUser> ranked, Long userId) {

@@ -19,6 +19,8 @@ import org.ssafy.b102.backend.gameresult.exception.GameResultErrorCode;
 import org.ssafy.b102.backend.gameresult.repository.GameResultRepository;
 import org.ssafy.b102.backend.gameresult.repository.ParticipantRepository;
 import org.ssafy.b102.backend.global.error.BusinessException;
+import org.springframework.context.ApplicationEventPublisher;
+import org.ssafy.b102.backend.gameresult.event.GameResultSubmittedEvent;
 import org.ssafy.b102.backend.guest.entity.GuestSession;
 import org.ssafy.b102.backend.guest.service.GuestSessionService;
 import org.ssafy.b102.backend.guest.support.GuestParticipantKey;
@@ -32,17 +34,20 @@ public class GameResultService {
 	private final ParticipantRepository participantRepository;
 	private final GameService gameService;
 	private final GuestSessionService guestSessionService;
+	private final ApplicationEventPublisher eventPublisher;
 
 	public GameResultService(
 		GameResultRepository gameResultRepository,
 		ParticipantRepository participantRepository,
 		GameService gameService,
-		GuestSessionService guestSessionService
+		GuestSessionService guestSessionService,
+		ApplicationEventPublisher eventPublisher
 	) {
 		this.gameResultRepository = gameResultRepository;
 		this.participantRepository = participantRepository;
 		this.gameService = gameService;
 		this.guestSessionService = guestSessionService;
+		this.eventPublisher = eventPublisher;
 	}
 
 	@Transactional
@@ -71,11 +76,27 @@ public class GameResultService {
 		NewRecord newRecord = evaluateNewRecord(requester, request.gameResult(), game.getId());
 
 		GameResult saved = gameResultRepository.save(gameResult);
+
+		// 결과 저장 후 랭킹 변동 갱신은 이벤트로 위임한다(ranking 도메인 리스너가 커밋 후 처리).
+		eventPublisher.publishEvent(new GameResultSubmittedEvent(
+			game.getGameName(),
+			game.getPlayMode(),
+			memberUserIds(request.participants())
+		));
+
 		return SubmitGameResultResponse.of(
 			saved.getId(),
 			newRecord.isNewRecord(),
 			newRecord.previousBestScore()
 		);
+	}
+
+	/** 참가자 중 회원(USER)의 userId 집합. 랭킹 변동은 회원만 대상이다. */
+	private Set<Long> memberUserIds(List<ParticipantResultRequest> participants) {
+		return participants.stream()
+			.filter(participant -> participant.participantType() == ParticipantType.USER)
+			.map(participant -> resolveUserId(participant.participantKey()))
+			.collect(Collectors.toSet());
 	}
 
 	/**

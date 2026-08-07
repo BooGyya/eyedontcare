@@ -24,6 +24,7 @@ import {
   currentParticipantKey,
   resolveIdentity,
 } from '../api/identity'
+import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
 import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import type {
@@ -412,15 +413,28 @@ function clearGameStartCountdown() {
   countdownTimer = undefined
 }
 
+function navigateToPlay(): void {
+  if (!game.value) return
+  if (
+    isPlayEntryMode(mode.value) &&
+    !issuePlayEntry(game.value.id, mode.value)
+  ) {
+    showToast('게임을 시작할 수 없어요. 잠시 후 다시 시도해 주세요.')
+    return
+  }
+
+  void router.push({
+    name: 'game-play',
+    params: { gameId: game.value.id },
+    query: route.query,
+  })
+}
+
 function openGameStartDialog() {
   clearGameStartCountdown()
   // 리듬 게임은 게임 화면 안에서 자체 3·2·1 카운트다운을 하므로, 준비방에서는 카운트다운 없이 바로 이동한다.
   if (game.value?.id === 'rhythm') {
-    router.push({
-      name: 'game-play',
-      params: { gameId: game.value.id },
-      query: route.query,
-    })
+    navigateToPlay()
     return
   }
   countdown.value = 3
@@ -429,12 +443,7 @@ function openGameStartDialog() {
   countdownTimer = globalThis.setInterval(() => {
     if (countdown.value === 1) {
       clearGameStartCountdown()
-      if (game.value)
-        router.push({
-          name: 'game-play',
-          params: { gameId: game.value.id },
-          query: route.query,
-        })
+      navigateToPlay()
       return
     }
     countdown.value -= 1
@@ -2088,15 +2097,13 @@ onBeforeUnmount(() => {
                 : '카메라를 사용할 수 없어요. 연결된 카메라와 브라우저 지원 여부를 확인해 주세요.'
             }}
           </p>
-          <div class="ready-dialog__actions">
+          <div class="ready-dialog__actions ready-dialog__actions--single">
             <button
               type="button"
               class="primary"
               data-dialog-initial-focus
-              @click="handleRequestCamera"
+              @click="handleLeaveRoom"
             >
-              다시 요청</button
-            ><button type="button" class="secondary" @click="handleLeaveRoom">
               게임 상세로 돌아가기
             </button>
           </div>
@@ -2759,6 +2766,11 @@ onBeforeUnmount(() => {
 }
 .ready-dialog__actions button {
   width: 100%;
+}
+/* 버튼이 하나뿐인 팝업(카메라 권한 오류)은 버튼을 가운데에 둔다. */
+.ready-dialog__actions--single {
+  grid-template-columns: minmax(0, 220px);
+  justify-content: center;
 }
 .calibration-dialog {
   width: min(96vw, 1400px);
