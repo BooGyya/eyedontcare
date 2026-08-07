@@ -359,3 +359,37 @@ function mean(values: number[]): number {
   }
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
+
+/**
+ * 뷰포트 기준 정규화 좌표(0~1)를 특정 엘리먼트 기준 정규화 좌표(0~1)로 옮긴다.
+ *
+ * ## 왜 뷰포트 좌표계를 기준으로 삼는가
+ * 시선 오차는 눈·카메라·모니터의 **기하학적 성질**이지 특정 DOM 요소의 성질이 아니다. 그런데
+ * 예전에는 보정 화면(준비 페이지의 작은 다이얼로그 영역)을 기준으로 0~1을 학습해 놓고, 게임에서는
+ * 그림 캔버스를 기준으로 한 0~1에 그 보정을 적용했다 — 둘 다 "0~1"이지만 화면상 실제 위치와
+ * 크기가 전혀 달라서, 보정 영역의 왼쪽 위와 캔버스의 왼쪽 위는 눈을 서로 다른 각도로 돌려야 하는
+ * 지점이었다. 그래서 보정값이 구조적으로 어긋났다.
+ *
+ * 이제는 보정을 **뷰포트 좌표계에서 학습하고 적용**한다. 그러면 보정 화면과 게임 화면의 요소
+ * 크기가 달라도 같은 보정값을 그대로 쓸 수 있고, 각 게임은 마지막에 이 함수로 자기 영역 좌표로
+ * 바꾸기만 하면 된다(그림 캔버스, 에어하키 판 등).
+ *
+ * @returns 엘리먼트 기준 좌표. 엘리먼트가 없으면 null.
+ */
+export function viewportPointToElement(
+  point: Point,
+  element: globalThis.HTMLElement | null,
+): Point | null {
+  if (!element) return null
+  const rect = element.getBoundingClientRect()
+  // 아직 레이아웃 전이거나 숨겨져 있으면 크기가 0이다. 이때 나눗셈을 강행하면 화면 밖의 엉뚱한
+  // 좌표가 나오므로, 값이 없다고 알리는 편이 안전하다.
+  if (rect.width <= 0 || rect.height <= 0) return null
+  const viewportWidth = globalThis.window.innerWidth || 1
+  const viewportHeight = globalThis.window.innerHeight || 1
+  const x = (point.x * viewportWidth - rect.left) / rect.width
+  const y = (point.y * viewportHeight - rect.top) / rect.height
+  // NaN이 들어오면 NaN이 나간다. 게임 로직까지 흘려보내면 커서가 조용히 사라지므로 여기서 막는다.
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  return { x, y, confidence: point.confidence }
+}

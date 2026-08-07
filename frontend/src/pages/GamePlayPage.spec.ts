@@ -33,6 +33,27 @@ const eyeTrackingMockInstances: Array<{
   faceDetected: ReturnType<typeof ref<boolean>>
 }> = []
 
+/**
+ * SeeSo는 실제 SDK·카메라·라이선스 서버가 필요해 테스트 환경에서는 동작할 수 없다. 모킹하지
+ * 않으면 개발자 `.env`에 라이선스 키가 있는지에 따라 테스트 결과가 달라진다(키가 있으면 초기화를
+ * 시도하다 실패). 여기서는 항상 "설정되지 않음"으로 고정해 MediaPipe 경로만 검증한다.
+ */
+vi.mock('../composables/useSeeSoGaze', () => ({
+  SEESO_MARGIN_BEFORE_CALIBRATION: 0.15,
+  SEESO_MARGIN_AFTER_CALIBRATION: 0.45,
+  useSeeSoGaze: () => ({
+    isConfigured: false,
+    isRunning: ref(false),
+    isStarting: ref(false),
+    error: ref(null),
+    viewportGaze: ref(null),
+    setMargin: vi.fn(),
+    start: vi.fn(async () => false),
+    stop: vi.fn(),
+    calibrate: vi.fn(async () => false),
+  }),
+}))
+
 vi.mock('../composables/useEyeTracking', () => ({
   useEyeTracking: () => {
     const instance = {
@@ -80,11 +101,32 @@ vi.mock('../composables/useEyeTracking', () => ({
  * `eyeTrackingMockInstances[0]`(drawTracking, GamePlayPage.vue에서 제일 먼저 선언됨)이
  * 이미 채워져 있다.
  */
+/**
+ * jsdom에는 레이아웃 엔진이 없어 모든 엘리먼트의 `getBoundingClientRect()`가 0을 반환한다.
+ * 실제 코드는 보정된 시선(뷰포트 기준 0~1)을 캔버스 기준 좌표로 옮기므로, 캔버스가 화면 어디에
+ * 얼마나 크게 있는지 알 수 없으면 좌표가 전부 밖으로 계산돼 선이 하나도 그려지지 않는다.
+ * 뷰포트(jsdom 기본 1024x768) 안쪽에 놓인 캔버스를 흉내 낸다. 캔버스가 언제 렌더되든 적용되도록
+ * prototype에 걸어 둔다.
+ */
+globalThis.HTMLCanvasElement.prototype.getBoundingClientRect = () =>
+  ({
+    x: 100,
+    y: 100,
+    left: 100,
+    top: 100,
+    width: 800,
+    height: 500,
+    right: 900,
+    bottom: 600,
+    toJSON: () => ({}),
+  }) as globalThis.DOMRect
+
 async function simulateDrawingSomething() {
   const draw = eyeTrackingMockInstances[0]
   draw.faceDetected.value = true
   draw.combinedState.value = 'BOTH_OPEN'
-  draw.screenGaze.value = { x: 0.3, y: 0.3 }
+  // 위에서 흉내 낸 캔버스 사각형 안쪽에 들어오는 뷰포트 좌표를 준다.
+  draw.screenGaze.value = { x: 0.35, y: 0.35 }
   await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
   draw.screenGaze.value = { x: 0.6, y: 0.55 }
   await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
