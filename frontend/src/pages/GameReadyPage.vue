@@ -22,6 +22,7 @@ import { ApiError } from '../api/http'
 import {
   currentAccessToken,
   currentParticipantKey,
+  ensureIdentity,
   resolveIdentity,
 } from '../api/identity'
 import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
@@ -151,10 +152,29 @@ const seeSoCalibrationProgress = ref(0)
 /** SeeSo 보정 중 사용자에게 보여줄 안내 문구. */
 const seeSoCalibrationHint = ref('')
 /**
- * SeeSo 자체 보정(1단계)을 포기하기까지의 시간. 시선이 잡히지 않으면 SDK가 완료 콜백을 부르지
- * 않을 수 있어, 이 시간이 지나면 2단계(9점)로 넘어간다.
+ * 재시도·재시작처럼 **평소와 다른 일이 벌어지는 중**임을 알리는 문구. 값이 있으면 하단 안내가
+ * 평소의 "주황색 점을 계속 바라봐 주세요" 대신 이 문구로 바뀐다.
+ *
+ * 이게 없으면 진행률이 멈춘 채 하단 문구도 그대로라, 재시도하고 있는지 굳어버린 건지 구분할
+ * 방법이 사용자에게 전혀 없다(실제로 보고된 혼란).
  */
-const SEESO_CALIBRATION_TIMEOUT_MS = 40000
+const seeSoCalibrationNotice = ref('')
+/**
+ * 1단계 보정을 기다리는 최대 시간 — **마지막 안전망**이다.
+ *
+ * 정상적으로는 여기 도달하지 않는다. 프로바이더의 워치독이 진행이 멈춘 것을 감지해 스스로
+ * 끝내기 때문이다. 시선이 안 잡히면 약 6초 만에 접고, 시선이 잡히는 동안(사용자가 잠깐 다른
+ * 곳을 본 경우)에는 다시 바라볼 시간을 넉넉히 준다. 그 회복 시간을 이 타임아웃이 잘라 버리면
+ * 정상 사용자가 실패 처리되므로, 회복 한도(약 30초)보다 넉넉하게 잡는다.
+ */
+const SEESO_CALIBRATION_TIMEOUT_MS = 45000
+
+/**
+ * SeeSo 자체 보정을 몇 번까지 다시 시도할지. SeeSo는 시선 추적의 핵심이라 한 번 실패했다고
+ * 정확도가 낮은 MediaPipe로 넘기지 않고 다시 시도한다({@link runSeeSoCalibrationWithRetry}).
+ * 너무 크게 잡으면 실패가 계속될 때 사용자가 오래 붙잡히므로 3회로 둔다(최악 약 40초).
+ */
+const SEESO_CALIBRATION_MAX_ATTEMPTS = 3
 /** SDK가 지정한 현재 보정 점(뷰포트 픽셀 좌표). */
 const seeSoCalibrationPoint = ref<{ x: number; y: number } | null>(null)
 const seeSoCalibrationPointStyle = computed(() => {
@@ -1209,11 +1229,50 @@ async function startSeeSoForCalibration(): Promise<void> {
 
     seeSoCalibrationHint.value = '점이 나타나면 그 점을 바라보세요'
 
+    const calibrated = await runSeeSoCalibrationWithRetry()
+    if (calibrationStage.value !== 'gaze') return
+
+    // 보정에 성공했더라도 좌표가 실제로 나오는지 확인해야 한다 — 성공 콜백 뒤에 엔진이 죽는
+    // 경우가 있고, 그대로 두면 9점 보정이 표본을 한 개도 못 모은다.
+    if (!calibrated || !(await seesoGaze.waitForGaze())) {
+      rewindToEyeStateStage()
+    }
+  } finally {
+    // 어떤 경로로 끝나든(성공·실패·타임아웃·화면 이탈) 1단계 상태를 반드시 내려 2단계가 열리게 한다.
+    isSeeSoCalibrating.value = false
+    seeSoCalibrationPoint.value = null
+    seeSoCalibrationHint.value = ''
+    seeSoCalibrationNotice.value = ''
+  }
+}
+
+/**
+ * SeeSo 자체 보정(1단계)을 성공할 때까지 다시 시도한다.
+ *
+ * ## 왜 MediaPipe로 넘기지 않고 재시도하는가
+ * SeeSo는 이 서비스 시선 추적의 핵심이다. MediaPipe는 홍채 위치로 화면 좌표를 **추정**하는
+ * 방식이라 정확도가 확연히 낮아, 한 번 실패했다고 그쪽으로 넘겨 버리면 게임 품질이 크게
+ * 떨어진다. 실패는 대개 일시적(시선을 잠깐 놓침, 자세 변화)이므로 다시 하면 대부분 성공한다.
+ *
+ * ## 좌표가 끊긴 경우
+ * 단순 재보정으로는 살아나지 않는다(보정 중단·WASM 메모리 부족으로 엔진 자체가 멈춘 상태).
+ * 그래서 재시도 전에 좌표가 살아 있는지 보고, 끊겼으면 엔진을 껐다 켠 뒤 다시 보정한다.
+ *
+ * @returns 보정에 성공했으면 true.
+ */
+async function runSeeSoCalibrationWithRetry(): Promise<boolean> {
+  for (
+    let attempt = 1;
+    attempt <= SEESO_CALIBRATION_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    if (calibrationStage.value !== 'gaze') return false
+
+    if (attempt > 1 && !(await restartSeeSoForRetry(attempt))) continue
+
     // ⚠️ 반드시 타임아웃을 건다. 이 보정은 사용자의 시선이 잡혀야 진행되는데, 안 잡히면 SDK가
-    // 완료 콜백을 영영 부르지 않을 수 있다. 그러면 2단계 UI가 잠긴 채 화면이 멈춘 것처럼 보여
-    // 아무것도 못 하게 된다. 실패하든 시간이 넘든 2단계(9점)로는 반드시 넘어간다 — 1단계가
-    // 없어도 2단계 보정만으로 충분히 쓸 만하다.
-    await Promise.race([
+    // 완료 콜백을 영영 부르지 않을 수 있다. 그러면 화면이 멈춘 것처럼 보여 아무것도 못 한다.
+    const succeeded = await Promise.race([
       seesoGaze.calibrate({
         onPoint: (x, y) => {
           seeSoCalibrationPoint.value = { x, y }
@@ -1222,18 +1281,87 @@ async function startSeeSoForCalibration(): Promise<void> {
         onProgress: (progress) => {
           seeSoCalibrationProgress.value = progress
           seeSoCalibrationHint.value = `보정 중 ${Math.round(progress * 100)}%`
+          // 다시 진행되기 시작했다 — 재시도 안내를 걷는다.
+          seeSoCalibrationNotice.value = ''
+        },
+        // 멈춘 이유에 따라 사용자가 해야 할 일이 다르다. "재시도 중"만 알려서는 무엇을 고쳐야
+        // 할지 알 수 없으므로, 시선이 잡히는지 여부로 안내를 나눈다.
+        onStalled: (_stall, _maxStalls, tracked) => {
+          seeSoCalibrationNotice.value = tracked
+            ? '시선이 점에서 벗어났어요 · 주황색 점을 다시 바라봐 주세요'
+            : '얼굴이 보이지 않아요 · 카메라 앞에서 화면을 바라봐 주세요'
         },
       }),
-      new Promise((resolve) =>
+      new Promise<undefined>((resolve) =>
         globalThis.setTimeout(resolve, SEESO_CALIBRATION_TIMEOUT_MS),
       ),
     ])
-  } finally {
-    // 어떤 경로로 끝나든(성공·실패·타임아웃·화면 이탈) 1단계 상태를 반드시 내려 2단계가 열리게 한다.
-    isSeeSoCalibrating.value = false
-    seeSoCalibrationPoint.value = null
-    seeSoCalibrationHint.value = ''
+
+    if (succeeded === true) return true
   }
+
+  return false
+}
+
+/**
+ * 재시도 전 준비. 좌표가 끊겼으면 엔진을 되살리고, 시선이 자리잡을 시간을 준다.
+ *
+ * @returns 이번 회차를 진행해도 되면 true. 엔진을 못 살렸으면 false(다음 회차에서 다시 시도).
+ */
+async function restartSeeSoForRetry(attempt: number): Promise<boolean> {
+  seeSoCalibrationPoint.value = null
+  seeSoCalibrationProgress.value = 0
+  seeSoCalibrationHint.value = '보정을 다시 시작하는 중이에요…'
+  seeSoCalibrationNotice.value = `보정을 처음부터 다시 시작할게요 (${attempt}/${SEESO_CALIBRATION_MAX_ATTEMPTS})`
+
+  if (!seesoGaze.isGazeFresh()) {
+    seesoGaze.stop()
+    if (!(await seesoGaze.start())) return false
+    if (calibrationStage.value !== 'gaze') return false
+    eyeTracking.setExternalGazeSource(() => seesoGaze.viewportGaze.value)
+  }
+
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 1200))
+
+  return calibrationStage.value === 'gaze'
+}
+
+/**
+ * SeeSo 보정을 끝내 완료하지 못했을 때, **눈 감기 기록 단계로 되돌린다**.
+ *
+ * ## 왜 MediaPipe로 넘기지 않는가
+ * MediaPipe 시선은 홍채 위치 기반 추정이라 정확도가 확연히 낮다. 그 상태로 게임에 들여보내면
+ * 사용자는 "되긴 되는데 이상한" 경험을 하게 되고, 무엇이 잘못됐는지도 알 수 없다. 차라리 앞
+ * 단계로 되돌려 처음부터 다시 하게 하는 편이 낫다 — 실패는 대개 자세·조명처럼 사용자가 고칠
+ * 수 있는 원인이다.
+ *
+ * ## 왜 하필 '눈 감기' 단계인가
+ * 시선 보정 바로 앞 단계다. 여기로 돌아오면 자세를 고쳐 앉은 상태에서 눈 기준값을 다시 잡고,
+ * 이어서 SeeSo 보정이 깨끗한 상태로 다시 시작된다.
+ *
+ * MediaPipe 추론을 되살리는 것은 폴백이 아니라 **필수**다 — 눈 뜨기/감기 판정은 MediaPipe
+ * 얼굴 랜드마크(EAR)로 하기 때문에, 꺼 둔 채 되돌리면 기록 자체가 되지 않는다.
+ */
+function rewindToEyeStateStage(): void {
+  // 다음 시도가 깨끗한 상태에서 시작하도록 SeeSo를 완전히 정리한다.
+  eyeTracking.setExternalGazeSource(null)
+  eyeTracking.setDetectionEnabled(true)
+  seesoGaze.stop()
+
+  const closedIndex = calibrationStages.value.indexOf('closed')
+  if (closedIndex >= 0) calibrationStageIndex.value = closedIndex
+
+  // 진행 중이던 비동기 작업(표본 수집 등)을 무효화하고 단계 상태를 초기화한다.
+  calibrationOperationGeneration += 1
+  isSamplingEyeStep.value = false
+  isSamplingGaze.value = false
+  eyeSampleFeedback.value = 'idle'
+  gazeCalibrationTargetIndex.value = 0
+  gazeCalibrationEvaluation.value = null
+
+  showToast(
+    '시선 보정을 완료하지 못했어요. 자세를 바로 하고 눈 감기 기록부터 다시 진행해 주세요.',
+  )
 }
 
 function advanceCalibrationStage() {
@@ -1551,6 +1679,10 @@ if (typeof globalThis.window !== 'undefined')
   globalThis.window.addEventListener('keydown', handleKeydown)
 
 onMounted(() => {
+  // 부팅 시 확보에 실패했을 수 있으므로 여기서 한 번 더 시도한다(이미 있으면 아무 일도 하지 않음).
+  // 게임 시작 시점의 입장권 발급은 동기라 기다릴 수 없으니, 카메라·캘리브레이션에 쓰는 시간
+  // 동안 신원을 미리 준비해 둔다.
+  void ensureIdentity()
   if (isRandomRoom.value) initRandomSession()
   else void initInviteSession()
 })
@@ -2226,12 +2358,20 @@ onBeforeUnmount(() => {
             <div
               v-if="isSeeSoCalibrating"
               class="calibration-point-status"
+              :class="{
+                'calibration-point-status--retry': seeSoCalibrationNotice,
+              }"
               role="status"
               aria-live="polite"
             >
-              자동 보정 중 · 주황색 점을 계속 바라봐 주세요 ({{
-                Math.round(seeSoCalibrationProgress * 100)
-              }}%)
+              <template v-if="seeSoCalibrationNotice">{{
+                seeSoCalibrationNotice
+              }}</template>
+              <template v-else
+                >자동 보정 중 · 주황색 점을 계속 바라봐 주세요 ({{
+                  Math.round(seeSoCalibrationProgress * 100)
+                }}%)</template
+              >
             </div>
             <div
               v-else-if="calibrationStage === 'gaze'"
@@ -2873,6 +3013,12 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
+}
+/* 재시도 중임을 색으로도 구분한다 — 문구만 바뀌면 눈에 잘 안 들어온다. */
+.calibration-point-status--retry {
+  border-color: rgba(226, 138, 42, 0.4);
+  color: #b26a16;
+  background: rgba(255, 246, 232, 0.96);
 }
 /**
  * 시선 보정 점을 뷰포트 전체에 배치하는 층.

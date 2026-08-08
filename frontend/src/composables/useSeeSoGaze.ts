@@ -30,7 +30,12 @@ import type { Point } from '../lib/eye-tracking/gaze-calibration'
  * (자세한 배경은 `gaze-calibration.ts`의 해당 함수 주석 참고.)
  */
 
-/** 라이선스 키는 저장소에 커밋하지 않는다 — `frontend/.env`에 두고 환경변수로 주입한다. */
+/**
+ * 라이선스 키는 저장소에 커밋하지 않는다 — 루트 `.env`(gitignore 대상)에 두고, compose가
+ * frontend 서비스로 넘겨 준다(dev는 `environment:`, prod는 `build.args` + Dockerfile의 ARG/ENV).
+ * 카카오 키와 같은 경로다. Vite는 `frontend/` 안의 `.env`만 읽으므로 루트 `.env`를 직접 읽지는
+ * 못하지만, `VITE_` 접두 환경변수는 `process.env`를 통해 `import.meta.env`로 노출된다.
+ */
 const LICENSE_KEY = import.meta.env.VITE_SEESO_LICENSE_KEY as string | undefined
 
 /** SeeSo 자체 보정(1단계) 결과를 저장해 재보정 없이 복원하기 위한 키. */
@@ -62,6 +67,13 @@ export function useSeeSoGaze() {
   const error = ref<string | null>(null)
   /** 뷰포트 기준으로 정규화한 최신 시선(0~1). 범위를 크게 벗어나면 null. */
   const viewportGaze = shallowRef<Point | null>(null)
+  /**
+   * 마지막으로 **쓸 수 있는 좌표**를 받은 시각(ms). 0이면 아직 한 번도 못 받았다.
+   *
+   * SeeSo가 살아 있는지 판정하는 데 쓴다. `isRunning`은 `startTracking()`이 성공했다는 뜻일
+   * 뿐이라, 보정을 중단했거나 워커가 죽어 좌표가 끊긴 상태와 구분하지 못한다.
+   */
+  let lastGazeAt = 0
 
   let provider: SeeSoGazeProvider | null = null
   let margin = SEESO_MARGIN_BEFORE_CALIBRATION
@@ -105,6 +117,28 @@ export function useSeeSoGaze() {
       return
     }
     viewportGaze.value = { x, y, confidence: 1 }
+    lastGazeAt = Date.now()
+  }
+
+  /**
+   * SeeSo가 실제로 좌표를 내고 있을 때까지 기다린다. `timeoutMs` 안에 못 받으면 false.
+   *
+   * ⚠️ 이 확인 없이 MediaPipe 추론을 끄면 안 된다. SeeSo가 조용히 죽은 상태(보정 중단, WASM
+   * 메모리 부족 등)에서 MediaPipe까지 꺼져 있으면 시선 공급원이 **하나도 없어** 커서가 아예
+   * 나타나지 않는다 — 그림그리기에서 선이 한 획도 안 그려지던 원인이다.
+   */
+  async function waitForGaze(timeoutMs = 1500): Promise<boolean> {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < timeoutMs) {
+      if (isGazeFresh()) return true
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 100))
+    }
+    return isGazeFresh()
+  }
+
+  /** 최근 `withinMs` 안에 좌표를 받았는지. 시선이 살아 있는지 판정하는 기준. */
+  function isGazeFresh(withinMs = 1000): boolean {
+    return lastGazeAt > 0 && Date.now() - lastGazeAt <= withinMs
   }
 
   /**
@@ -167,6 +201,7 @@ export function useSeeSoGaze() {
     provider = null
     isRunning.value = false
     viewportGaze.value = null
+    lastGazeAt = 0
   }
 
   /**
@@ -176,6 +211,7 @@ export function useSeeSoGaze() {
   async function calibrate(handlers: {
     onPoint: (x: number, y: number) => void
     onProgress: (progress: number) => void
+    onStalled?: (attempt: number, maxAttempts: number, tracked: boolean) => void
   }): Promise<boolean> {
     if (!provider || !isRunning.value) return false
     try {
@@ -183,6 +219,7 @@ export function useSeeSoGaze() {
         pointCount: 5,
         onPoint: handlers.onPoint,
         onProgress: handlers.onProgress,
+        onStalled: handlers.onStalled,
       })
       try {
         globalThis.localStorage?.setItem(SEESO_CALIBRATION_STORAGE_KEY, data)
@@ -193,6 +230,9 @@ export function useSeeSoGaze() {
     } catch (caught) {
       error.value =
         caught instanceof Error ? caught.message : 'SeeSo 보정에 실패했습니다.'
+      // ⚠️ 보정을 시작하면 SDK 내부 모델이 초기화된다. 중간에 실패한 채로 두면 `start()`에서
+      // 복원해 둔 지난 보정까지 잃어 재보정 전보다 나빠진다. 저장본이 있으면 되돌린다.
+      await restoreSavedCalibration()
       return false
     }
   }
@@ -225,5 +265,7 @@ export function useSeeSoGaze() {
     start,
     stop,
     calibrate,
+    waitForGaze,
+    isGazeFresh,
   }
 }
