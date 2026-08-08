@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   title: string
   modeLabel: string
   timeLabel: string
@@ -20,6 +20,25 @@ defineProps<{
 const emit = defineEmits<{ leave: [] }>()
 
 const isLeaveConfirmOpen = ref(false)
+
+/**
+ * 넓은 게임 화면임을 `body`에 알린다.
+ *
+ * 캔버스 크기를 실제로 깎고 있는 두 가지 — 사이트 공통 레이아웃 폭 제한(`--content-width`,
+ * 1408px)과 화면 하단 푸터 — 는 모두 이 컴포넌트 **바깥**에 있어서 scoped 스타일로는 닿지
+ * 않는다. body 클래스를 걸어 아래 `:global` 규칙이 이 화면에서만 두 제한을 풀게 한다.
+ */
+const WIDE_BODY_CLASS = 'is-play-wide'
+
+function syncWideBodyClass(isWide: boolean | undefined) {
+  const body = globalThis.document?.body
+  if (!body) return
+  body.classList.toggle(WIDE_BODY_CLASS, Boolean(isWide))
+}
+
+watch(() => props.wide, syncWideBodyClass, { immediate: true })
+// 게임을 떠나면 반드시 되돌린다 — 남겨 두면 다른 페이지까지 넓어지고 푸터가 사라진다.
+onBeforeUnmount(() => syncWideBodyClass(false))
 
 function confirmLeave() {
   isLeaveConfirmOpen.value = false
@@ -124,10 +143,44 @@ function confirmLeave() {
 }
 /**
  * 그림그리기처럼 넓은 작업 공간이 필요한 게임용. 캔버스가 작아서 눈으로 그리기 어렵다는
- * 피드백을 반영해, 화면이 허용하는 만큼(좌우 여백만 남기고) 폭을 넓힌다.
+ * 피드백을 반영해 폭을 넓힌다.
+ *
+ * ⚠️ `100vw`를 쓰면 안 된다. 이 셸은 `--layout-inline`(최대 1408px)로 제한된
+ * `.app-layout__content` 안에 있는데, `100vw`는 그 컨테이너가 아니라 뷰포트 기준이라
+ * 컨테이너보다 넓어진다. 넓은 자식은 `margin: 0 auto`가 0으로 풀려 오른쪽으로 삐져나가고
+ * 가로 스크롤바가 생긴다(1920px 화면에서 실측 272px 초과). 게다가 `100vw`는 세로 스크롤바
+ * 폭까지 포함해 초과분이 더 커진다. 컨테이너 기준인 `100%`를 써야 한다.
  */
 .play-shell--wide {
-  width: min(calc(100vw - 48px), 1680px);
+  width: min(100%, 1680px);
+  /**
+   * 한 화면에 담으면서도 캔버스를 최대한 키우기 위해 세로 여백을 걷어낸다. 이 화면에서 세로
+   * 공간은 곧 캔버스 크기다 — 캔버스는 높이에 맞춰 비율대로 커지므로, 여기서 아낀 1px이
+   * 캔버스 높이 1px과 폭 1.56px로 그대로 돌아온다.
+   */
+  padding-block: 10px;
+}
+.play-shell--wide .play-shell__header {
+  min-height: 0;
+  padding-bottom: 10px;
+}
+/**
+ * 넓은 게임 화면에서만 사이트 공통 제약을 푼다(`body.is-play-wide`는 이 컴포넌트가 붙였다 뗀다).
+ *
+ * 1. 레이아웃 폭 — 기본 `--content-width`(1408px)가 캔버스 폭의 실질 상한이었다.
+ * 2. 푸터 — 게임 중에는 쓰이지 않으면서 세로 101px을 가져간다. 캔버스는 높이에 맞춰 커지므로
+ *    이 101px이 캔버스 높이 101px과 폭 158px로 그대로 돌아온다.
+ *
+ * ⚠️ 폭은 반드시 컨테이너 기준(%)으로 계산한다. `vw`는 세로 스크롤바 폭을 포함해서, 스크롤바가
+ * 생기는 순간 다시 가로 넘침을 만든다(이 파일 위쪽 주석 참고).
+ */
+/* ⚠️ 선택자 전체를 하나의 :global()로 감싼다. `:global(a) :global(b)`로 나눠 쓰면 후손 결합이
+   사라지고 첫 부분만 남은 규칙(`body.is-play-wide { display: none }`)이 되어 화면 전체가 사라진다. */
+:global(body.is-play-wide .app-layout__content) {
+  width: calc(100% - 96px);
+}
+:global(body.is-play-wide .app-layout > footer) {
+  display: none;
 }
 .play-shell__header {
   position: relative;
