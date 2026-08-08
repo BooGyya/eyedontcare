@@ -410,6 +410,10 @@ describe('GameReadyPage INVITE lifecycle', () => {
     MockWebSocket.instances = []
     globalThis.localStorage.clear()
     globalThis.sessionStorage.clear()
+    // 실제 앱은 main.ts가 부팅 시 신원을 확보한 뒤에야 화면이 뜬다. 페이지만 따로 마운트하는
+    // 이 테스트에서도 같은 상태를 만들어 준다 — 안 그러면 준비방의 방어적 ensureIdentity()가
+    // 게스트 세션을 발급하면서 아래 fetch 호출 순서 검증을 어긋나게 한다.
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
     useToast().hideToast()
     vi.stubGlobal('WebSocket', MockWebSocket)
   })
