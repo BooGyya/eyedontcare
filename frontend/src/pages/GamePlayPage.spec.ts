@@ -519,8 +519,10 @@ describe('gameplay routes', () => {
       vi.useFakeTimers()
       const setHidden = stubDocumentHidden(false)
       const { router, wrapper } = await mountStarePlay('solo')
-      const setupState = wrapper.vm.$.setupState as {
-        stareGameState: { phase: string }
+      // setupState는 Vue 내부 필드라 public 타입인 ComponentInternalInstance에 없다.
+      // 인스턴스를 먼저 단언해야 프로퍼티 접근 자체가 타입 오류가 되지 않는다.
+      const { setupState } = wrapper.vm.$ as unknown as {
+        setupState: { stareGameState: { phase: string } }
       }
       setupState.stareGameState.phase = 'finished'
 
