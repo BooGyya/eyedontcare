@@ -27,6 +27,21 @@ function guestSessionResponse() {
   }
 }
 
+type GuestSessionFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<ReturnType<typeof guestSessionResponse>>
+
+/**
+ * 게스트 세션을 돌려주는 fetch 목.
+ *
+ * 목의 타입을 fetch와 같은 시그니처로 지정해야 mock.calls의 원소 타입이 빈 튜플이
+ * 아니어서 호출 인자를 검증할 수 있다.
+ */
+function guestSessionFetchMock() {
+  return vi.fn<GuestSessionFetch>(async () => guestSessionResponse())
+}
+
 describe('ensureIdentity', () => {
   beforeEach(() => {
     globalThis.localStorage.clear()
@@ -40,7 +55,7 @@ describe('ensureIdentity', () => {
   })
 
   it('신원이 없으면 게스트 세션을 발급받아 저장한다', async () => {
-    const fetchMock = vi.fn(async () => guestSessionResponse())
+    const fetchMock = guestSessionFetchMock()
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(ensureIdentity()).resolves.toBe(`GUEST:${ISSUED_GUEST_ID}`)
@@ -54,7 +69,7 @@ describe('ensureIdentity', () => {
 
   it('회원 토큰이 있으면 발급을 요청하지 않는다', async () => {
     globalThis.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken())
-    const fetchMock = vi.fn(async () => guestSessionResponse())
+    const fetchMock = guestSessionFetchMock()
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(ensureIdentity()).resolves.toBe('USER:7')
@@ -64,7 +79,7 @@ describe('ensureIdentity', () => {
 
   it('게스트 세션이 이미 있으면 발급을 요청하지 않는다', async () => {
     globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
-    const fetchMock = vi.fn(async () => guestSessionResponse())
+    const fetchMock = guestSessionFetchMock()
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(ensureIdentity()).resolves.toBe('GUEST:guest-1')
@@ -73,7 +88,7 @@ describe('ensureIdentity', () => {
   })
 
   it('동시에 불러도 발급은 한 번만 요청한다', async () => {
-    const fetchMock = vi.fn(async () => guestSessionResponse())
+    const fetchMock = guestSessionFetchMock()
     vi.stubGlobal('fetch', fetchMock)
 
     const results = await Promise.all([
