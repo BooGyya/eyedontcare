@@ -1,0 +1,14 @@
+{
+  // 앱과 완전히 같은 컴파일러 옵션으로 테스트까지 타입체크한다.
+  // types를 덮어쓰면(예: node 추가) 앱 소스의 setTimeout 반환형이 달라져
+  // 엉뚱한 오류가 나므로 tsconfig.app.json의 설정을 그대로 상속한다.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo",
+    "noEmit": true
+  },
+  // ambient 선언(*.d.ts)과 테스트가 import하는 소스가 모두 필요하므로 src 전체를 넣고,
+  // tsconfig.app.json의 spec 제외 설정만 비운다.
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "exclude": []
+}
