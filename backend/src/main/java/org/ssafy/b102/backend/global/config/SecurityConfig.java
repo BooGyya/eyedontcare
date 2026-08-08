@@ -65,6 +65,9 @@ public class SecurityConfig {
                     "/api/v1/auth/login/kakao",
                     "/api/v1/auth/reissue",
                     "/api/v1/match/join",
+                    // 비로그인 사용자가 신원을 확보하는 첫 관문이라 인증을 요구할 수 없다.
+                    // 남용은 GuestSessionIssueRateLimiter가 막는다.
+                    "/api/v1/guests/session",
                     "/api/v1/game-results",
                     "/api/v1/games/draw/recognize",
                     "/api/v1/waiting-rooms",
