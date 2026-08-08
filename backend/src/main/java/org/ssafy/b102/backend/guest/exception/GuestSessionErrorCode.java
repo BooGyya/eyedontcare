@@ -15,6 +15,12 @@ public enum GuestSessionErrorCode implements ErrorCode {
 		HttpStatus.SERVICE_UNAVAILABLE,
 		"GUEST-002",
 		"게스트 세션을 처리할 수 없습니다."
+	),
+
+	GUEST_SESSION_ISSUE_RATE_LIMITED(
+		HttpStatus.TOO_MANY_REQUESTS,
+		"GUEST-003",
+		"게스트 세션 발급 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
 	);
 
 	private final HttpStatus status;

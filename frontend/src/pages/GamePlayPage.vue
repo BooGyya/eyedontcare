@@ -150,15 +150,37 @@ const drawCameraActive = drawTracking.isActive
 void drawVideoRef
 
 const drawCanvasRef = ref<globalThis.HTMLCanvasElement | null>(null)
-const DRAW_CANVAS_WIDTH = 1000
-const DRAW_CANVAS_HEIGHT = 640
+/**
+ * 캔버스 비트맵 크기. 고정값이 아니라 **화면에 그려지는 크기에 맞춰 갱신된다**.
+ *
+ * 고정 비율(1000×640)로 두면 보드의 남는 공간을 못 쓰고, 억지로 늘리면 비트맵이 확대돼 획이
+ * 뭉개지거나 가로세로가 다르게 늘어나 그림이 찌그러진다. 표시 크기를 그대로 따라가면 항상
+ * 1:1로 대응해 선명하고, 보드를 꽉 채울 수 있다.
+ *
+ * 획 좌표는 0~1로 정규화해 저장하므로 크기가 바뀌어도 그림은 그대로 유지된다.
+ */
+const drawCanvasSize = ref({ width: 1000, height: 640 })
+/** 비트맵 폭 상한. AI 채점에 보내는 PNG 크기와 메모리를 억제한다. */
+const DRAW_CANVAS_MAX_WIDTH = 1600
+/** 획 두께를 캔버스 폭 대비 비율로 정의한다(기존 1000px 캔버스에서 5px과 같은 비율). */
+const DRAW_BRUSH_WIDTH_RATIO = 5 / 1000
+/** 캔버스 표시 크기를 지켜보며 비트맵을 맞춰 주는 관찰자. */
+let drawCanvasResizeObserver: globalThis.ResizeObserver | undefined
+/** 크기 재측정 예약. 레이아웃이 정리된 뒤 한 번만 다시 재도록 묶어 둔다. */
+let drawCanvasSyncHandle: ReturnType<typeof globalThis.setTimeout> | undefined
+
+// 비트맵 크기를 바꾸면 캔버스 내용이 지워지므로, 속성이 DOM에 반영된 뒤 다시 그려야 한다.
+watch(drawCanvasSize, () => void nextTick(renderDrawCanvas))
 const drawGameState = ref(makeInitialDrawGameState())
 const drawWords = ref<string[]>([])
 let drawStrokes: DrawStroke[] = []
 let drawActiveStroke: DrawStroke | null = null
 const isDrawingActive = ref(true)
 const drawCursor = ref<{ x: number; y: number } | null>(null)
-const drawBrushWidth = 5
+/** 캔버스 크기가 달라져도 획 굵기가 같아 보이도록 폭에 비례시킨다. */
+const drawBrushWidth = computed(() =>
+  Math.max(2, drawCanvasSize.value.width * DRAW_BRUSH_WIDTH_RATIO),
+)
 let drawRafHandle: number | undefined
 /**
  * 시간 초과 자동 제출이 라운드당 딱 한 번만 일어나게 막는 플래그.
@@ -172,6 +194,8 @@ let drawRafHandle: number | undefined
  */
 let drawTimeUpSubmitted = false
 let unsubscribeDrawKeydown: (() => void) | undefined
+/** SeeSo가 게임 도중 멈추지 않았는지 지켜보는 타이머. {@link watchSeeSoLiveness} 참고. */
+let seesoLivenessTimer: ReturnType<typeof globalThis.setInterval> | undefined
 let drawShouldBridge = false
 /**
  * 펜 속도 = 프레임당 커서가 시선을 따라 이동하는 최대 거리(0~1 정규화). 낮을수록 펜이 천천히
@@ -1878,6 +1902,23 @@ async function initDrawGame() {
     drawTracking.applyGazeProfile(calibrationStore.gazeProfile)
   }
 
+  // 캔버스는 보드를 꽉 채우므로 창 크기·레이아웃 변화에 따라 표시 크기가 바뀐다. 비트맵을 계속
+  // 맞춰 주지 않으면 그림이 흐려지거나 찌그러진다.
+  // ⚠️ 카메라 시작보다 **먼저** 건다. 카메라를 못 열어도 캔버스는 화면에 그대로 보이므로,
+  // 여기서 빠져나가면 비트맵이 초기값에 멈춰 그림이 늘어난 채로 남는다.
+  syncDrawCanvasSize()
+  // ⚠️ ResizeObserver가 없는 환경(테스트용 jsdom 등)에서도 게임은 돌아가야 한다. 여기서
+  // 예외가 나면 initDrawGame이 통째로 중단돼 라운드가 시작조차 되지 않는다.
+  if (typeof globalThis.ResizeObserver === 'function' && drawCanvasRef.value) {
+    drawCanvasResizeObserver = new globalThis.ResizeObserver(
+      scheduleDrawCanvasSync,
+    )
+    drawCanvasResizeObserver.observe(drawCanvasRef.value)
+  }
+  // ResizeObserver는 렌더링 주기에 묶여 있어 탭이 그려지지 않는 동안에는 오지 않는다. 창 크기
+  // 변경은 그와 무관하게 오므로 함께 걸어 둔다.
+  globalThis.window.addEventListener('resize', scheduleDrawCanvasSync)
+
   const started = await drawTracking.start()
   if (!started) {
     showToast('카메라를 시작하지 못했어요. 카메라 권한을 확인해 주세요.')
@@ -1924,10 +1965,47 @@ async function attachSeeSoWhenReady(): Promise<void> {
       : SEESO_MARGIN_BEFORE_CALIBRATION,
   )
   drawTracking.setExternalGazeSource(() => seesoGaze.viewportGaze.value)
+
+  // ⚠️ SeeSo가 **실제로 좌표를 내보내는 것을 확인한 뒤에만** MediaPipe를 끈다.
+  //
+  // `start()` 성공은 추적을 시작했다는 뜻일 뿐이다. 보정이 중단됐거나 WASM이 메모리 부족으로
+  // 죽으면 좌표가 한 개도 안 온다. 그 상태에서 MediaPipe까지 꺼 버리면 시선 공급원이 하나도
+  // 없어 커서가 나타나지 않고 그림이 한 획도 그려지지 않는다.
+  if (!(await seesoGaze.waitForGaze())) {
+    drawTracking.setExternalGazeSource(null)
+    seesoGaze.stop()
+    return
+  }
+  if (!isDrawingActive.value) return
+
   // SeeSo가 시선을 담당하므로 MediaPipe 추론은 멈춘다. 그림그리기는 눈 이벤트를 쓰지 않아
   // MediaPipe가 할 일이 없는데, 그대로 두면 SeeSo 추론과 겹쳐 CPU를 두 배로 먹고 페이지가
   // 응답 없음 상태에 빠진다. 카메라 스트림은 살아 있어 웹캠 프리뷰는 그대로 나온다.
   drawTracking.setDetectionEnabled(false)
+  watchSeeSoLiveness()
+}
+
+/**
+ * 게임 중 SeeSo가 조용히 멈추면 MediaPipe를 되살린다.
+ *
+ * SeeSo는 WASM 메모리 부족 등으로 실행 도중에도 죽을 수 있다. 그때 MediaPipe가 꺼져 있으면
+ * 남은 라운드 내내 아무것도 못 그린다. 좌표가 끊긴 것을 발견하면 즉시 되돌린다.
+ */
+function watchSeeSoLiveness(): void {
+  globalThis.clearInterval(seesoLivenessTimer)
+  seesoLivenessTimer = globalThis.setInterval(() => {
+    if (!isDrawingActive.value) {
+      globalThis.clearInterval(seesoLivenessTimer)
+      return
+    }
+    // 눈을 감거나 화면 밖을 보면 잠깐 끊기는 것은 정상이므로 넉넉히 잡는다.
+    if (seesoGaze.isGazeFresh(4000)) return
+
+    globalThis.clearInterval(seesoLivenessTimer)
+    drawTracking.setExternalGazeSource(null)
+    drawTracking.setDetectionEnabled(true)
+    seesoGaze.stop()
+  }, 1000)
 }
 
 /** Space 키로 그리기를 일시정지/재개한다(기획 확정본 조작 방식). */
@@ -2019,7 +2097,7 @@ function updateDrawCursorFromGaze() {
   ) {
     drawActiveStroke = addPointToStroke(drawStrokes, drawActiveStroke, point, {
       color: selectedColor.value,
-      width: drawBrushWidth,
+      width: drawBrushWidth.value,
       allowBridge: drawShouldBridge,
     })
     drawShouldBridge = false
@@ -2031,9 +2109,10 @@ function renderDrawCanvas() {
   const ctx = canvas?.getContext('2d')
   if (!canvas || !ctx) return
 
-  ctx.clearRect(0, 0, DRAW_CANVAS_WIDTH, DRAW_CANVAS_HEIGHT)
+  const { width, height } = drawCanvasSize.value
+  ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = '#f8fbff'
-  ctx.fillRect(0, 0, DRAW_CANVAS_WIDTH, DRAW_CANVAS_HEIGHT)
+  ctx.fillRect(0, 0, width, height)
 
   for (const stroke of drawStrokes) {
     if (stroke.points.length < 2) continue
@@ -2043,13 +2122,59 @@ function renderDrawCanvas() {
     ctx.lineJoin = 'round'
     ctx.beginPath()
     stroke.points.forEach((point, index) => {
-      const x = point.x * DRAW_CANVAS_WIDTH
-      const y = point.y * DRAW_CANVAS_HEIGHT
+      const x = point.x * width
+      const y = point.y * height
       if (index === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     })
     ctx.stroke()
   }
+}
+
+/**
+ * 캔버스 비트맵을 지금 화면에 그려지는 크기에 맞춘다.
+ *
+ * 비트맵과 표시 크기가 어긋나면 브라우저가 늘려 그리기 때문에 획이 흐려지고, 가로세로 비율이
+ * 다르면 그림 자체가 찌그러진다. 표시 크기를 그대로 따라가면 두 문제가 모두 사라진다.
+ * 고해상도 화면에서는 devicePixelRatio를 반영하되, 제출 이미지가 지나치게 커지지 않도록
+ * 폭에 상한을 둔다.
+ */
+function syncDrawCanvasSize(): void {
+  const canvas = drawCanvasRef.value
+  if (!canvas) return
+
+  const rect = canvas.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return
+
+  const ratio = Math.min(globalThis.window.devicePixelRatio || 1, 2)
+  const width = Math.min(Math.round(rect.width * ratio), DRAW_CANVAS_MAX_WIDTH)
+  const height = Math.max(1, Math.round((width * rect.height) / rect.width))
+  if (
+    width === drawCanvasSize.value.width &&
+    height === drawCanvasSize.value.height
+  ) {
+    return
+  }
+
+  drawCanvasSize.value = { width, height }
+  // 비트맵을 바꾸면 레이아웃이 한 번 더 움직일 수 있다. 다음 프레임에 다시 재서 표시 크기와
+  // 완전히 맞을 때까지 수렴시킨다 — 어긋난 채로 두면 그림이 살짝 늘어난다.
+  scheduleDrawCanvasSync()
+}
+
+/**
+ * 다음 프레임에 크기를 다시 맞춘다.
+ *
+ * ResizeObserver 콜백은 레이아웃이 아직 정리되는 도중에도 불릴 수 있어, 그 시점의 크기로
+ * 비트맵을 잡으면 최종 크기와 미세하게 어긋난다(실측 868px 박스에 853px 비트맵). 프레임 단위로
+ * 묶어 마지막 상태만 반영한다.
+ */
+function scheduleDrawCanvasSync(): void {
+  if (drawCanvasSyncHandle !== undefined) return
+  drawCanvasSyncHandle = globalThis.setTimeout(() => {
+    drawCanvasSyncHandle = undefined
+    syncDrawCanvasSize()
+  }, 0)
 }
 
 function undoDrawStroke() {
@@ -2139,6 +2264,12 @@ function stopDrawGame() {
   unsubscribeDrawKeydown = undefined
   // SeeSo는 자체 카메라 스트림을 열므로 반드시 함께 정리한다 — 안 그러면 다른 게임에서
   // 카메라를 못 잡을 수 있다.
+  globalThis.clearInterval(seesoLivenessTimer)
+  drawCanvasResizeObserver?.disconnect()
+  drawCanvasResizeObserver = undefined
+  globalThis.window.removeEventListener('resize', scheduleDrawCanvasSync)
+  globalThis.clearTimeout(drawCanvasSyncHandle)
+  drawCanvasSyncHandle = undefined
   drawTracking.setExternalGazeSource(null)
   drawTracking.setDetectionEnabled(true)
   seesoGaze.stop()
@@ -2689,8 +2820,8 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             <canvas
               ref="drawCanvasRef"
               class="draw-canvas-real"
-              :width="DRAW_CANVAS_WIDTH"
-              :height="DRAW_CANVAS_HEIGHT"
+              :width="drawCanvasSize.width"
+              :height="drawCanvasSize.height"
               aria-label="눈으로 그리는 캔버스"
             ></canvas>
             <i
@@ -3722,6 +3853,72 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
   height: auto;
   aspect-ratio: 1000 / 640;
   cursor: none;
+}
+
+/**
+ * 그림그리기는 화면 전체가 스크롤 없이 한 번에 보여야 한다.
+ *
+ * 왜 중요한가 — 시선 좌표는 **뷰포트 기준**으로 보정된다(9점 보정도, SeeSo 원시 좌표도).
+ * 페이지가 스크롤되면 화면에 보이는 영역과 보정 당시의 좌표계가 어긋나 커서가 실제로 보는 곳과
+ * 다른 데를 가리킨다. 게다가 보정 화면은 거의 전체화면인데 게임 화면만 스크롤되면 그 차이가
+ * 그대로 오차가 된다. 스크롤을 없애는 것이 정확도 문제이기도 한 이유다.
+ *
+ * 캔버스 높이를 뷰포트에서 고정 UI 높이를 뺀 만큼으로 제한하고, 폭은 캔버스의 내재 비율
+ * (1000×640)이 알아서 따라오게 한다.
+ */
+.gameplay-layout--draw {
+  /**
+   * 레이아웃 **바깥**의 고정 UI 높이(실측). 이만큼만 빼면 나머지는 전부 보드 몫이고, 캔버스가
+   * 그 안을 꽉 채운다.
+   *   사이트 헤더 118 + 셸 상단 여백 10 + 셸 헤더 72 + 셸 하단 여백 10 + 여유 4 = 214
+   *   (푸터는 이 화면에서 감춘다 — GamePlayShell의 `body.is-play-wide` 규칙)
+   *
+   * 여유분은 소수점 반올림으로 1~2px이 삐져나가 스크롤바가 생기는 것을 막는다.
+   */
+  height: calc(100svh - 214px);
+}
+.gameplay-layout--draw .gameplay-board,
+.gameplay-layout--draw .info-panel {
+  /* 캔버스가 줄어든 만큼 두 칸 모두 줄어야 한다. 기본 min-height(500px)가 남아 있으면 그리드
+     행 높이가 그 값에 묶여, 캔버스를 아무리 줄여도 페이지가 뷰포트를 넘긴다. 좌측 패널도 같이
+     풀어야 한다 — `align-items: stretch`라 둘 중 큰 쪽이 행 높이를 정하기 때문이다. */
+  min-height: 0;
+}
+.gameplay-layout--draw .info-panel {
+  /* 아낀 세로 여백이 그대로 캔버스 크기가 된다(보드 쪽 여백은 아래 --draw 블록에서 12px). */
+  padding: 12px;
+}
+.gameplay-layout--draw .gameplay-board {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.gameplay-layout--draw .draw-canvas-wrap {
+  /* 툴바와 도구 모음을 뺀 나머지를 전부 차지한다. `min-height: 0`이 없으면 flex 항목의 기본
+     최소 크기 때문에 줄어들지 못해 보드가 넘친다.
+     캔버스가 이 박스를 100%로 채우므로, 시선 커서(%로 찍힌다)도 그대로 맞아떨어진다. */
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.gameplay-layout--draw .draw-canvas-real {
+  /**
+   * 보드에 남은 공간을 그대로 채운다. 비율을 고정하지 않는 대신 비트맵 크기를 표시 크기에
+   * 맞춰 갱신하므로({@link syncDrawCanvasSize}) 늘어나거나 흐려지지 않는다.
+   */
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+/**
+ * 세로가 짧은 화면에서는 좌측 패널 내용이 캔버스보다 높아져 그리드 행을 밀어 올린다. 보조 정보인
+ * TIP 카드(약 242px)를 접어 자리를 만든다 — 제시어와 라운드 진행처럼 게임에 필요한 정보는 남긴다.
+ * 기준값은 실측이다: TIP을 포함한 패널이 약 560px, 캔버스 외 고정 UI가 363px이라 뷰포트가 920px
+ * 아래로 내려가면 TIP을 유지한 채로는 한 화면에 담을 수 없다.
+ */
+@media (max-height: 920px) {
+  .gameplay-layout--draw .draw-tip {
+    display: none;
+  }
 }
 .draw-pen-speed {
   display: inline-flex;

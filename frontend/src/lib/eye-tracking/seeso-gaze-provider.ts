@@ -35,6 +35,43 @@ export interface SeeSoGazeInfo {
  */
 export const SEESO_TRACKING_SUCCESS = 0
 
+/**
+ * 보정 진행률이 이 시간 동안 오르지 않으면 "멈춤"으로 보고 표본 수집을 다시 요청한다.
+ * 너무 짧으면 정상 수집 중에도 불필요하게 재요청하고, 너무 길면 사용자가 멈춘 화면을 오래 본다.
+ */
+const CALIBRATION_STALL_MS = 2000
+
+/**
+ * 재요청 한도. **시선이 잡히고 있는지에 따라 다르게 잡는다.**
+ *
+ * 보정이 멈추는 이유는 성격이 완전히 다른 두 가지인데, 예전에는 둘을 같은 한도로 묶어 놨다.
+ *
+ * 1. **사용자가 잠깐 다른 곳을 봤다** — 시선은 계속 잡히고 있다. SDK가 그 점의 진행률을 되돌리고
+ *    새 수집 요청을 기다릴 뿐이라, 다시 점을 바라보면 이어서 진행된다. 사람이 한눈파는 시간은
+ *    몇 초씩 걸리므로 여기서 몇 번 만에 포기해 버리면 정상 사용자를 실패로 처리하게 된다
+ *    (실제로 "다른 곳을 보면 보정이 멈춘다"고 보고된 증상).
+ * 2. **시선이 아예 안 잡힌다** — 자리를 비웠거나 엔진이 죽었다. 기다려도 회복되지 않으므로 빨리
+ *    포기하고 다음 단계로 넘어가는 편이 낫다.
+ */
+const MAX_STALL_RECOVERIES_TRACKED = 15
+const MAX_STALL_RECOVERIES_UNTRACKED = 2
+
+/** 이 시간 안에 추적 성공 좌표를 받았으면 "사용자가 앞에 있다"고 본다. */
+const GAZE_TRACKED_WITHIN_MS = 1500
+
+/**
+ * 이 좌표가 "추적 성공"인지. SeeSo는 시선을 놓치면 NaN이나 SUCCESS가 아닌 상태를 보낸다.
+ * `trackingState`가 숫자가 아닌 SDK 버전에서는 좌표가 유한하면 성공으로 본다.
+ */
+function isTrackedGaze(gaze: SeeSoGazeInfo): boolean {
+  if (!Number.isFinite(gaze.x) || !Number.isFinite(gaze.y)) return false
+
+  return (
+    typeof gaze.trackingState !== 'number' ||
+    gaze.trackingState === SEESO_TRACKING_SUCCESS
+  )
+}
+
 export interface SeeSoProviderOptions {
   licenseKey: string
   /** 모니터 대각 길이(인치). SeeSo가 화면상 시선 위치를 계산하는 데 쓴다. */
@@ -120,6 +157,8 @@ export class SeeSoGazeProvider {
   private started = false
   /** stop() 이후 늦게 도착한 콜백을 무시하기 위한 플래그. */
   private disposed = false
+  /** 마지막으로 **추적에 성공한** 좌표를 받은 시각(ms). 사용자가 앞에 있는지 판정에 쓴다. */
+  private lastTrackedGazeAt = 0
 
   constructor(options: SeeSoProviderOptions) {
     this.options = options
@@ -142,6 +181,7 @@ export class SeeSoGazeProvider {
     const started = await sdk.startTracking(
       (gazeInfo: SeeSoGazeInfo) => {
         if (this.disposed) return
+        if (isTrackedGaze(gazeInfo)) this.lastTrackedGazeAt = Date.now()
         this.options.onGaze(gazeInfo)
       },
       () => {},
@@ -171,24 +211,100 @@ export class SeeSoGazeProvider {
     pointCount?: 1 | 5
     onPoint: (x: number, y: number) => void
     onProgress: (progress: number) => void
+    /**
+     * 진행이 멈춰 표본 수집을 다시 요청할 때.
+     *
+     * @param tracked 시선이 잡히고 있는지. true면 "잠깐 다른 곳을 봤다", false면 "얼굴이 안
+     *   보인다"는 뜻이라, 사용자에게 안내할 내용이 완전히 다르다.
+     */
+    onStalled?: (attempt: number, maxAttempts: number, tracked: boolean) => void
   }): Promise<string> {
     const sdk = this.requireSdk()
     const pointCount = handlers.pointCount ?? 5
 
     return new Promise<string>((resolve, reject) => {
       let collectTimer = 0
+      let stallWatchdog = 0
+      let bestProgress = 0
+      let lastAdvanceAt = Date.now()
+      let stallRecoveries = 0
+
+      /** 표본 수집을 요청한다. 재요청도 같은 경로를 쓴다. */
+      function requestCollect(delayMs: number): void {
+        globalThis.clearTimeout(collectTimer)
+        collectTimer = globalThis.setTimeout(() => {
+          lastAdvanceAt = Date.now()
+          sdk.startCollectSamples()
+        }, delayMs)
+      }
+
+      function cleanup(): void {
+        globalThis.clearTimeout(collectTimer)
+        globalThis.clearInterval(stallWatchdog)
+      }
+
+      /**
+       * ⚠️ 진행이 멈추면 수집을 다시 요청한다.
+       *
+       * `startCollectSamples()`는 점마다 한 번만 호출하면 되는 게 원칙이지만, 수집 도중 사용자가
+       * 다른 곳을 보면 SDK가 그 점의 진행률을 되돌리고 새 수집 요청을 기다리는 상태가 된다.
+       * 재요청해주는 쪽이 없으면 다시 점을 바라봐도 진행률이 오르지 않고 영영 멈춘다(실제로
+       * 보고된 증상). 일정 시간 진행이 없으면 수집을 다시 걸어 스스로 회복하게 한다.
+       */
+      stallWatchdog = globalThis.setInterval(() => {
+        if (Date.now() - lastAdvanceAt < CALIBRATION_STALL_MS) return
+
+        // 시선이 잡히고 있으면 사용자가 앞에 있다는 뜻이다 — 잠깐 다른 곳을 봤을 뿐이므로 다시
+        // 점을 바라보면 이어서 진행된다. 넉넉히 기다린다. 시선이 아예 안 잡히면 회복 가능성이
+        // 없으므로 빨리 접는다.
+        const tracked = this.isGazeTracked()
+        const limit = tracked
+          ? MAX_STALL_RECOVERIES_TRACKED
+          : MAX_STALL_RECOVERIES_UNTRACKED
+
+        if (stallRecoveries >= limit) {
+          cleanup()
+          try {
+            sdk.stopCalibration()
+          } catch {
+            // 이미 끝났거나 SDK가 지원하지 않는 경우. 중단 자체를 막을 이유는 없다.
+          }
+          reject(
+            new Error(
+              tracked
+                ? 'SeeSo 보정이 더 진행되지 않아 중단했습니다. 다음 단계로 넘어갑니다.'
+                : '시선이 잡히지 않아 SeeSo 보정을 중단했습니다.',
+            ),
+          )
+          return
+        }
+
+        stallRecoveries += 1
+        handlers.onStalled?.(stallRecoveries, limit, tracked)
+        requestCollect(0)
+      }, 500)
+
       const started = sdk.startCalibration(
         (x: number, y: number) => {
-          globalThis.clearTimeout(collectTimer)
           handlers.onPoint(x, y)
-          collectTimer = globalThis.setTimeout(
-            () => sdk.startCollectSamples(),
-            650,
-          )
+          // 새 점으로 넘어갔다 — 진행 기준을 초기화하고, 시선이 자리잡을 시간을 준 뒤 수집한다.
+          bestProgress = 0
+          lastAdvanceAt = Date.now()
+          requestCollect(650)
         },
-        (progress: number) => handlers.onProgress(progress),
+        (progress: number) => {
+          handlers.onProgress(progress)
+          // 진행률이 실제로 **올라갔을 때만** 살아있는 것으로 본다. 되돌아간 뒤 멈춘 경우를
+          // 잡아내야 하므로 하락은 갱신으로 치지 않는다.
+          if (progress > bestProgress) {
+            bestProgress = progress
+            lastAdvanceAt = Date.now()
+            // 다시 움직이기 시작했다 — 포기 카운터를 되돌린다.
+            stallRecoveries = 0
+          }
+        },
         async (calibrationData: string) => {
-          globalThis.clearTimeout(collectTimer)
+          cleanup()
           try {
             await sdk.setCalibrationData(calibrationData)
             resolve(calibrationData)
@@ -199,6 +315,7 @@ export class SeeSoGazeProvider {
         pointCount,
       )
       if (!started) {
+        cleanup()
         reject(
           new Error(
             'SeeSo 보정을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.',
@@ -229,6 +346,14 @@ export class SeeSoGazeProvider {
     } catch {
       // 이미 멈춰 있을 수 있다. 정리 실패가 화면 이동을 막으면 안 된다.
     }
+  }
+
+  /** 지금 사용자의 시선이 잡히고 있는지(= 카메라 앞에 있고 눈이 보이는지). */
+  private isGazeTracked(): boolean {
+    return (
+      this.lastTrackedGazeAt > 0 &&
+      Date.now() - this.lastTrackedGazeAt <= GAZE_TRACKED_WITHIN_MS
+    )
   }
 
   private requireSdk(): SeeSoSdk {
@@ -262,6 +387,8 @@ interface SeeSoSdk {
     pointCount: number,
   ): boolean
   startCollectSamples(): void
+  /** 진행 중인 보정을 중단한다. 멈춘 보정에서 빠져나올 때 쓴다. */
+  stopCalibration(): boolean
   setCalibrationData(data: string): Promise<void>
   stopTracking(): void
 }
