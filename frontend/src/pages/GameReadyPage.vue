@@ -13,6 +13,7 @@ import { useRandomRematchLifecycle } from '../composables/useRandomRematchLifecy
 import { useInviteRoomLifecycle } from '../composables/useInviteRoomLifecycle'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
 import { useEyeTracking } from '../composables/useEyeTracking'
+import { useSeeSoGaze } from '../composables/useSeeSoGaze'
 import { useCalibrationStore } from '../stores/calibration'
 import { playCalibrationSound } from '../lib/sound/calibration-sound'
 import { joinMatch, cancelMatch } from '../api/match'
@@ -21,6 +22,7 @@ import { ApiError } from '../api/http'
 import {
   currentAccessToken,
   currentParticipantKey,
+  ensureIdentity,
   resolveIdentity,
 } from '../api/identity'
 import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
@@ -108,7 +110,11 @@ const calibrationStageDescription = computed(() => {
     case 'closed':
       return '이번엔 눈을 감은 상태를 유지해 주세요.'
     case 'gaze':
-      return '화면에 표시된 점을 눈으로 바라본 뒤 버튼을 눌러주세요.'
+      // 1단계(SeeSo 자체 보정)는 버튼 없이 응시만으로 자동 진행되므로 안내가 달라야 한다.
+      return isSeeSoCalibrating.value
+        ? seeSoCalibrationHint.value ||
+            '자동 보정 중입니다. 점을 바라봐 주세요.'
+        : '화면에 표시된 점을 눈으로 바라본 뒤 버튼을 눌러주세요.'
     default:
       return '보정이 완료되었습니다.'
   }
@@ -123,6 +129,8 @@ const calibrationPrimaryLabel = computed(() => {
     return '기록 시작'
   }
   if (calibrationStage.value === 'gaze') {
+    // SeeSo 자체 보정(1단계)이 도는 동안에는 9점 보정으로 넘어갈 수 없다.
+    if (isSeeSoCalibrating.value) return 'SeeSo 보정 중…'
     if (isSamplingGaze.value) return '기록 중…'
     const isLast =
       gazeCalibrationTargetIndex.value >=
@@ -136,6 +144,45 @@ const calibrationPrimaryLabel = computed(() => {
 const calibrationBackLabel = computed(() =>
   calibrationStageIndex.value === 0 ? '나중에 하기' : '이전',
 )
+/** SeeSo 시선 추적. 라이선스 키가 없으면 아무 일도 하지 않고 MediaPipe로 폴백한다. */
+const seesoGaze = useSeeSoGaze()
+/** SeeSo 자체 보정(1단계, 5점) 진행 상태. */
+const isSeeSoCalibrating = ref(false)
+const seeSoCalibrationProgress = ref(0)
+/** SeeSo 보정 중 사용자에게 보여줄 안내 문구. */
+const seeSoCalibrationHint = ref('')
+/**
+ * 재시도·재시작처럼 **평소와 다른 일이 벌어지는 중**임을 알리는 문구. 값이 있으면 하단 안내가
+ * 평소의 "주황색 점을 계속 바라봐 주세요" 대신 이 문구로 바뀐다.
+ *
+ * 이게 없으면 진행률이 멈춘 채 하단 문구도 그대로라, 재시도하고 있는지 굳어버린 건지 구분할
+ * 방법이 사용자에게 전혀 없다(실제로 보고된 혼란).
+ */
+const seeSoCalibrationNotice = ref('')
+/**
+ * 1단계 보정을 기다리는 최대 시간 — **마지막 안전망**이다.
+ *
+ * 정상적으로는 여기 도달하지 않는다. 프로바이더의 워치독이 진행이 멈춘 것을 감지해 스스로
+ * 끝내기 때문이다. 시선이 안 잡히면 약 6초 만에 접고, 시선이 잡히는 동안(사용자가 잠깐 다른
+ * 곳을 본 경우)에는 다시 바라볼 시간을 넉넉히 준다. 그 회복 시간을 이 타임아웃이 잘라 버리면
+ * 정상 사용자가 실패 처리되므로, 회복 한도(약 30초)보다 넉넉하게 잡는다.
+ */
+const SEESO_CALIBRATION_TIMEOUT_MS = 45000
+
+/**
+ * SeeSo 자체 보정을 몇 번까지 다시 시도할지. SeeSo는 시선 추적의 핵심이라 한 번 실패했다고
+ * 정확도가 낮은 MediaPipe로 넘기지 않고 다시 시도한다({@link runSeeSoCalibrationWithRetry}).
+ * 너무 크게 잡으면 실패가 계속될 때 사용자가 오래 붙잡히므로 3회로 둔다(최악 약 40초).
+ */
+const SEESO_CALIBRATION_MAX_ATTEMPTS = 3
+/** SDK가 지정한 현재 보정 점(뷰포트 픽셀 좌표). */
+const seeSoCalibrationPoint = ref<{ x: number; y: number } | null>(null)
+const seeSoCalibrationPointStyle = computed(() => {
+  const point = seeSoCalibrationPoint.value
+  if (!point) return {}
+  return { left: `${point.x}px`, top: `${point.y}px` }
+})
+
 const gazeCalibrationTargetStyle = computed(() => {
   const target =
     eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
@@ -372,6 +419,10 @@ function stopCameraStream() {
   // cameraStream은 eyeTracking.stream과 같은 MediaStream을 가리키므로, 트랙만 따로 멈추지 않고
   // eyeTracking.stop()으로 감지 루프까지 함께 정리한다(안 그러면 requestAnimationFrame 루프가
   // 끊긴 스트림을 계속 붙잡고 있게 된다).
+  // SeeSo도 자체 카메라를 열므로 반드시 같이 멈추고, 꺼 뒀던 MediaPipe 추론은 되돌린다.
+  eyeTracking.setExternalGazeSource(null)
+  eyeTracking.setDetectionEnabled(true)
+  seesoGaze.stop()
   eyeTracking.stop()
   cameraStream.value = null
 }
@@ -1033,6 +1084,9 @@ function eyeSampleFailureMessage(
 
 async function recordGazeCalibrationPoint() {
   if (isSamplingGaze.value) return
+  // SeeSo 자체 보정(1단계)이 진행 중이면 9점 표본을 받지 않는다 — 아직 SDK 내부 모델이 확정되지
+  // 않아 이때 모은 표본은 신뢰할 수 없다.
+  if (isSeeSoCalibrating.value) return
   const operationGeneration = calibrationOperationGeneration
   const target: Point | undefined =
     eyeTracking.gazeCalibrationTargets[gazeCalibrationTargetIndex.value]
@@ -1131,6 +1185,185 @@ function absCorrelation(a: number[], b: number[]): number {
   return den === 0 ? 0 : Math.abs(num / den)
 }
 
+/**
+ * 시선 보정 단계에서 SeeSo를 켜고, 이후 9점 보정이 SeeSo 좌표를 학습하도록 연결한다.
+ *
+ * 2단계 구조다:
+ *  1단계 — SeeSo 자체 보정(5점). SDK 내부 모델을 사용자에게 맞춘다.
+ *  2단계 — 이어지는 9점 보정. SeeSo 출력에 남은 개인 오차를 한 번 더 교정한다.
+ *
+ * SeeSo를 쓸 수 없으면(키 없음/도메인 미등록 등) 아무것도 바꾸지 않는다 — 기존 MediaPipe 시선으로
+ * 9점 보정이 진행되며 앱은 정상 동작한다.
+ */
+async function startSeeSoForCalibration(): Promise<void> {
+  if (!seesoGaze.isConfigured) return
+
+  // ⚠️ 이 플래그를 **초기화를 기다리기 전에** 세워야 한다. SDK 초기화에 몇 초가 걸리는데, 그
+  // 동안 플래그가 꺼져 있으면 2단계(9점) 점과 버튼이 먼저 떠서 1단계와 겹쳐 보인다 — 사용자가
+  // 어느 쪽을 따라야 하는지 알 수 없게 된다.
+  isSeeSoCalibrating.value = true
+  seeSoCalibrationProgress.value = 0
+  seeSoCalibrationPoint.value = null
+  seeSoCalibrationHint.value = '시선 추적 엔진을 준비하는 중이에요…'
+
+  try {
+    const started = await seesoGaze.start()
+    if (!started) return
+    // 준비되는 동안 사용자가 보정 화면을 벗어났으면 진행하지 않는다.
+    if (calibrationStage.value !== 'gaze') return
+
+    eyeTracking.setExternalGazeSource(() => seesoGaze.viewportGaze.value)
+    eyeTracking.setDetectionEnabled(false)
+
+    // SDK가 첫 점을 내기 전에 시선을 안정시키는 준비 시간이 필요하다. 이게 없으면 보정이 제대로
+    // 시작되지 않는다(프로토타입도 같은 준비 단계를 뒀다). 화면 중앙을 보게 하고 3초 센다.
+    seeSoCalibrationPoint.value = {
+      x: globalThis.window.innerWidth / 2,
+      y: globalThis.window.innerHeight / 2,
+    }
+    for (let countdown = 3; countdown >= 1; countdown -= 1) {
+      if (calibrationStage.value !== 'gaze') return
+      seeSoCalibrationHint.value = `보정 준비 중 — 화면 중앙의 점을 바라보세요 (${countdown})`
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 1000))
+    }
+
+    seeSoCalibrationHint.value = '점이 나타나면 그 점을 바라보세요'
+
+    const calibrated = await runSeeSoCalibrationWithRetry()
+    if (calibrationStage.value !== 'gaze') return
+
+    // 보정에 성공했더라도 좌표가 실제로 나오는지 확인해야 한다 — 성공 콜백 뒤에 엔진이 죽는
+    // 경우가 있고, 그대로 두면 9점 보정이 표본을 한 개도 못 모은다.
+    if (!calibrated || !(await seesoGaze.waitForGaze())) {
+      rewindToEyeStateStage()
+    }
+  } finally {
+    // 어떤 경로로 끝나든(성공·실패·타임아웃·화면 이탈) 1단계 상태를 반드시 내려 2단계가 열리게 한다.
+    isSeeSoCalibrating.value = false
+    seeSoCalibrationPoint.value = null
+    seeSoCalibrationHint.value = ''
+    seeSoCalibrationNotice.value = ''
+  }
+}
+
+/**
+ * SeeSo 자체 보정(1단계)을 성공할 때까지 다시 시도한다.
+ *
+ * ## 왜 MediaPipe로 넘기지 않고 재시도하는가
+ * SeeSo는 이 서비스 시선 추적의 핵심이다. MediaPipe는 홍채 위치로 화면 좌표를 **추정**하는
+ * 방식이라 정확도가 확연히 낮아, 한 번 실패했다고 그쪽으로 넘겨 버리면 게임 품질이 크게
+ * 떨어진다. 실패는 대개 일시적(시선을 잠깐 놓침, 자세 변화)이므로 다시 하면 대부분 성공한다.
+ *
+ * ## 좌표가 끊긴 경우
+ * 단순 재보정으로는 살아나지 않는다(보정 중단·WASM 메모리 부족으로 엔진 자체가 멈춘 상태).
+ * 그래서 재시도 전에 좌표가 살아 있는지 보고, 끊겼으면 엔진을 껐다 켠 뒤 다시 보정한다.
+ *
+ * @returns 보정에 성공했으면 true.
+ */
+async function runSeeSoCalibrationWithRetry(): Promise<boolean> {
+  for (
+    let attempt = 1;
+    attempt <= SEESO_CALIBRATION_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    if (calibrationStage.value !== 'gaze') return false
+
+    if (attempt > 1 && !(await restartSeeSoForRetry(attempt))) continue
+
+    // ⚠️ 반드시 타임아웃을 건다. 이 보정은 사용자의 시선이 잡혀야 진행되는데, 안 잡히면 SDK가
+    // 완료 콜백을 영영 부르지 않을 수 있다. 그러면 화면이 멈춘 것처럼 보여 아무것도 못 한다.
+    const succeeded = await Promise.race([
+      seesoGaze.calibrate({
+        onPoint: (x, y) => {
+          seeSoCalibrationPoint.value = { x, y }
+          seeSoCalibrationHint.value = '점을 바라보세요'
+        },
+        onProgress: (progress) => {
+          seeSoCalibrationProgress.value = progress
+          seeSoCalibrationHint.value = `보정 중 ${Math.round(progress * 100)}%`
+          // 다시 진행되기 시작했다 — 재시도 안내를 걷는다.
+          seeSoCalibrationNotice.value = ''
+        },
+        // 멈춘 이유에 따라 사용자가 해야 할 일이 다르다. "재시도 중"만 알려서는 무엇을 고쳐야
+        // 할지 알 수 없으므로, 시선이 잡히는지 여부로 안내를 나눈다.
+        onStalled: (_stall, _maxStalls, tracked) => {
+          seeSoCalibrationNotice.value = tracked
+            ? '시선이 점에서 벗어났어요 · 주황색 점을 다시 바라봐 주세요'
+            : '얼굴이 보이지 않아요 · 카메라 앞에서 화면을 바라봐 주세요'
+        },
+      }),
+      new Promise<undefined>((resolve) =>
+        globalThis.setTimeout(resolve, SEESO_CALIBRATION_TIMEOUT_MS),
+      ),
+    ])
+
+    if (succeeded === true) return true
+  }
+
+  return false
+}
+
+/**
+ * 재시도 전 준비. 좌표가 끊겼으면 엔진을 되살리고, 시선이 자리잡을 시간을 준다.
+ *
+ * @returns 이번 회차를 진행해도 되면 true. 엔진을 못 살렸으면 false(다음 회차에서 다시 시도).
+ */
+async function restartSeeSoForRetry(attempt: number): Promise<boolean> {
+  seeSoCalibrationPoint.value = null
+  seeSoCalibrationProgress.value = 0
+  seeSoCalibrationHint.value = '보정을 다시 시작하는 중이에요…'
+  seeSoCalibrationNotice.value = `보정을 처음부터 다시 시작할게요 (${attempt}/${SEESO_CALIBRATION_MAX_ATTEMPTS})`
+
+  if (!seesoGaze.isGazeFresh()) {
+    seesoGaze.stop()
+    if (!(await seesoGaze.start())) return false
+    if (calibrationStage.value !== 'gaze') return false
+    eyeTracking.setExternalGazeSource(() => seesoGaze.viewportGaze.value)
+  }
+
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 1200))
+
+  return calibrationStage.value === 'gaze'
+}
+
+/**
+ * SeeSo 보정을 끝내 완료하지 못했을 때, **눈 감기 기록 단계로 되돌린다**.
+ *
+ * ## 왜 MediaPipe로 넘기지 않는가
+ * MediaPipe 시선은 홍채 위치 기반 추정이라 정확도가 확연히 낮다. 그 상태로 게임에 들여보내면
+ * 사용자는 "되긴 되는데 이상한" 경험을 하게 되고, 무엇이 잘못됐는지도 알 수 없다. 차라리 앞
+ * 단계로 되돌려 처음부터 다시 하게 하는 편이 낫다 — 실패는 대개 자세·조명처럼 사용자가 고칠
+ * 수 있는 원인이다.
+ *
+ * ## 왜 하필 '눈 감기' 단계인가
+ * 시선 보정 바로 앞 단계다. 여기로 돌아오면 자세를 고쳐 앉은 상태에서 눈 기준값을 다시 잡고,
+ * 이어서 SeeSo 보정이 깨끗한 상태로 다시 시작된다.
+ *
+ * MediaPipe 추론을 되살리는 것은 폴백이 아니라 **필수**다 — 눈 뜨기/감기 판정은 MediaPipe
+ * 얼굴 랜드마크(EAR)로 하기 때문에, 꺼 둔 채 되돌리면 기록 자체가 되지 않는다.
+ */
+function rewindToEyeStateStage(): void {
+  // 다음 시도가 깨끗한 상태에서 시작하도록 SeeSo를 완전히 정리한다.
+  eyeTracking.setExternalGazeSource(null)
+  eyeTracking.setDetectionEnabled(true)
+  seesoGaze.stop()
+
+  const closedIndex = calibrationStages.value.indexOf('closed')
+  if (closedIndex >= 0) calibrationStageIndex.value = closedIndex
+
+  // 진행 중이던 비동기 작업(표본 수집 등)을 무효화하고 단계 상태를 초기화한다.
+  calibrationOperationGeneration += 1
+  isSamplingEyeStep.value = false
+  isSamplingGaze.value = false
+  eyeSampleFeedback.value = 'idle'
+  gazeCalibrationTargetIndex.value = 0
+  gazeCalibrationEvaluation.value = null
+
+  showToast(
+    '시선 보정을 완료하지 못했어요. 자세를 바로 하고 눈 감기 기록부터 다시 진행해 주세요.',
+  )
+}
+
 function advanceCalibrationStage() {
   eyeSampleFeedback.value = 'idle'
   if (calibrationStageIndex.value < calibrationStages.value.length - 1) {
@@ -1139,6 +1372,9 @@ function advanceCalibrationStage() {
   if (calibrationStage.value === 'gaze') {
     eyeTracking.beginGazeCalibration()
     gazeCalibrationTargetIndex.value = 0
+    // 게임에서 SeeSo를 쓸 거라면 보정도 **SeeSo 좌표로** 학습해야 한다. MediaPipe 좌표로 배운
+    // 보정을 SeeSo 좌표에 적용하면 원시 좌표계가 서로 달라 크게 어긋난다.
+    void startSeeSoForCalibration()
   }
   if (calibrationStage.value === 'done') {
     finishCalibration()
@@ -1443,6 +1679,10 @@ if (typeof globalThis.window !== 'undefined')
   globalThis.window.addEventListener('keydown', handleKeydown)
 
 onMounted(() => {
+  // 부팅 시 확보에 실패했을 수 있으므로 여기서 한 번 더 시도한다(이미 있으면 아무 일도 하지 않음).
+  // 게임 시작 시점의 입장권 발급은 동기라 기다릴 수 없으니, 카메라·캘리브레이션에 쓰는 시간
+  // 동안 신원을 미리 준비해 둔다.
+  void ensureIdentity()
   if (isRandomRoom.value) initRandomSession()
   else void initInviteSession()
 })
@@ -2104,23 +2344,37 @@ onBeforeUnmount(() => {
               </div>
             </template>
 
-            <!-- 시선 좌표 보정 단계: 9개 지점을 순서대로 응시하며 진행한다.
-                 점들은 카메라 프리뷰 위에 겹쳐진 별도 영역(.calibration-target-field)에 찍힌다.
-                 이 영역은 실제 게임에서 시선을 쓰는 그림 캔버스와 같은 가로세로 비율이라,
-                 캘리브레이션 중 눈이 움직이는 범위가 실제 플레이 범위와 일치한다. -->
-            <template v-else-if="calibrationStage === 'gaze'">
-              <div v-if="isCameraConnected" class="calibration-target-field">
-                <i
-                  class="calibration-target"
-                  :style="gazeCalibrationTargetStyle"
-                  aria-hidden="true"
-                />
-              </div>
-            </template>
+            <!-- 시선 좌표 보정 단계.
+                 점은 다이얼로그 안이 아니라 **뷰포트 전체**에 띄운다(아래 Teleport). 시선 보정을
+                 뷰포트 좌표계에서 학습해야, 크기가 다른 게임 화면에서도 같은 보정값을 그대로 쓸
+                 수 있기 때문이다(gaze-calibration.ts의 viewportPointToElement 주석 참고).
+                 다이얼로그 안에는 카메라 프리뷰만 남는다. -->
+            <template v-else-if="calibrationStage === 'gaze'" />
           </div>
           <div class="calibration-controls">
+            <!-- 1단계(SeeSo 자체 보정)가 도는 동안에는 사용자가 할 일이 "점 응시"뿐이므로,
+                 2단계용 지점 카운터 대신 진행 상태를 보여주고 버튼을 잠근다. 그러지 않으면
+                 무엇을 해야 하는지 알 수 없고 '다음 지점'을 눌러도 반응이 없어 멈춘 것처럼 보인다. -->
             <div
-              v-if="calibrationStage === 'gaze'"
+              v-if="isSeeSoCalibrating"
+              class="calibration-point-status"
+              :class="{
+                'calibration-point-status--retry': seeSoCalibrationNotice,
+              }"
+              role="status"
+              aria-live="polite"
+            >
+              <template v-if="seeSoCalibrationNotice">{{
+                seeSoCalibrationNotice
+              }}</template>
+              <template v-else
+                >자동 보정 중 · 주황색 점을 계속 바라봐 주세요 ({{
+                  Math.round(seeSoCalibrationProgress * 100)
+                }}%)</template
+              >
+            </div>
+            <div
+              v-else-if="calibrationStage === 'gaze'"
               class="calibration-point-status"
               role="status"
               aria-live="polite"
@@ -2132,7 +2386,9 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="secondary"
-                :disabled="isSamplingEyeStep || isSamplingGaze"
+                :disabled="
+                  isSamplingEyeStep || isSamplingGaze || isSeeSoCalibrating
+                "
                 @click="handleCalibrationBack"
               >
                 {{ calibrationBackLabel }}</button
@@ -2141,7 +2397,10 @@ onBeforeUnmount(() => {
                 class="primary"
                 data-dialog-initial-focus
                 :disabled="
-                  isSamplingEyeStep || isSamplingGaze || !isCameraConnected
+                  isSamplingEyeStep ||
+                  isSamplingGaze ||
+                  isSeeSoCalibrating ||
+                  !isCameraConnected
                 "
                 @click="handleCalibrationNext"
               >
@@ -2152,6 +2411,34 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </Transition>
+
+    <!-- 시선 보정 점. 뷰포트 전체를 기준으로 배치해야 보정이 화면 좌표계에서 학습된다.
+         다이얼로그(z-index 30) 위에 떠야 하므로 더 높은 층에 둔다. 클릭은 통과시켜 아래 버튼을
+         계속 누를 수 있게 한다. -->
+    <div
+      v-if="
+        isCalibrationOpen && calibrationStage === 'gaze' && isCameraConnected
+      "
+      class="gaze-target-overlay"
+      :class="{ 'gaze-target-overlay--seeso': isSeeSoCalibrating }"
+      aria-hidden="true"
+    >
+      <!-- 1단계: SeeSo 자체 보정. 화면을 어둡게 덮어 점에만 집중하게 하고, 지금 무엇을 해야
+           하는지 안내 문구를 띄운다. 이 동안 9점 보정 점은 보이지 않는다. -->
+      <template v-if="isSeeSoCalibrating">
+        <i
+          class="calibration-target calibration-target--seeso"
+          :style="seeSoCalibrationPointStyle"
+        />
+        <p class="gaze-target-overlay__hint">{{ seeSoCalibrationHint }}</p>
+      </template>
+      <!-- 2단계: 9점 개인 보정. 1단계가 끝난 뒤에만 보인다. -->
+      <i
+        v-else
+        class="calibration-target"
+        :style="gazeCalibrationTargetStyle"
+      />
+    </div>
 
     <GameStartCountdownModal
       :open="isGameStartDialogOpen"
@@ -2727,22 +3014,39 @@ onBeforeUnmount(() => {
   font-weight: 800;
   white-space: nowrap;
 }
+/* 재시도 중임을 색으로도 구분한다 — 문구만 바뀌면 눈에 잘 안 들어온다. */
+.calibration-point-status--retry {
+  border-color: rgba(226, 138, 42, 0.4);
+  color: #b26a16;
+  background: rgba(255, 246, 232, 0.96);
+}
 /**
- * 9점이 찍히는 영역. 실제 게임에서 시선을 쓰는 그림 캔버스와 같은 가로세로 비율(1000:640)로
- * 잡고, 스테이지 안에서 가능한 한 크게 채운다 — 캘리브레이션 중 시선이 움직이는 범위를 실제
- * 플레이 범위와 맞춰 정확도를 높이기 위함이다. 카메라 프리뷰 위에 겹쳐 놓기만 하므로 프리뷰
- * 레이아웃(크기·확대율)에는 전혀 영향을 주지 않는다.
+ * 시선 보정 점을 뷰포트 전체에 배치하는 층.
+ *
+ * 보정을 뷰포트 좌표계에서 학습해야 보정 화면과 게임 화면의 크기가 달라도 같은 보정값을 쓸 수
+ * 있다. 그래서 점은 다이얼로그 안이 아니라 화면 전체에 찍는다. 다이얼로그(z-index 30)보다 위에
+ * 있어야 보이고, 클릭은 통과시켜 아래의 '다음 지점' 버튼을 계속 누를 수 있게 한다.
  */
-.calibration-target-field {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 2;
-  width: 96%;
-  max-height: 96%;
-  aspect-ratio: 1000 / 640;
-  transform: translate(-50%, -50%);
+.gaze-target-overlay {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
   pointer-events: none;
+}
+/* SeeSo 자체 보정 중에는 화면을 덮어 점에만 집중하게 한다. */
+.gaze-target-overlay--seeso {
+  background: rgba(13, 26, 56, 0.86);
+}
+.gaze-target-overlay__hint {
+  position: absolute;
+  bottom: 12%;
+  left: 50%;
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  transform: translateX(-50%);
 }
 .calibration-target {
   position: absolute;
@@ -2755,6 +3059,17 @@ onBeforeUnmount(() => {
   animation: calib-pulse 1.6s ease-in-out infinite;
   /* left/top은 gazeCalibrationTargetStyle이 0~1 좌표를 %로 변환해 인라인으로 넣어준다. */
   transform: translate(-50%, -50%);
+}
+/**
+ * SeeSo 자체 보정(1단계) 점 — 9점 보정과 구분되도록 색을 달리한다.
+ * ⚠️ 반드시 `.calibration-target` **뒤에** 와야 한다. 두 규칙의 명시도가 같아서, 앞에 두면
+ * 기본 클래스의 background가 나중에 선언돼 이 색을 덮어쓴다.
+ */
+.calibration-target--seeso {
+  width: 22px;
+  height: 22px;
+  background: #ff7a59;
+  box-shadow: 0 0 0 8px rgba(255, 122, 89, 0.3);
 }
 .calibration-camera-status {
   position: absolute;

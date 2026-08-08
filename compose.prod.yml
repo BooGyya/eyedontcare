@@ -10,6 +10,8 @@ services:
         # Vite는 빌드 시점에 값을 굽는다. 비어 있으면 프로덕션 카카오 로그인이 동작하지 않는다.
         VITE_KAKAO_CLIENT_ID: ${VITE_KAKAO_CLIENT_ID:-}
         VITE_KAKAO_REDIRECT_URI: ${VITE_KAKAO_REDIRECT_URI:-}
+        # 비어 있으면 SeeSo를 시도하지 않고 MediaPipe 시선 추정으로 폴백한다.
+        VITE_SEESO_LICENSE_KEY: ${VITE_SEESO_LICENSE_KEY:-}
     image: i15b102-frontend:latest
     restart: unless-stopped
     ports:
