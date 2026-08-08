@@ -9,14 +9,26 @@ import { recognizeDrawing } from '../api/draw'
 import { useLastGameResultStore } from '../stores/lastGameResult'
 import type { LastGameOutcome } from '../stores/lastGameResult'
 import type { GameDetailId } from '../types/game-detail'
-import { issueSoloPlayEntry, SOLO_PLAY_ENTRY_KEY } from '../utils/soloPlayEntry'
+import type { GameSessionMode } from '../types/gameplay'
+import {
+  issuePlayEntry,
+  SOLO_PLAY_ENTRY_KEY,
+  type PlayEntryMode,
+} from '../utils/soloPlayEntry'
 
 const GUEST_STORAGE_KEY = 'eye-dont-care.guestSessionId'
+const submitPlayedResultMock = vi.hoisted(() => vi.fn().mockResolvedValue(null))
 
 // 그림그리기 AI 채점은 아직 없는 백엔드 엔드포인트를 호출한다 — 테스트에선 실제 네트워크 대신
 // 이 함수를 목업해서 성공/실패 응답을 원하는 대로 만들어낸다.
 vi.mock('../api/draw', () => ({
   recognizeDrawing: vi.fn(),
+}))
+
+vi.mock('../composables/useGameResultSubmission', () => ({
+  useGameResultSubmission: () => ({
+    submitPlayedResult: submitPlayedResultMock,
+  }),
 }))
 
 // 테스트 환경(jsdom)에는 실제 카메라/MediaPipe가 없어 useEyeTracking().start()가 항상 실패한다.
@@ -32,7 +44,29 @@ const eyeTrackingMockInstances: Array<{
   screenGaze: ReturnType<typeof ref<{ x: number; y: number } | null>>
   combinedState: ReturnType<typeof ref<string>>
   faceDetected: ReturnType<typeof ref<boolean>>
+  stop: ReturnType<typeof vi.fn>
 }> = []
+
+/**
+ * SeeSo는 실제 SDK·카메라·라이선스 서버가 필요해 테스트 환경에서는 동작할 수 없다. 모킹하지
+ * 않으면 개발자 `.env`에 라이선스 키가 있는지에 따라 테스트 결과가 달라진다(키가 있으면 초기화를
+ * 시도하다 실패). 여기서는 항상 "설정되지 않음"으로 고정해 MediaPipe 경로만 검증한다.
+ */
+vi.mock('../composables/useSeeSoGaze', () => ({
+  SEESO_MARGIN_BEFORE_CALIBRATION: 0.15,
+  SEESO_MARGIN_AFTER_CALIBRATION: 0.45,
+  useSeeSoGaze: () => ({
+    isConfigured: false,
+    isRunning: ref(false),
+    isStarting: ref(false),
+    error: ref(null),
+    viewportGaze: ref(null),
+    setMargin: vi.fn(),
+    start: vi.fn(async () => false),
+    stop: vi.fn(),
+    calibrate: vi.fn(async () => false),
+  }),
+}))
 
 vi.mock('../composables/useEyeTracking', () => ({
   useEyeTracking: () => {
@@ -56,7 +90,7 @@ vi.mock('../composables/useEyeTracking', () => ({
       eventSequence: ref(0),
       onEyeEvent: () => () => {},
       start: async () => true,
-      stop: () => {},
+      stop: vi.fn(),
       recordEyeSample: async () => ({ success: true, sampleCount: 10 }),
       resetEyeBaseline: () => {},
       applyEyeProfile: () => {},
@@ -81,12 +115,33 @@ vi.mock('../composables/useEyeTracking', () => ({
  * `eyeTrackingMockInstances[0]`(drawTracking, GamePlayPage.vue에서 제일 먼저 선언됨)이
  * 이미 채워져 있다.
  */
+/**
+ * jsdom에는 레이아웃 엔진이 없어 모든 엘리먼트의 `getBoundingClientRect()`가 0을 반환한다.
+ * 실제 코드는 보정된 시선(뷰포트 기준 0~1)을 캔버스 기준 좌표로 옮기므로, 캔버스가 화면 어디에
+ * 얼마나 크게 있는지 알 수 없으면 좌표가 전부 밖으로 계산돼 선이 하나도 그려지지 않는다.
+ * 뷰포트(jsdom 기본 1024x768) 안쪽에 놓인 캔버스를 흉내 낸다. 캔버스가 언제 렌더되든 적용되도록
+ * prototype에 걸어 둔다.
+ */
+globalThis.HTMLCanvasElement.prototype.getBoundingClientRect = () =>
+  ({
+    x: 100,
+    y: 100,
+    left: 100,
+    top: 100,
+    width: 800,
+    height: 500,
+    right: 900,
+    bottom: 600,
+    toJSON: () => ({}),
+  }) as globalThis.DOMRect
+
 async function simulateDrawingSomething() {
   const draw = eyeTrackingMockInstances[0]
   draw.faceDetected.value = true
   draw.combinedState.value = 'BOTH_OPEN'
-  draw.screenGaze.value = { x: 0.3, y: 0.3 }
-  await new Promise((resolve) => globalThis.setTimeout(resolve, 100))
+  // 위에서 흉내 낸 캔버스 사각형 안쪽에 들어오는 뷰포트 좌표를 준다.
+  draw.screenGaze.value = { x: 0.35, y: 0.35 }
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 40))
   draw.screenGaze.value = { x: 0.6, y: 0.55 }
   await new Promise((resolve) => globalThis.setTimeout(resolve, 100))
 }
@@ -155,21 +210,62 @@ function createGameRouter() {
   })
 }
 
-function issueGuestSoloEntry(gameId: string): void {
+function issueGuestPlayEntry(gameId: string, mode: PlayEntryMode): void {
   globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
-  expect(issueSoloPlayEntry(gameId)).toBe(true)
+  expect(issuePlayEntry(gameId, mode)).toBe(true)
+}
+
+function issueGuestSoloEntry(gameId: string): void {
+  issueGuestPlayEntry(gameId, 'solo')
+}
+
+function stubDocumentHidden(initialValue: boolean) {
+  let hidden = initialValue
+  vi.spyOn(globalThis.document, 'hidden', 'get').mockImplementation(
+    () => hidden,
+  )
+  return (nextValue: boolean) => {
+    hidden = nextValue
+  }
+}
+
+async function mountStarePlay(mode: GameSessionMode, replay = false) {
+  eyeTrackingMockInstances.length = 0
+  if (mode === 'solo' || mode === 'ai') {
+    issueGuestPlayEntry('hold', mode)
+  } else {
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    MockWebSocket.instances = []
+  }
+
+  const router = createGameRouter()
+  const replayQuery = replay ? '&replay=1' : ''
+  await router.push(
+    `/games/hold/play?mode=${mode}&roomId=room-1${replayQuery}`,
+  )
+  await router.isReady()
+  const pinia = createPinia()
+  const wrapper = mount(GamePlayPage, {
+    global: { plugins: [router, pinia] },
+  })
+  await flushPromises()
+  await nextTick()
+
+  return { pinia, router, wrapper }
 }
 
 function createResultPinia(
   gameId: GameDetailId,
   drawRounds = false,
   isNewRecord = drawRounds,
+  mode: GameSessionMode = 'solo',
 ) {
   const pinia = createPinia()
   const store = useLastGameResultStore(pinia)
   store.set({
     gameId,
-    mode: 'solo',
+    mode,
     outcome: 'COMPLETED',
     isNewRecord,
     headline: '게임이 종료되었습니다!',
@@ -296,8 +392,12 @@ function createCompetitiveResultPinia(
 
 describe('gameplay routes', () => {
   afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.mocked(recognizeDrawing).mockReset()
+    submitPlayedResultMock.mockReset().mockResolvedValue(null)
+    eyeTrackingMockInstances.length = 0
     globalThis.sessionStorage.clear()
   })
 
@@ -351,6 +451,160 @@ describe('gameplay routes', () => {
     vi.useRealTimers()
   })
 
+  describe('EYEFIGHT visibility exit', () => {
+    it('does not exit while the replay countdown is still ready', async () => {
+      vi.useFakeTimers()
+      stubDocumentHidden(true)
+
+      const { router, wrapper } = await mountStarePlay('solo', true)
+      globalThis.document.dispatchEvent(new Event('visibilitychange'))
+      await nextTick()
+
+      expect(router.currentRoute.value.name).toBe('game-play')
+      expect(eyeTrackingMockInstances[2].stop).not.toHaveBeenCalled()
+      expect(submitPlayedResultMock).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it('exits immediately when the round starts while the page is already hidden', async () => {
+      vi.useFakeTimers()
+      stubDocumentHidden(true)
+
+      const { pinia, router, wrapper } = await mountStarePlay('solo', true)
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+      await nextTick()
+
+      expect(router.currentRoute.value.name).toBe('game-detail')
+      expect(useLastGameResultStore(pinia).current).toBeNull()
+      expect(submitPlayedResultMock).not.toHaveBeenCalled()
+      expect(eyeTrackingMockInstances[2].stop).toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it.each(['solo', 'ai'] as const)(
+      'exits an active %s game without saving a result',
+      async (mode) => {
+        const setHidden = stubDocumentHidden(false)
+        const { pinia, router, wrapper } = await mountStarePlay(mode)
+        const pushSpy = vi.spyOn(router, 'push')
+
+        setHidden(true)
+        globalThis.document.dispatchEvent(new Event('visibilitychange'))
+        globalThis.document.dispatchEvent(new Event('visibilitychange'))
+        await flushPromises()
+
+        expect(router.currentRoute.value.name).toBe('game-detail')
+        expect(pushSpy).toHaveBeenCalledTimes(1)
+        expect(useLastGameResultStore(pinia).current).toBeNull()
+        expect(submitPlayedResultMock).not.toHaveBeenCalled()
+        expect(eyeTrackingMockInstances[2].stop).toHaveBeenCalled()
+        wrapper.unmount()
+      },
+    )
+
+    it('keeps an active EYEFIGHT game running while the page is visible', async () => {
+      stubDocumentHidden(false)
+      const { router, wrapper } = await mountStarePlay('solo')
+
+      globalThis.document.dispatchEvent(new Event('visibilitychange'))
+      await nextTick()
+
+      expect(router.currentRoute.value.name).toBe('game-play')
+      expect(submitPlayedResultMock).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it('does not exit after the EYEFIGHT round has finished', async () => {
+      vi.useFakeTimers()
+      const setHidden = stubDocumentHidden(false)
+      const { router, wrapper } = await mountStarePlay('solo')
+      const setupState = wrapper.vm.$.setupState as {
+        stareGameState: { phase: string }
+      }
+      setupState.stareGameState.phase = 'finished'
+
+      setHidden(true)
+      globalThis.document.dispatchEvent(new Event('visibilitychange'))
+      await nextTick()
+
+      expect(router.currentRoute.value.name).toBe('game-play')
+      expect(submitPlayedResultMock).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it.each(['friends', 'random'] as const)(
+      'closes the %s game session once without sending GAME_OVER',
+      async (mode) => {
+        const setHidden = stubDocumentHidden(false)
+        const { pinia, router, wrapper } = await mountStarePlay(mode)
+        const ws = MockWebSocket.instances[0]
+        expect(ws).toBeTruthy()
+        ws.simulateOpen()
+        const closeSpy = vi.spyOn(ws, 'close')
+
+        setHidden(true)
+        globalThis.document.dispatchEvent(new Event('visibilitychange'))
+        globalThis.document.dispatchEvent(new Event('visibilitychange'))
+        await flushPromises()
+
+        expect(router.currentRoute.value.name).toBe('game-detail')
+        expect(closeSpy).toHaveBeenCalledTimes(1)
+        expect(
+          ws.sent.some((message) => {
+            const event = JSON.parse(message) as { eventType?: string }
+            return event.eventType === 'GAME_OVER'
+          }),
+        ).toBe(false)
+        expect(useLastGameResultStore(pinia).current).toBeNull()
+        expect(submitPlayedResultMock).not.toHaveBeenCalled()
+        wrapper.unmount()
+      },
+    )
+
+    it('ignores visibility changes for other games', async () => {
+      const setHidden = stubDocumentHidden(false)
+      issueGuestSoloEntry('blink')
+      const router = createGameRouter()
+      await router.push('/games/blink/play?mode=solo')
+      await router.isReady()
+      const wrapper = mount(GamePlayPage, {
+        global: { plugins: [router, createPinia()] },
+      })
+      await flushPromises()
+
+      setHidden(true)
+      globalThis.document.dispatchEvent(new Event('visibilitychange'))
+      await nextTick()
+
+      expect(router.currentRoute.value.name).toBe('game-play')
+      wrapper.unmount()
+    })
+
+    it('removes the visibility listener with the registered reference', async () => {
+      stubDocumentHidden(false)
+      const addEventListenerSpy = vi.spyOn(
+        globalThis.document,
+        'addEventListener',
+      )
+      const removeEventListenerSpy = vi.spyOn(
+        globalThis.document,
+        'removeEventListener',
+      )
+      const { wrapper } = await mountStarePlay('solo')
+      const visibilityCall = addEventListenerSpy.mock.calls.find(
+        ([type]) => type === 'visibilitychange',
+      )
+
+      expect(visibilityCall).toBeTruthy()
+      wrapper.unmount()
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        'visibilitychange',
+        visibilityCall?.[1],
+      )
+    })
+  })
+
   it('shows the round score dialog and advances to the next round after AI judging succeeds', async () => {
     eyeTrackingMockInstances.length = 0
     vi.mocked(recognizeDrawing).mockResolvedValue({
@@ -361,6 +615,7 @@ describe('gameplay routes', () => {
       candidates: [],
     })
 
+    issueGuestPlayEntry('draw', 'ai')
     const router = createGameRouter()
     await router.push('/games/draw/play?mode=ai')
     await router.isReady()
@@ -368,6 +623,7 @@ describe('gameplay routes', () => {
       attachTo: document.body,
       global: { plugins: [router, createPinia()] },
     })
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
     await flushPromises() // initDrawGame()의 카메라 시작 등 비동기 초기화 완료 대기
     await simulateDrawingSomething() // 빈 캔버스 안전장치를 통과할 만큼 실제로 그림을 그려 둔다
 
@@ -391,6 +647,7 @@ describe('gameplay routes', () => {
       new Error('AI 채점 서버에 연결하지 못했어요.'),
     )
 
+    issueGuestPlayEntry('draw', 'ai')
     const router = createGameRouter()
     await router.push('/games/draw/play?mode=ai')
     await router.isReady()
@@ -415,6 +672,7 @@ describe('gameplay routes', () => {
 
   it('rejects an empty canvas submission as wrong without calling the AI', async () => {
     eyeTrackingMockInstances.length = 0
+    issueGuestPlayEntry('draw', 'ai')
     const router = createGameRouter()
     await router.push('/games/draw/play?mode=ai')
     await router.isReady()
@@ -650,8 +908,65 @@ describe('gameplay routes', () => {
     expect(router.currentRoute.value.query.replay).toBe('1')
     expect(router.currentRoute.value.query.result).toBeUndefined()
     expect(
-      globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY),
-    ).not.toBeNull()
+      JSON.parse(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY) ?? ''),
+    ).toMatchObject({ gameId: 'blink', mode: 'solo' })
+    wrapper.unmount()
+  })
+
+  it('issues an AI ticket immediately before replay navigation', async () => {
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+    const router = createGameRouter()
+    await router.push(
+      '/games/blink/result?mode=ai&difficulty=hard&result=completed',
+    )
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: {
+        plugins: [router, createResultPinia('blink', false, false, 'ai')],
+      },
+    })
+    await flushPromises()
+    await nextTick()
+
+    const replayButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('다시'))
+    expect(replayButton).toBeTruthy()
+    await replayButton?.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('game-play')
+    expect(router.currentRoute.value.query).toMatchObject({
+      mode: 'ai',
+      difficulty: 'hard',
+      replay: '1',
+    })
+    expect(router.currentRoute.value.query.result).toBeUndefined()
+    expect(
+      JSON.parse(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY) ?? ''),
+    ).toMatchObject({ gameId: 'blink', mode: 'ai' })
+    wrapper.unmount()
+  })
+
+  it('does not enter AI replay when ticket issuance fails', async () => {
+    const router = createGameRouter()
+    await router.push('/games/blink/result?mode=ai&result=completed')
+    await router.isReady()
+    const wrapper = mount(GameResultPage, {
+      global: {
+        plugins: [router, createResultPinia('blink', false, false, 'ai')],
+      },
+    })
+    await flushPromises()
+
+    const replayButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('다시'))
+    await replayButton?.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('game-result')
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
     wrapper.unmount()
   })
 
@@ -706,6 +1021,75 @@ describe('gameplay routes', () => {
     expect(router.currentRoute.value.name).toBe('game-detail')
     expect(globalThis.sessionStorage.getItem('edc-game-in-progress')).toBeNull()
     wrapper.unmount()
+  })
+
+  it.each([
+    ['direct', '/games/blink/play?mode=ai'],
+    ['replay', '/games/blink/play?mode=ai&replay=1'],
+  ])('redirects an AI %s URL without a ticket', async (_kind, path) => {
+    const router = createGameRouter()
+    await router.push(path)
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+    await nextTick()
+
+    expect(router.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem('edc-game-in-progress')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['solo', 'ai'],
+    ['ai', 'solo'],
+  ] as const)(
+    'rejects a %s ticket when entering %s mode',
+    async (issuedMode, routeMode) => {
+      issueGuestPlayEntry('blink', issuedMode)
+      const router = createGameRouter()
+      await router.push(`/games/blink/play?mode=${routeMode}`)
+      await router.isReady()
+
+      const wrapper = mount(GamePlayPage, {
+        global: { plugins: [router, createPinia()] },
+      })
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('game-detail')
+      expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+      wrapper.unmount()
+    },
+  )
+
+  it('redirects an AI refresh after its ticket was consumed', async () => {
+    issueGuestPlayEntry('blink', 'ai')
+    const router = createGameRouter()
+    await router.push('/games/blink/play?mode=ai')
+    await router.isReady()
+
+    const wrapper = mount(GamePlayPage, {
+      global: { plugins: [router, createPinia()] },
+    })
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('game-play')
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+    wrapper.unmount()
+
+    globalThis.sessionStorage.setItem('edc-game-in-progress', 'blink')
+    const refreshRouter = createGameRouter()
+    await refreshRouter.push('/games/blink/play?mode=ai')
+    await refreshRouter.isReady()
+    const refreshedWrapper = mount(GamePlayPage, {
+      global: { plugins: [refreshRouter, createPinia()] },
+    })
+    await flushPromises()
+
+    expect(refreshRouter.currentRoute.value.name).toBe('game-detail')
+    expect(globalThis.sessionStorage.getItem('edc-game-in-progress')).toBeNull()
+    refreshedWrapper.unmount()
   })
 
   it('rejects a ticket issued for another game', async () => {

@@ -701,6 +701,10 @@ onMounted(() => {
 .community-page__search-label input {
   width: 160px;
 }
+.community-page__search-label input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
 .community-page__search-clear {
   display: grid;
   width: 22px;

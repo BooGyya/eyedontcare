@@ -80,12 +80,17 @@ describe('RankingPage', () => {
 
   it('게스트에게는 API를 부르지 않고 로그인 유도를 보여준다', async () => {
     const { wrapper } = await mountRankingPage('/ranking', { authed: false })
+    const auth = useAuthStore()
+    const openLoginSpy = vi.spyOn(auth, 'openLogin')
 
     expect(wrapper.text()).toContain('로그인 후 확인')
     expect(wrapper.find('[data-testid="ranking-game-tabs"]').exists()).toBe(
       false,
     )
     expect(getGameRanking).not.toHaveBeenCalled()
+
+    await wrapper.get('.ranking-page__login').trigger('click')
+    expect(openLoginSpy).toHaveBeenCalledTimes(1)
   })
 
   it('로그인 사용자에게 첫 게임(눈 깜빡이기) 랭킹을 불러와 렌더한다', async () => {

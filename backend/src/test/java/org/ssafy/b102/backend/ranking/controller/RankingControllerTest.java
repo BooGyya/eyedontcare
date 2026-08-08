@@ -44,7 +44,7 @@ class RankingControllerTest {
 		service.listResponse = new RankingListResponse(
 			"weekly", WEEK_START, List.of(new GameRankingSummary(
 				GameName.BLINK, RankType.BEST_SCORE, "count",
-				List.of(new RankingEntry(1, 7L, "방울반짝", 128, null)),
+				List.of(new RankingEntry(1, 7L, "방울반짝", 128, null, null)),
 				new MyRank(3, 103)))
 		);
 
@@ -68,7 +68,7 @@ class RankingControllerTest {
 		service.listResponse = new RankingListResponse(
 			"weekly", WEEK_START, List.of(new GameRankingSummary(
 				GameName.BLINK, RankType.BEST_SCORE, "count",
-				List.of(new RankingEntry(1, 7L, "방울반짝", 128, null)),
+				List.of(new RankingEntry(1, 7L, "방울반짝", 128, null, null)),
 				null))
 		);
 
@@ -91,7 +91,7 @@ class RankingControllerTest {
 		service.gameResponse = new GameRankingResponse(
 			GameName.BLINK, RankType.BEST_SCORE, "count", "weekly", WEEK_START,
 			List.of(new RankingEntry(
-				1, 7L, "방울반짝", 128, Instant.parse("2026-08-05T01:00:00Z"))),
+				1, 7L, "방울반짝", 128, Instant.parse("2026-08-05T01:00:00Z"), null)),
 			new MyRank(3, 103), 1, 20, 1, 1
 		);
 
@@ -142,7 +142,7 @@ class RankingControllerTest {
 		private String capturedGameName;
 
 		private StubRankingService() {
-			super(null, null);
+			super(null, null, null);
 		}
 
 		@Override

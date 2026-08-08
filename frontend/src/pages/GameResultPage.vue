@@ -31,7 +31,7 @@ import { resolveIdentity } from '../api/identity'
 import { useToast } from '../composables/useToast'
 import { DRAWING_DIFFICULTY_LABEL } from '../lib/games/draw-core'
 import { getResult } from '../api/gameResult'
-import { issueSoloPlayEntry } from '../utils/soloPlayEntry'
+import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
 
 const route = useRoute()
 const router = useRouter()
@@ -322,6 +322,26 @@ const drawTotalScore = computed(() => {
   return Number(score) || 0
 })
 const myNickname = computed(() => auth.displayName)
+
+/**
+ * 랭킹 안내 문구는 로그인 여부에 따라 달라야 한다.
+ *
+ * 게스트 결과는 `userId` 없이 저장되고(GameResultService), 랭킹 집계 조회가 `userId is not null`로
+ * 거르기 때문에 순위에 절대 올라가지 않는다. 그런데도 "전체 랭킹에서 순위를 확인할 수 있어요"라고
+ * 안내하면 아무리 플레이해도 자기 기록을 찾지 못하는 사용자가 생긴다. 게스트에게는 랭킹에
+ * 반영되려면 로그인이 필요하다는 사실을 대신 알린다.
+ */
+const GUEST_RANKING_NOTE = '로그인하면 랭킹에 반영돼요.'
+const holdRankingNote = computed(() =>
+  auth.isAuthenticated
+    ? '전체 랭킹에서 순위를 확인할 수 있어요.'
+    : GUEST_RANKING_NOTE,
+)
+const drawRankingNote = computed(() =>
+  auth.isAuthenticated
+    ? '랭킹은 전체 랭킹에서 확인할 수 있어요.'
+    : GUEST_RANKING_NOTE,
+)
 const opponentNickname = computed(
   () =>
     result.value?.opponentNickname ??
@@ -463,7 +483,10 @@ function stopReplayResend() {
 
 function navigateToReplay() {
   if (!game.value) return
-  if (mode.value === 'solo' && !issueSoloPlayEntry(game.value.id)) {
+  if (
+    isPlayEntryMode(mode.value) &&
+    !issuePlayEntry(game.value.id, mode.value)
+  ) {
     showToast('게임을 다시 시작할 수 없어요. 잠시 후 다시 시도해 주세요.')
     return
   }
@@ -1056,7 +1079,7 @@ function goToGames() {
                 <span>-</span>
                 <p>내 순위</p>
                 <strong>확인 불가</strong>
-                <small>전체 랭킹에서 순위를 확인할 수 있어요.</small>
+                <small>{{ holdRankingNote }}</small>
               </article>
               <article class="hold-record-missed__summary">
                 <h3>기록 요약</h3>
@@ -1303,7 +1326,7 @@ function goToGames() {
               <p>
                 이번 게임 점수 <strong>{{ drawTotalScore }}점</strong>
               </p>
-              <b>랭킹은 전체 랭킹에서 확인할 수 있어요.</b>
+              <b>{{ drawRankingNote }}</b>
             </div>
             <ol class="draw-ranking__list">
               <li class="draw-ranking__list-item--mine">

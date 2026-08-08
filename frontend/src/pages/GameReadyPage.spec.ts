@@ -250,28 +250,104 @@ describe('GameReadyPage', () => {
 
       expect(router.currentRoute.value.name).toBe('game-play')
       expect(
-        globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY),
-      ).not.toBeNull()
+        JSON.parse(
+          globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY) ?? '',
+        ),
+      ).toMatchObject({ gameId, mode: 'solo' })
       wrapper.unmount()
       vi.useRealTimers()
       globalThis.sessionStorage.clear()
     },
   )
 
-  it('does not issue a ticket when calibration only completes', async () => {
+  it.each(['solo', 'ai'])(
+    'does not issue a %s ticket when calibration only completes',
+    async (mode) => {
+      globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+      const router = createReadyRouter()
+      await router.push(`/games/hold/ready?mode=${mode}`)
+      await router.isReady()
+
+      const wrapper = mount(GameReadyPage, {
+        global: { plugins: [router, createPinia()] },
+      })
+      const readyPage = wrapper.vm as unknown as {
+        finishCalibration: () => void
+      }
+
+      readyPage.finishCalibration()
+
+      expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+      wrapper.unmount()
+      globalThis.sessionStorage.clear()
+    },
+  )
+
+  it.each(['rhythm', 'hold'])(
+    'issues an AI ticket only when %s actually navigates to play',
+    async (gameId) => {
+      globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
+      vi.useFakeTimers()
+      const router = createReadyRouter()
+      await router.push(`/games/${gameId}/ready?mode=ai`)
+      await router.isReady()
+
+      const wrapper = mount(GameReadyPage, {
+        global: { plugins: [router, createPinia()] },
+      })
+      const readyPage = wrapper.vm as unknown as {
+        finishCalibration: () => void
+        markPlayerReady: () => void
+      }
+
+      readyPage.finishCalibration()
+      expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+
+      readyPage.markPlayerReady()
+      if (gameId === 'hold') {
+        expect(
+          globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY),
+        ).toBeNull()
+        await vi.advanceTimersByTimeAsync(3000)
+      }
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('game-play')
+      expect(
+        JSON.parse(
+          globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY) ?? '',
+        ),
+      ).toMatchObject({ gameId, mode: 'ai' })
+      wrapper.unmount()
+      vi.useRealTimers()
+      globalThis.sessionStorage.clear()
+    },
+  )
+
+  it('does not issue an AI ticket for camera, calibration start, or cancellation', async () => {
     globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
     const router = createReadyRouter()
-    await router.push('/games/hold/ready?mode=solo')
+    await router.push('/games/hold/ready?mode=ai')
     await router.isReady()
 
     const wrapper = mount(GameReadyPage, {
       global: { plugins: [router, createPinia()] },
     })
     const readyPage = wrapper.vm as unknown as {
-      finishCalibration: () => void
+      permissionStatus: 'granted'
+      isCalibrationOpen: boolean
+      notifyCalibrationStarted: () => void
+      handleCalibrationBack: () => void
     }
 
-    readyPage.finishCalibration()
+    readyPage.permissionStatus = 'granted'
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+
+    readyPage.notifyCalibrationStarted()
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
+
+    readyPage.isCalibrationOpen = true
+    readyPage.handleCalibrationBack()
 
     expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
     wrapper.unmount()
@@ -307,6 +383,7 @@ describe('GameReadyPage', () => {
 
     expect(wrapper.find('.room-code').exists()).toBe(false)
     expect(wrapper.findAll('.participant-card')).toHaveLength(2)
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
     expect(wrapper.text()).toContain('랜덤 매칭 준비방')
     wrapper.unmount()
   })
@@ -333,6 +410,10 @@ describe('GameReadyPage INVITE lifecycle', () => {
     MockWebSocket.instances = []
     globalThis.localStorage.clear()
     globalThis.sessionStorage.clear()
+    // 실제 앱은 main.ts가 부팅 시 신원을 확보한 뒤에야 화면이 뜬다. 페이지만 따로 마운트하는
+    // 이 테스트에서도 같은 상태를 만들어 준다 — 안 그러면 준비방의 방어적 ensureIdentity()가
+    // 게스트 세션을 발급하면서 아래 fetch 호출 순서 검증을 어긋나게 한다.
+    globalThis.sessionStorage.setItem(GUEST_STORAGE_KEY, 'guest-1')
     useToast().hideToast()
     vi.stubGlobal('WebSocket', MockWebSocket)
   })
@@ -423,6 +504,7 @@ describe('GameReadyPage INVITE lifecycle', () => {
 
     expect(wrapper.find('.participant-card--me').text()).toContain('HOST')
     expect(wrapper.find('.room-code__copy').exists()).toBe(true)
+    expect(globalThis.sessionStorage.getItem(SOLO_PLAY_ENTRY_KEY)).toBeNull()
   })
 
   it('sends only IN_PROGRESS then COMPLETED for HOST calibration and keeps the JOINED room open', async () => {

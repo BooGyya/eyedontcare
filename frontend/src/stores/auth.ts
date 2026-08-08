@@ -14,6 +14,7 @@ import {
   updateProfile as apiUpdateProfile,
 } from '../api/user'
 import { decodeUserId } from '../api/jwt'
+import { ensureIdentity } from '../api/identity'
 import {
   clearTokens,
   getAccessToken,
@@ -95,6 +96,9 @@ export const useAuthStore = defineStore('auth', () => {
     clearTokens()
     user.value = guestUser()
     status.value = 'guest'
+    // 토큰을 지우면 `USER:{id}` 참가자 키가 사라진다. 게스트 세션을 확보해 두지 않으면 신원이
+    // 아예 없어져, 이 탭에서 이어서 하는 솔로·AI 플레이가 시작조차 되지 않는다.
+    void ensureIdentity()
   }
 
   /** 토큰을 저장하고, JWT의 userId로 현재 사용자를 불러와 인증 상태로 전환한다. */
