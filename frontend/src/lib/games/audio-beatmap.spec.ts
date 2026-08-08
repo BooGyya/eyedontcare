@@ -111,11 +111,11 @@ describe('audio-beatmap', () => {
       expect(kept).toEqual([1, 3, 5, 7, 9])
     })
 
-    it('keepRatio=0.72(기본값)면 대략 그 비율만큼만 남고 순서는 유지된다', () => {
+    it('keepRatio=0.64(기본값)면 대략 그 비율만큼만 남고 순서는 유지된다', () => {
       const items = Array.from({ length: 100 }, (_, index) => index)
-      const kept = filterByDensity(items, 0.72)
-      expect(kept.length).toBeGreaterThanOrEqual(70)
-      expect(kept.length).toBeLessThanOrEqual(74)
+      const kept = filterByDensity(items, 0.64)
+      expect(kept.length).toBeGreaterThanOrEqual(62)
+      expect(kept.length).toBeLessThanOrEqual(66)
       // 원래 순서를 그대로 유지해야 한다(순서가 뒤바뀌면 리듬이 깨진다).
       expect(kept).toEqual([...kept].sort((a, b) => a - b))
     })
@@ -130,9 +130,9 @@ describe('audio-beatmap', () => {
         { timeMs: 300, lanes: ['LEFT_EYE'], strength: 0.2 }, // 두 번째로 약함 → 제거 대상
       ]
 
-      const kept = filterBeatmapByDensity(entries, 0.5) // 4개 중 2개만 남김
+      const kept = filterBeatmapByDensity(entries, 0.64) // 4개 중 가장 약한 1개만 제거
 
-      expect(kept.map((entry) => entry.timeMs)).toEqual([0, 200])
+      expect(kept.map((entry) => entry.timeMs)).toEqual([0, 200, 300])
     })
 
     it('시간 순서(원래 순서)를 그대로 유지한다', () => {

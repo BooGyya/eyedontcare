@@ -30,7 +30,7 @@ const DEFAULT_MIN_BPM = 80
 const DEFAULT_MAX_BPM = 180
 const DEFAULT_MELODY_WINDOW_MS = 185
 /** 최종 노트 중 이 비율만 남긴다(나머지는 균등하게 걷어낸다) — 난이도 완화용. */
-const DEFAULT_NOTE_DENSITY = 0.72
+const DEFAULT_NOTE_DENSITY = 0.45
 const MELODY_FREQUENCIES: readonly number[] = Object.freeze([
   110, 130.81, 155.56, 196, 246.94, 293.66, 349.23, 392, 493.88, 587.33, 698.46,
   783.99, 987.77, 1174.66, 1396.91, 1567.98, 1975.53,
