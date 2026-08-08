@@ -156,7 +156,23 @@ onMounted(() => {
   color: var(--color-ink-muted, #6b7280);
   text-align: center;
 }
-.ranking-page__login,
+.ranking-page__login {
+  padding: 11px 15px;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--color-accent-blue);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.ranking-page__login:hover {
+  background: var(--color-primary-hover);
+}
 .ranking-page__retry {
   padding: 10px 20px;
   border: 0;
