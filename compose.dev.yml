@@ -11,6 +11,8 @@ services:
       VITE_PROXY_TARGET: http://backend:8080
       VITE_KAKAO_CLIENT_ID: ${VITE_KAKAO_CLIENT_ID:-}
       VITE_KAKAO_REDIRECT_URI: ${VITE_KAKAO_REDIRECT_URI:-http://localhost:3102/auth/kakao/callback}
+      # 비어 있으면 SeeSo를 시도하지 않고 MediaPipe 시선 추정으로 폴백한다.
+      VITE_SEESO_LICENSE_KEY: ${VITE_SEESO_LICENSE_KEY:-}
     ports:
       - "127.0.0.1:${FRONTEND_HOST_PORT:-3102}:5173"
     depends_on:
