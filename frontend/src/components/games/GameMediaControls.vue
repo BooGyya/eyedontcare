@@ -11,12 +11,17 @@ import {
 } from '@tabler/icons-vue'
 import { useMediaSettingsStore } from '../../stores/mediaSettings'
 
-const props = defineProps<{
-  /** 상대 플레이어(사람)가 있는 대결인지 — 마이크·상대 음성 컨트롤은 이때만 보인다. */
-  hasVoiceChat?: boolean
-  /** BGM이 재생되는 화면인지(기본 true). 대기방처럼 BGM이 없는 화면에서는 끈다. */
-  hasBgm?: boolean
-}>()
+// ⚠️ boolean prop은 안 넘기면 Vue가 undefined가 아닌 false로 캐스팅한다.
+// hasBgm처럼 기본이 '켜짐'인 prop은 반드시 withDefaults로 기본값을 선언해야 한다.
+const props = withDefaults(
+  defineProps<{
+    /** 상대 플레이어(사람)가 있는 대결인지 — 마이크·상대 음성 컨트롤은 이때만 보인다. */
+    hasVoiceChat?: boolean
+    /** BGM이 재생되는 화면인지(기본 true). 대기방처럼 BGM이 없는 화면에서는 끈다. */
+    hasBgm?: boolean
+  }>(),
+  { hasVoiceChat: false, hasBgm: true },
+)
 
 const settings = useMediaSettingsStore()
 
@@ -54,7 +59,7 @@ function handleVoiceInput(event: globalThis.Event) {
 <template>
   <div class="media-controls" role="group" aria-label="소리·카메라 설정">
     <div
-      v-if="props.hasBgm !== false"
+      v-if="props.hasBgm"
       class="media-controls__slider"
       :class="{ muted: settings.bgmMuted }"
     >

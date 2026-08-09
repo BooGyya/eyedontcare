@@ -40,7 +40,17 @@ describe('GameMediaControls', () => {
     expect(wrapper.find('input[aria-label="상대 음성 볼륨"]').exists()).toBe(
       true,
     )
-    expect(wrapper.find('button[aria-label="마이크 끄기"]').exists()).toBe(true)
+    // 마이크 기본값이 꺼짐이므로 토글은 "켜기" 상태로 나타난다.
+    expect(wrapper.find('button[aria-label="마이크 켜기"]').exists()).toBe(true)
+  })
+
+  it('prop을 넘기지 않아도 BGM 컨트롤이 보인다(boolean 캐스팅 회귀 방지)', () => {
+    // Vue는 선언된 boolean prop을 안 넘기면 false로 캐스팅한다 — withDefaults가 없으면
+    // hasBgm이 false가 되어 게임 화면에서 BGM 컨트롤이 사라지는 버그가 실제로 있었다.
+    const wrapper = mount(GameMediaControls, { global: { plugins: [pinia] } })
+    expect(wrapper.find('input[aria-label="배경음악 볼륨"]').exists()).toBe(
+      true,
+    )
   })
 
   it('BGM이 없는 화면(hasBgm=false)에서는 BGM 컨트롤을 숨긴다', () => {
@@ -77,8 +87,8 @@ describe('GameMediaControls', () => {
   it('마이크·카메라 토글이 스토어 상태를 뒤집는다', async () => {
     const wrapper = mountControls(true)
     const store = useMediaSettingsStore()
-    await wrapper.find('button[aria-label="마이크 끄기"]').trigger('click')
-    expect(store.micEnabled).toBe(false)
+    await wrapper.find('button[aria-label="마이크 켜기"]').trigger('click')
+    expect(store.micEnabled).toBe(true)
     await wrapper.find('button[aria-label="카메라 끄기"]').trigger('click')
     expect(store.cameraEnabled).toBe(false)
     expect(wrapper.find('button[aria-label="카메라 켜기"]').exists()).toBe(true)
