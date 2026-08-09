@@ -11,12 +11,13 @@ describe('useMediaSettingsStore', () => {
     setActivePinia(createPinia())
   })
 
-  it('기본값은 배율 1(원래 음량), 음소거 해제, 마이크·카메라 켜짐이다', () => {
+  it('기본값은 배율 1(원래 음량), 음소거 해제, 마이크 꺼짐, 카메라 켜짐이다', () => {
     const store = useMediaSettingsStore()
     expect(store.bgmVolume).toBe(1)
     expect(store.bgmMuted).toBe(false)
     expect(store.voiceVolume).toBe(1)
-    expect(store.micEnabled).toBe(true)
+    // 마이크는 프라이버시를 위해 기본 꺼짐 — 사용자가 직접 켜야 송출된다.
+    expect(store.micEnabled).toBe(false)
     expect(store.cameraEnabled).toBe(true)
     expect(store.effectiveBgmVolume).toBe(1)
   })
@@ -55,7 +56,8 @@ describe('useMediaSettingsStore', () => {
     const restored = useMediaSettingsStore()
     expect(restored.bgmVolume).toBe(0.25)
     expect(restored.voiceVolume).toBe(0.5)
-    expect(restored.micEnabled).toBe(false)
+    // toggleMic로 기본값(꺼짐)에서 켠 상태가 복원되어야 한다.
+    expect(restored.micEnabled).toBe(true)
     expect(restored.cameraEnabled).toBe(false)
   })
 
@@ -63,6 +65,6 @@ describe('useMediaSettingsStore', () => {
     globalThis.localStorage.setItem(STORAGE_KEY, '{broken json')
     const store = useMediaSettingsStore()
     expect(store.bgmVolume).toBe(1)
-    expect(store.micEnabled).toBe(true)
+    expect(store.micEnabled).toBe(false)
   })
 })

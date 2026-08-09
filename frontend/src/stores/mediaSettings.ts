@@ -46,7 +46,8 @@ export const useMediaSettingsStore = defineStore('mediaSettings', () => {
   const bgmVolume = ref(clampVolume(persisted.bgmVolume ?? 1))
   const bgmMuted = ref(persisted.bgmMuted === true)
   const voiceVolume = ref(clampVolume(persisted.voiceVolume ?? 1))
-  const micEnabled = ref(persisted.micEnabled !== false)
+  // 마이크는 프라이버시를 위해 기본 꺼짐 — 사용자가 켠 경우에만 다음 게임에서도 켜진 채 시작한다.
+  const micEnabled = ref(persisted.micEnabled === true)
   const cameraEnabled = ref(persisted.cameraEnabled !== false)
 
   /** BGM에 실제 적용할 배율 — 음소거면 0. */
