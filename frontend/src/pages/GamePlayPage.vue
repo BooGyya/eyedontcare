@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DrawPromptIcon from '../components/games/DrawPromptIcon.vue'
+import GameMediaControls from '../components/games/GameMediaControls.vue'
 import GamePlayShell from '../components/games/GamePlayShell.vue'
 import { createMockSession, gameModeLabels } from '../mocks/gameplay'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
@@ -9,6 +10,7 @@ import type { GameSessionMode } from '../types/gameplay'
 import { useLiveKitRoom } from '../composables/useLiveKitRoom'
 import { useGameResultSubmission } from '../composables/useGameResultSubmission'
 import { useMediaSessionStore } from '../stores/mediaSession'
+import { useMediaSettingsStore } from '../stores/mediaSettings'
 import { useToast } from '../composables/useToast'
 import { useEyeTracking } from '../composables/useEyeTracking'
 import { viewportPointToElement } from '../lib/eye-tracking/gaze-calibration'
@@ -304,11 +306,11 @@ async function initBlinkGame() {
     return
   }
 
-  // 대결 모드면 상대에게 내 화면을 보내고 상대 화면을 구독한다 — 다른 게임의 initMedia()와 동일한 패턴.
+  // 대결 모드면 상대에게 내 화면·음성을 보내고 상대 것을 구독한다 — 다른 게임과 동일한 패턴.
   if (showsOpponentCamera.value && mediaSession.credentials) {
-    await connectMedia(mediaSession.credentials, {
-      localTrack: blinkTracking.stream.value?.getVideoTracks()[0] ?? null,
-    })
+    await connectGameMedia(
+      blinkTracking.stream.value?.getVideoTracks()[0] ?? null,
+    )
   }
 
   // 대결 모드면 게임 세션 소켓에 접속해 내 깜빡임 횟수를 실시간으로 상대에게 전달한다.
@@ -440,9 +442,9 @@ async function initStareGame() {
   }
 
   if (showsOpponentCamera.value && mediaSession.credentials) {
-    await connectMedia(mediaSession.credentials, {
-      localTrack: stareTracking.stream.value?.getVideoTracks()[0] ?? null,
-    })
+    await connectGameMedia(
+      stareTracking.stream.value?.getVideoTracks()[0] ?? null,
+    )
   }
 
   if (isStareDuel.value) {
@@ -674,6 +676,8 @@ function noteLeftPercent(note: RhythmNote): number {
 // 곡(assets/ssafy.mp3)을 분석해 실제 박자에 맞는 노트를 만든다. 분석/재생이 실패해도(느린 네트워크,
 // 브라우저 자동재생 차단 등) 기존처럼 고정 BPM 랜덤 노트로 조용히 폴백한다 — 게임 자체는 항상 된다.
 const RHYTHM_AUDIO_URL = '/audio/ssafy.mp3'
+/** 리듬 음원 기본 음량. 사용자 BGM 설정(0~1 배율)이 곱해진다. */
+const RHYTHM_AUDIO_BASE_VOLUME = 0.6
 const rhythmIsAnalyzingAudio = ref(false)
 /** 오디오 재생이 실제로 성공했을 때만 true — true면 게임 시계를 audio.currentTime 기준으로 돌린다. */
 const rhythmHasMusic = ref(false)
@@ -701,7 +705,7 @@ async function prepareRhythmBeatmap(): Promise<void> {
 
     // 오디오는 여기서 만들되 재생은 카운트다운 뒤 lead-in에 맞춰 시작한다.
     const audio = new globalThis.Audio(RHYTHM_AUDIO_URL)
-    audio.volume = 0.6
+    audio.volume = RHYTHM_AUDIO_BASE_VOLUME * mediaSettings.effectiveBgmVolume
     rhythmAudio = audio
     rhythmHasMusic.value = true
   } catch {
@@ -732,9 +736,9 @@ async function initRhythmGame() {
   }
 
   if (showsOpponentCamera.value && mediaSession.credentials) {
-    await connectMedia(mediaSession.credentials, {
-      localTrack: rhythmTracking.stream.value?.getVideoTracks()[0] ?? null,
-    })
+    await connectGameMedia(
+      rhythmTracking.stream.value?.getVideoTracks()[0] ?? null,
+    )
   }
 
   if (isRhythmDuel.value) {
@@ -1022,9 +1026,9 @@ async function initAirHockeyGame() {
   }
 
   if (showsOpponentCamera.value && mediaSession.credentials) {
-    await connectMedia(mediaSession.credentials, {
-      localTrack: airTracking.stream.value?.getVideoTracks()[0] ?? null,
-    })
+    await connectGameMedia(
+      airTracking.stream.value?.getVideoTracks()[0] ?? null,
+    )
   }
 
   if (!isAirVsAi.value) {
@@ -1352,6 +1356,8 @@ const GAME_BGM_URLS: Record<string, string> = {
   blink: '/audio/bgm-blink.mp3',
 }
 let gameBgmAudio: globalThis.HTMLAudioElement | undefined
+/** BGM 기본 음량. 사용자 설정(mediaSettings.effectiveBgmVolume)은 이 값에 곱하는 배율이다. */
+const GAME_BGM_BASE_VOLUME = 0.5
 
 /** 게임 시작 시 해당 게임의 BGM을 반복 재생한다. 매핑에 없는 게임(rhythm 포함)은 아무 것도 하지 않는다. */
 function playGameBgm(gameId: string): void {
@@ -1362,7 +1368,7 @@ function playGameBgm(gameId: string): void {
 
   const audio = new globalThis.Audio(url)
   audio.loop = true
-  audio.volume = 0.5
+  audio.volume = GAME_BGM_BASE_VOLUME * mediaSettings.effectiveBgmVolume
   gameBgmAudio = audio
   // 브라우저 자동재생 정책으로 재생이 거부될 수 있어 실패는 조용히 무시한다. 테스트 환경(jsdom)처럼
   // play()가 Promise를 반환하지 않는 경우도 있어 옵셔널 체이닝으로 방어한다.
@@ -1526,7 +1532,11 @@ const mediaSession = useMediaSessionStore()
 const {
   remoteVideoRef,
   hasRemoteVideo,
+  isRemoteCameraOff,
   connect: connectMedia,
+  setRemoteAudioVolume,
+  setMicrophoneEnabled,
+  setCameraPublishEnabled,
 } = useLiveKitRoom()
 const hasPeerCamera = computed(() => hasRemoteVideo.value)
 
@@ -1540,6 +1550,58 @@ const showsOpponentCamera = computed(
   () =>
     ['hold', 'rhythm', 'blink', 'air'].includes(game.value?.id ?? '') &&
     ['friends', 'random'].includes(mode.value),
+)
+
+// --- 소리·카메라 사용자 설정(BGM 볼륨, 음성 대화, 카메라 송출) ---
+const mediaSettings = useMediaSettingsStore()
+
+/**
+ * 대결 게임의 공통 미디어 연결. 카메라 트랙 송출에 더해 마이크(음성 대화)를 함께 켜고,
+ * 사용자가 꺼 둔 설정(마이크·카메라)을 연결 직후 반영한다.
+ */
+async function connectGameMedia(
+  cameraTrack: globalThis.MediaStreamTrack | null,
+): Promise<void> {
+  if (!mediaSession.credentials) return
+  await connectMedia(mediaSession.credentials, {
+    localTrack: cameraTrack,
+    audio: mediaSettings.micEnabled,
+  })
+  if (!mediaSettings.cameraEnabled) {
+    await setCameraPublishEnabled(false)
+  }
+}
+
+// 슬라이더·음소거 조작을 재생 중인 BGM(일반 게임)과 리듬게임 음원에 즉시 반영한다.
+// 볼륨 0이어도 재생 자체는 계속되므로, 리듬게임의 게임 시계(audio.currentTime 기준)는 영향이 없다.
+watch(
+  () => mediaSettings.effectiveBgmVolume,
+  (volume) => {
+    if (gameBgmAudio) gameBgmAudio.volume = GAME_BGM_BASE_VOLUME * volume
+    if (rhythmAudio) rhythmAudio.volume = RHYTHM_AUDIO_BASE_VOLUME * volume
+  },
+)
+
+// 상대 음성 볼륨은 연결·구독 시점과 무관하게 항상 최신 값이 적용되도록 즉시 동기화한다.
+watch(
+  () => mediaSettings.voiceVolume,
+  (volume) => setRemoteAudioVolume(volume),
+  { immediate: true },
+)
+watch(
+  () => mediaSettings.micEnabled,
+  async (enabled) => {
+    const applied = await setMicrophoneEnabled(enabled)
+    if (enabled && !applied) {
+      showToast('마이크를 켜지 못했어요. 마이크 권한을 확인해 주세요.')
+    }
+  },
+)
+watch(
+  () => mediaSettings.cameraEnabled,
+  (enabled) => {
+    void setCameraPublishEnabled(enabled)
+  },
 )
 const colorSwatchNames: Record<string, string> = {
   '#161c2d': '검정',
@@ -2563,6 +2625,9 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
     :wide="game.id === 'draw'"
     @leave="leaveGame"
   >
+    <div class="media-controls-dock">
+      <GameMediaControls :has-voice-chat="showsOpponentCamera" />
+    </div>
     <section
       ref="gameplayLayoutRef"
       class="gameplay-layout"
@@ -2634,6 +2699,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           <video
             ref="stareVideoRef"
             class="eye-see-camera__self"
+            :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
             aria-label="내 웹캠 영상"
             autoplay
             muted
@@ -2683,6 +2749,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           <video
             ref="rhythmVideoRef"
             class="self-camera"
+            :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
             aria-label="내 웹캠 영상"
             autoplay
             muted
@@ -2768,6 +2835,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           <video
             ref="blinkVideoRef"
             class="self-camera"
+            :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
             aria-label="내 웹캠 영상"
             autoplay
             muted
@@ -3047,6 +3115,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             <video
               ref="blinkVideoRef"
               class="blink-stage__camera self-camera"
+              :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
               aria-label="내 웹캠 영상"
               autoplay
               muted
@@ -3136,6 +3205,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         <div class="rhythm-duel-player__camera">
           <video
             ref="remoteVideoRef"
+            :class="{ 'camera-off': isRemoteCameraOff }"
             aria-label="상대 웹캠 영상"
             autoplay
             playsinline
@@ -3189,6 +3259,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           <video
             ref="drawVideoRef"
             class="self-camera"
+            :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
             aria-label="내 웹캠 영상"
             autoplay
             muted
@@ -3214,6 +3285,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           <video
             ref="rhythmVideoRef"
             class="self-camera"
+            :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
             aria-label="내 웹캠 영상"
             autoplay
             muted
@@ -3255,6 +3327,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             <span class="air-player-card__camera-label">EYE CAMERA</span>
             <video
               ref="remoteVideoRef"
+              :class="{ 'camera-off': isRemoteCameraOff }"
               aria-label="상대 웹캠 영상"
               autoplay
               playsinline
@@ -3280,6 +3353,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
             <video
               ref="airVideoRef"
               class="self-camera"
+              :class="{ 'camera-off': !mediaSettings.cameraEnabled }"
               aria-label="내 웹캠 영상"
               autoplay
               muted
@@ -3318,6 +3392,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
         <div class="blink-duel-player__camera">
           <video
             ref="remoteVideoRef"
+            :class="{ 'camera-off': isRemoteCameraOff }"
             aria-label="상대 웹캠 영상"
             autoplay
             playsinline
@@ -3343,6 +3418,7 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
           <div class="eye-see-camera eye-see-camera--friend">
             <video
               ref="remoteVideoRef"
+              :class="{ 'camera-off': isRemoteCameraOff }"
               aria-label="친구 웹캠 영상"
               autoplay
               playsinline
@@ -3601,6 +3677,18 @@ function handleBeforeUnload(event: globalThis.BeforeUnloadEvent) {
 </template>
 
 <style scoped>
+/* 소리·카메라 컨트롤 바 — 게임 레이아웃에 영향을 주지 않도록 화면 왼쪽 아래에 띄운다.
+   나가기 확인(z-index 60) 같은 모달보다는 아래에 깔린다. */
+.media-controls-dock {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  z-index: 40;
+}
+/* 카메라 송출 끔(내 화면) 또는 상대가 껐을 때 — 마지막 프레임이 남지 않게 검게 가린다. */
+video.camera-off {
+  filter: brightness(0);
+}
 .gameplay-layout {
   position: relative;
   display: grid;
