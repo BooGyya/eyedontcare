@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useToast } from '../composables/useToast'
 import { gameDetails, isGameDetailId } from '../mocks/game-details'
 import { useMediaSessionStore } from '../stores/mediaSession'
+import { useMediaSettingsStore } from '../stores/mediaSettings'
 import {
   useWaitingRoomSocket,
   type WaitingRoomSocketContext,
@@ -27,6 +28,7 @@ import {
 } from '../api/identity'
 import { isPlayEntryMode, issuePlayEntry } from '../utils/soloPlayEntry'
 import { GAME_NAME_BY_ID } from '../types/waitingRoom'
+import GameMediaControls from '../components/games/GameMediaControls.vue'
 import GameStartCountdownModal from '../components/games/GameStartCountdownModal.vue'
 import type {
   GameName,
@@ -293,15 +295,19 @@ const participantCount = computed(
   () => waitingSocket.roomState.value?.participants.length ?? 2,
 )
 
-// 대기방 미디어(피어 웹캠): 방 참가 시 받은 토큰으로 OpenVidu에 연결해 상대 웹캠을 구독하고,
-// 내 카메라가 준비되면 내 트랙을 송출한다. 내 웹캠은 아래 getUserMedia 프리뷰로 이미 보여준다.
+// 대기방 미디어(피어 웹캠·음성 대화): 방 참가 시 받은 토큰으로 OpenVidu에 연결해 상대 웹캠과
+// 음성을 구독하고, 내 카메라가 준비되면 내 트랙(영상+마이크)을 송출한다.
+// 내 웹캠은 아래 getUserMedia 프리뷰로 이미 보여준다.
 const readyMedia = useLiveKitRoom()
 const opponentVideoRef = readyMedia.remoteVideoRef
 const hasPeerCamera = computed(() => readyMedia.hasRemoteVideo.value)
+const isOpponentCameraOff = computed(() => readyMedia.isRemoteCameraOff.value)
 // vue-tsc가 문자열 템플릿 ref(ref="opponentVideoRef")를 '사용'으로 세지 못해 noUnusedLocals가
 // 오탐한다. 실제로는 <video ref="opponentVideoRef">에 런타임 바인딩된다.
 void opponentVideoRef
 let readyMediaStarted = false
+
+const mediaSettings = useMediaSettingsStore()
 
 async function connectReadyMedia() {
   if (isFriendRoom.value && !isInviteJoined.value) return
@@ -311,8 +317,36 @@ async function connectReadyMedia() {
   readyMediaStarted = true
   await readyMedia.connect(mediaSession.credentials, {
     localTrack: cameraStream.value.getVideoTracks()[0] ?? null,
+    audio: mediaSettings.micEnabled,
   })
+  // 이전 게임에서 카메라 송출을 꺼 뒀다면 대기방에서도 이어받는다.
+  // 내 프리뷰는 캘리브레이션에 필요하므로 가리지 않는다 — 상대에게만 안 보인다.
+  if (!mediaSettings.cameraEnabled) {
+    await readyMedia.setCameraPublishEnabled(false)
+  }
 }
+
+// 상대 음성 볼륨은 연결·구독 시점과 무관하게 항상 최신 값이 적용되도록 즉시 동기화한다.
+watch(
+  () => mediaSettings.voiceVolume,
+  (volume) => readyMedia.setRemoteAudioVolume(volume),
+  { immediate: true },
+)
+watch(
+  () => mediaSettings.micEnabled,
+  async (enabled) => {
+    const applied = await readyMedia.setMicrophoneEnabled(enabled)
+    if (enabled && !applied) {
+      showToast('마이크를 켜지 못했어요. 마이크 권한을 확인해 주세요.')
+    }
+  },
+)
+watch(
+  () => mediaSettings.cameraEnabled,
+  (enabled) => {
+    void readyMedia.setCameraPublishEnabled(enabled)
+  },
+)
 
 const roomTitle = computed(() => {
   if (isRandomRoom.value) return '랜덤 매칭 준비방'
@@ -1726,6 +1760,11 @@ onBeforeUnmount(() => {
       ← 게임 목록으로
     </button>
 
+    <!-- 음성 대화·카메라 송출 설정 — 사람 상대가 있는 대기방(친구·랜덤)에서만 의미가 있다. -->
+    <div v-if="isMultiplayer" class="media-controls-dock">
+      <GameMediaControls :has-voice-chat="true" :has-bgm="false" />
+    </div>
+
     <header class="room-header">
       <div>
         <span class="room-header__mode" aria-hidden="true">
@@ -2107,6 +2146,7 @@ onBeforeUnmount(() => {
             v-if="hasPeerCamera"
             ref="opponentVideoRef"
             class="participant-visual__camera participant-visual__camera--peer"
+            :class="{ 'camera-off': isOpponentCameraOff }"
             autoplay
             playsinline
             :aria-label="`${opponentName} 웹캠 영상`"
@@ -2452,6 +2492,17 @@ onBeforeUnmount(() => {
   width: min(100%, 1040px);
   margin: 0 auto;
   padding: 22px 0 52px;
+}
+/* 음성·카메라 컨트롤 바 — 게임 화면과 같은 위치(왼쪽 아래)에 띄워 조작감을 통일한다. */
+.media-controls-dock {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  z-index: 40;
+}
+/* 상대가 카메라 송출을 껐을 때 — 마지막 프레임이 남지 않게 검게 가린다. */
+video.camera-off {
+  filter: brightness(0);
 }
 .back {
   color: var(--color-muted);
