@@ -14,6 +14,8 @@ import { useMediaSettingsStore } from '../../stores/mediaSettings'
 const props = defineProps<{
   /** 상대 플레이어(사람)가 있는 대결인지 — 마이크·상대 음성 컨트롤은 이때만 보인다. */
   hasVoiceChat?: boolean
+  /** BGM이 재생되는 화면인지(기본 true). 대기방처럼 BGM이 없는 화면에서는 끈다. */
+  hasBgm?: boolean
 }>()
 
 const settings = useMediaSettingsStore()
@@ -51,7 +53,11 @@ function handleVoiceInput(event: globalThis.Event) {
 
 <template>
   <div class="media-controls" role="group" aria-label="소리·카메라 설정">
-    <div class="media-controls__slider" :class="{ muted: settings.bgmMuted }">
+    <div
+      v-if="props.hasBgm !== false"
+      class="media-controls__slider"
+      :class="{ muted: settings.bgmMuted }"
+    >
       <button
         type="button"
         class="media-controls__toggle"

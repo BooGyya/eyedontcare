@@ -13,9 +13,9 @@ describe('GameMediaControls', () => {
     setActivePinia(pinia)
   })
 
-  function mountControls(hasVoiceChat = false) {
+  function mountControls(hasVoiceChat = false, hasBgm = true) {
     return mount(GameMediaControls, {
-      props: { hasVoiceChat },
+      props: { hasVoiceChat, hasBgm },
       global: { plugins: [pinia] },
     })
   }
@@ -41,6 +41,20 @@ describe('GameMediaControls', () => {
       true,
     )
     expect(wrapper.find('button[aria-label="마이크 끄기"]').exists()).toBe(true)
+  })
+
+  it('BGM이 없는 화면(hasBgm=false)에서는 BGM 컨트롤을 숨긴다', () => {
+    const wrapper = mountControls(true, false)
+    expect(wrapper.find('input[aria-label="배경음악 볼륨"]').exists()).toBe(
+      false,
+    )
+    expect(wrapper.find('button[aria-label="배경음악 음소거"]').exists()).toBe(
+      false,
+    )
+    // 음성 대화 컨트롤은 그대로 보인다.
+    expect(wrapper.find('input[aria-label="상대 음성 볼륨"]').exists()).toBe(
+      true,
+    )
   })
 
   it('BGM 슬라이더를 움직이면 스토어 볼륨이 바뀐다', async () => {
