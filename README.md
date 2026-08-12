@@ -18,7 +18,7 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
 ![Jenkins](https://img.shields.io/badge/Jenkins-D24939?style=flat-square&logo=jenkins&logoColor=white)
 
-<img src="docs/portfolio/assets/main-page.gif" alt="메인 페이지" width="720"/>
+<img src="etc/docs/portfolio/assets/main-page.gif" alt="메인 페이지" width="720"/>
 
 </div>
 
@@ -101,65 +101,65 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 
 | 메인 (비로그인) | 로그인 | 회원가입 |
 | --- | --- | --- |
-| ![메인](docs/portfolio/assets/page-home.png) | ![로그인](docs/portfolio/assets/page-login.png) | ![회원가입](docs/portfolio/assets/page-signup.png) |
+| ![메인](etc/docs/portfolio/assets/page-home.png) | ![로그인](etc/docs/portfolio/assets/page-login.png) | ![회원가입](etc/docs/portfolio/assets/page-signup.png) |
 
 ### 시선 추적 캘리브레이션 — 이 서비스의 핵심 기술
 
 게임 입장 → 웹캠 연결 → 눈 뜬/감은 상태 기록 → 시선 보정 → 준비 완료까지의 실제 흐름입니다.
 
 <div align="center">
-<img src="docs/portfolio/assets/calibration.gif" alt="캘리브레이션 및 시선 보정" width="720"/>
+<img src="etc/docs/portfolio/assets/calibration.gif" alt="캘리브레이션 및 시선 보정" width="720"/>
 </div>
 
 | 웹캠 연결 안내 | 눈 상태 기록 |
 | --- | --- |
-| ![게임 준비](docs/portfolio/assets/page-game-ready.png) | ![캘리브레이션](docs/portfolio/assets/page-calibration.png) |
+| ![게임 준비](etc/docs/portfolio/assets/page-game-ready.png) | ![캘리브레이션](etc/docs/portfolio/assets/page-calibration.png) |
 
 ### 게임 플레이
 
 | 오락실 (게임 목록) | 게임 상세 (모드 선택) |
 | --- | --- |
-| ![게임 목록](docs/portfolio/assets/page-games.png) | ![게임 상세](docs/portfolio/assets/page-game-detail-blink.png) |
+| ![게임 목록](etc/docs/portfolio/assets/page-games.png) | ![게임 상세](etc/docs/portfolio/assets/page-game-detail-blink.png) |
 
 **Eye Show Speed (눈 깜빡이기)** — 20초 안에 정확하게 깜빡이기
 
-<div align="center"><img src="docs/portfolio/assets/gameplay-blink.gif" alt="눈 깜빡이기 플레이" width="720"/></div>
+<div align="center"><img src="etc/docs/portfolio/assets/gameplay-blink.gif" alt="눈 깜빡이기 플레이" width="720"/></div>
 
 **Eye Hockey (에어하키)** — 시선으로 패들 조작
 
-<div align="center"><img src="docs/portfolio/assets/gameplay-airhockey.gif" alt="에어하키 플레이" width="720"/></div>
+<div align="center"><img src="etc/docs/portfolio/assets/gameplay-airhockey.gif" alt="에어하키 플레이" width="720"/></div>
 
 **Eye See (눈싸움)** — 깜빡이면 패배
 
-<div align="center"><img src="docs/portfolio/assets/gameplay-stare.gif" alt="눈싸움 플레이" width="720"/></div>
+<div align="center"><img src="etc/docs/portfolio/assets/gameplay-stare.gif" alt="눈싸움 플레이" width="720"/></div>
 
 **Eye Draw (눈으로 그리기)** — 시선 궤적으로 그림을 그리면 AI가 채점
 
-<div align="center"><img src="docs/portfolio/assets/gameplay-draw.gif" alt="눈으로 그리기 플레이" width="720"/></div>
+<div align="center"><img src="etc/docs/portfolio/assets/gameplay-draw.gif" alt="눈으로 그리기 플레이" width="720"/></div>
 
 **Blink the Beat (리듬 게임)** — 좌/우 눈 깜빡임으로 노트 입력
 
-<div align="center"><img src="docs/portfolio/assets/gameplay-rhythm.gif" alt="리듬 게임 플레이" width="720"/></div>
+<div align="center"><img src="etc/docs/portfolio/assets/gameplay-rhythm.gif" alt="리듬 게임 플레이" width="720"/></div>
 
 | 게임 결과 (완료) | 게임 결과 (실패) |
 | --- | --- |
-| ![결과 완료](docs/portfolio/assets/page-result-blink.png) | ![결과 실패](docs/portfolio/assets/page-result-rhythm.png) |
+| ![결과 완료](etc/docs/portfolio/assets/page-result-blink.png) | ![결과 실패](etc/docs/portfolio/assets/page-result-rhythm.png) |
 
 ### 랭킹 · 길드 · 프로필
 
 | 랭킹 (게임별 탭) | 길드 목록 |
 | --- | --- |
-| ![랭킹](docs/portfolio/assets/page-ranking.png) | ![길드](docs/portfolio/assets/page-guild.png) |
+| ![랭킹](etc/docs/portfolio/assets/page-ranking.png) | ![길드](etc/docs/portfolio/assets/page-guild.png) |
 
 | 길드 상세 (게시글·멤버) | 프로필 (경기 기록) |
 | --- | --- |
-| ![길드 상세](docs/portfolio/assets/page-guild-detail.png) | ![프로필](docs/portfolio/assets/page-profile.png) |
+| ![길드 상세](etc/docs/portfolio/assets/page-guild-detail.png) | ![프로필](etc/docs/portfolio/assets/page-profile.png) |
 
 ### 반응형 (모바일)
 
 | 홈 | 게임 목록 |
 | --- | --- |
-| <img src="docs/portfolio/assets/mobile-home.png" width="280"/> | <img src="docs/portfolio/assets/mobile-games.png" width="280"/> |
+| <img src="etc/docs/portfolio/assets/mobile-home.png" width="280"/> | <img src="etc/docs/portfolio/assets/mobile-games.png" width="280"/> |
 
 ---
 
@@ -324,7 +324,7 @@ flowchart LR
 ### ERD
 
 <div align="center">
-<img src="docs/portfolio/assets/erd.png" alt="ERD" width="900"/>
+<img src="etc/docs/portfolio/assets/erd.png" alt="ERD" width="900"/>
 </div>
 
 - 운영 테이블: users, social_accounts, guest_sessions, games, games_results, participants, waiting_rooms, matchmaking_entries, groups, group_posts/comments/members 등
@@ -336,14 +336,17 @@ flowchart LR
 
 ```
 .
-├── frontend/          # Vue 3 + TypeScript SPA
-├── backend/           # Spring Boot 4 (Java 25)
-├── pipeline/          # Airflow DAG + dbt 모델 (배치 ELT)
-├── exec/              # 빌드·배포 매뉴얼, DB 덤프, 시연 시나리오
-├── docs/              # 컨벤션 문서 + 포트폴리오 산출물
-├── compose.dev.yml    # 로컬 개발용 Docker Compose
-├── compose.prod.yml   # 운영 배포용 Docker Compose
-└── Jenkinsfile        # CI/CD 파이프라인
+├── frontend/            # Vue 3 + TypeScript SPA
+├── backend/             # Spring Boot 4 (Java 25)
+├── etc/                 # 프로젝트 문서·인프라 설정 모음
+│   ├── docs/            # 컨벤션 문서 + 포트폴리오 산출물
+│   ├── exec/            # 빌드·배포 매뉴얼, DB 덤프, 시연 시나리오
+│   ├── pipeline/        # Airflow DAG + dbt 모델 (배치 ELT)
+│   ├── compose.dev.yml  # 로컬 개발용 Docker Compose
+│   ├── compose.prod.yml # 운영 배포용 Docker Compose
+│   └── Jenkinsfile      # CI/CD 파이프라인
+├── .gitignore
+└── README.md
 ```
 
 ### Front-end
@@ -665,12 +668,12 @@ Pipeline
 
 | 산출물 | 위치 |
 | --- | --- |
-| 기능 정의서 | [docs/portfolio/기능정의서.pdf](docs/portfolio/기능정의서.pdf) |
-| API 명세서 | [docs/portfolio/API명세서.csv](docs/portfolio/API명세서.csv) |
-| ERD | [docs/portfolio/assets/erd.png](docs/portfolio/assets/erd.png) |
+| 기능 정의서 | [etc/docs/portfolio/기능정의서.pdf](etc/docs/portfolio/기능정의서.pdf) |
+| API 명세서 | [etc/docs/portfolio/API명세서.csv](etc/docs/portfolio/API명세서.csv) |
+| ERD | [etc/docs/portfolio/assets/erd.png](etc/docs/portfolio/assets/erd.png) |
 | 화면 설계 (Figma) | [Figma 링크](https://www.figma.com/design/3wzhT210350qYgt4mw90lm/SSAFY-1st-PJT?node-id=0-1&p=f&t=iytsHui8eEIgpOlG-0) |
-| 빌드·배포 매뉴얼 | [exec/01_빌드_및_배포_매뉴얼.md](exec/01_빌드_및_배포_매뉴얼.md) |
-| 시연 시나리오 | [exec/04_시연_시나리오.md](exec/04_시연_시나리오.md) |
+| 빌드·배포 매뉴얼 | [exec/01_빌드_및_배포_매뉴얼.md](etc/exec/01_빌드_및_배포_매뉴얼.md) |
+| 시연 시나리오 | [exec/04_시연_시나리오.md](etc/exec/04_시연_시나리오.md) |
 
 ### 화면 설계 과정
 
@@ -678,11 +681,11 @@ Figma에서 1차 로우파이 와이어프레임으로 화면 흐름을 확정�
 
 | 1차 와이어프레임 (화면 흐름 설계) | 2차 와이어프레임 (브랜드 적용) |
 | --- | --- |
-| ![1차 와이어프레임](docs/portfolio/assets/wireframe-v1.jpg) | ![2차 와이어프레임](docs/portfolio/assets/wireframe-v2.jpg) |
+| ![1차 와이어프레임](etc/docs/portfolio/assets/wireframe-v1.jpg) | ![2차 와이어프레임](etc/docs/portfolio/assets/wireframe-v2.jpg) |
 
 ## 프로젝트 결과물
 
-- **영상 포트폴리오** — [docs/portfolio/영상포트폴리오_B102.mp4](docs/portfolio/영상포트폴리오_B102.mp4) (서비스 소개 영상)
+- **영상 포트폴리오** — [etc/docs/portfolio/영상포트폴리오_B102.mp4](etc/docs/portfolio/영상포트폴리오_B102.mp4) (서비스 소개 영상)
 - **배포 서비스** — https://eyedontcare.shop (프로젝트 종료로 서버 회수됨, 위 화면 캡쳐·GIF가 실제 배포 환경에서 촬영한 기록입니다)
 
 ---
