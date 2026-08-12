@@ -24,22 +24,22 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 
 ---
 
-## 목차
+## 📑 목차
 
-1. [프로젝트 소개](#프로젝트-소개)
-2. [주요 기능](#주요-기능)
-3. [화면 구성](#화면-구성)
-4. [기술 스택](#기술-스택)
-5. [시스템 아키텍처](#시스템-아키텍처)
-6. [프로젝트 폴더 구조](#프로젝트-폴더-구조)
-7. [팀원 소개](#팀원-소개)
-8. [협업 방식](#협업-방식)
-9. [프로젝트 산출물](#프로젝트-산출물)
-10. [프로젝트 결과물](#프로젝트-결과물)
+1. [프로젝트 소개](#-프로젝트-소개)
+2. [주요 기능](#-주요-기능)
+3. [화면 구성](#️-화면-구성)
+4. [기술 스택](#️-기술-스택)
+5. [시스템 아키텍처](#️-시스템-아키텍처)
+6. [프로젝트 폴더 구조](#-프로젝트-폴더-구조)
+7. [팀원 소개](#-팀원-소개)
+8. [협업 방식](#-협업-방식)
+9. [프로젝트 산출물](#-프로젝트-산출물)
+10. [프로젝트 결과물](#-프로젝트-결과물)
 
 ---
 
-## 프로젝트 소개
+## 👀 프로젝트 소개
 
 **eye dont care**는 특수 장비 없이 **일반 웹캠만으로 눈(시선·깜빡임)이 곧 컨트롤러가 되는** 웹 미니게임 플랫폼입니다.
 
@@ -56,7 +56,7 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 
 ---
 
-## 주요 기능
+## ✨ 주요 기능
 
 ### 👁️ 시선 추적 & 캘리브레이션
 
@@ -95,7 +95,7 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 
 ---
 
-## 화면 구성
+## 🖥️ 화면 구성
 
 ### 온보딩 & 인증
 
@@ -163,7 +163,7 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 
 ---
 
-## 기술 스택
+## 🛠️ 기술 스택
 
 ### 💻 Frontend
 
@@ -287,7 +287,7 @@ SSAFY 15기 공통 프로젝트 · 2026.07.06 ~ 2026.08.14
 
 ---
 
-## 시스템 아키텍처
+## 🏗️ 시스템 아키텍처
 
 ```mermaid
 flowchart LR
@@ -332,7 +332,7 @@ flowchart LR
 
 ---
 
-## 프로젝트 폴더 구조
+## 📁 프로젝트 폴더 구조
 
 ```
 .
@@ -641,20 +641,15 @@ Pipeline
 
 ---
 
-## 팀원 소개
+## 💛 팀원 소개
 
-| 이름 | 역할 | 담당 | GitHub |
-| --- | --- | --- | --- |
-| 정재현 | 팀장 · Infra · Backend | EC2·Docker·Jenkins CI/CD 인프라 구축, 백엔드 개발 | [@pastjung](https://github.com/pastjung) |
-| 장미지 | Backend | 백엔드 API 개발 | [@assokk](https://github.com/assokk) |
-| 김진광 | Backend · Data | 백엔드 개발, Airflow·dbt 데이터 파이프라인 | [@Kim-jin-gwang](https://github.com/Kim-jin-gwang) |
-| **김보경** | **Frontend** | **프론트엔드 개발** | [@BooGyya](https://github.com/BooGyya) |
-| 김태은 | Frontend | 프론트엔드 개발 | [@allieun](https://github.com/allieun) |
-| 박호진 | AI | 시선 추적·AI 기능 | - |
+| <img src="https://github.com/pastjung.png" width="120"/> | <img src="https://github.com/assokk.png" width="120"/> | <img src="https://github.com/Kim-jin-gwang.png" width="120"/> | <img src="https://github.com/BooGyya.png" width="120"/> | <img src="https://github.com/allieun.png" width="120"/> | <img src="frontend/src/assets/images/profiles/profile-smile.png" width="120"/> |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| 정재현<br/>([@pastjung](https://github.com/pastjung)) | 장미지<br/>([@assokk](https://github.com/assokk)) | 김진광<br/>([@Kim-jin-gwang](https://github.com/Kim-jin-gwang)) | **김보경**<br/>([@BooGyya](https://github.com/BooGyya)) | 김태은<br/>([@allieun](https://github.com/allieun)) | 박호진 |
+| Leader / Infra<br/>Back End | Back End | Back End<br/>Data | **Front End** | Front End | AI |
 
 ---
-
-## 협업 방식
+## 🤝 협업 방식
 
 - **브랜치 전략** — Git-Flow 응용: `main`(배포) / `dev`(통합) / `feat|fix|docs/*`(작업) / `release/*` / `hotfix/*`. 모든 병합은 PR 기반, 팀원 전원 approve 원칙.
 - **커밋 컨벤션** — Conventional Commits (`feat:`, `fix:`, `docs:` …), 목적 단위 원자적 커밋. 릴리즈는 `release/1.0.x` 브랜치로 버전 관리 (최종 1.0.10).
@@ -664,7 +659,7 @@ Pipeline
 
 ---
 
-## 프로젝트 산출물
+## 📄 프로젝트 산출물
 
 | 산출물 | 위치 |
 | --- | --- |
@@ -683,7 +678,7 @@ Figma에서 1차 로우파이 와이어프레임으로 화면 흐름을 확정�
 | --- | --- |
 | ![1차 와이어프레임](etc/docs/portfolio/assets/wireframe-v1.jpg) | ![2차 와이어프레임](etc/docs/portfolio/assets/wireframe-v2.jpg) |
 
-## 프로젝트 결과물
+## 🎬 프로젝트 결과물
 
 - **영상 포트폴리오** — [etc/docs/portfolio/영상포트폴리오_B102.mp4](etc/docs/portfolio/영상포트폴리오_B102.mp4) (서비스 소개 영상)
 - **배포 서비스** — https://eyedontcare.shop (프로젝트 종료로 서버 회수됨, 위 화면 캡쳐·GIF가 실제 배포 환경에서 촬영한 기록입니다)
